@@ -10,20 +10,34 @@ import (
 type Store struct {
 	path     string
 	defaults map[string]any
-	mu       sync.RWMutex
+	// knownKeys tracks schema-defined keys; on load, unknown keys are stripped.
+	knownKeys map[string]bool
+	mu        sync.RWMutex
 }
 
 type StoreOption func(*Store)
 
+// WithPath overrides the default settings file path (useful for tests).
 func WithPath(path string) StoreOption {
 	return func(s *Store) { s.path = path }
 }
 
+// NewStore creates a settings store. The default path uses os.UserConfigDir():
+//   - macOS: ~/Library/Application Support/{appName}/settings.json
+//   - Linux: $XDG_CONFIG_HOME/{appName}/settings.json
+//   - Windows: %AppData%/{appName}/settings.json
 func NewStore(appName string, opts ...StoreOption) *Store {
-	home, _ := os.UserHomeDir()
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		// Fallback to home directory dot-dir
+		home, _ := os.UserHomeDir()
+		configDir = home
+		appName = "." + appName
+	}
 	s := &Store{
-		path:     filepath.Join(home, "."+appName, "settings.json"),
-		defaults: make(map[string]any),
+		path:      filepath.Join(configDir, appName, "settings.json"),
+		defaults:  make(map[string]any),
+		knownKeys: make(map[string]bool),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -37,6 +51,14 @@ func (s *Store) SetDefaults(defaults map[string]any) {
 	for k, v := range defaults {
 		s.defaults[k] = v
 	}
+}
+
+// SetKnownKeys sets the set of schema-defined keys. On Load, keys not in this
+// set are stripped from saved data. If empty, no stripping occurs.
+func (s *Store) SetKnownKeys(keys map[string]bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.knownKeys = keys
 }
 
 func (s *Store) Load() (map[string]any, error) {
@@ -62,12 +84,18 @@ func (s *Store) Load() (map[string]any, error) {
 	}
 
 	for k, v := range saved {
+		// Strip unknown keys if knownKeys is populated
+		if len(s.knownKeys) > 0 && !s.knownKeys[k] {
+			continue
+		}
 		result[k] = v
 	}
 
 	return result, nil
 }
 
+// Save writes values to the settings file atomically.
+// It writes to a temp file first, then renames to prevent corruption.
 func (s *Store) Save(values map[string]any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -82,7 +110,12 @@ func (s *Store) Save(values map[string]any) error {
 		return err
 	}
 
-	return os.WriteFile(s.path, data, 0600)
+	// Atomic write: write to temp file, then rename
+	tmpPath := s.path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, s.path)
 }
 
 func (s *Store) Path() string {

@@ -27,7 +27,6 @@ func New(modelID string, config llm.ProviderConfig) *Provider {
 		opts = append(opts, option.WithBaseURL(config.BaseURL))
 	}
 	if cfAuth := os.Getenv("CF_AIG_AUTHORIZATION"); cfAuth != "" {
-		_ = os.Unsetenv("ANTHROPIC_API_KEY")
 		opts = append(opts, option.WithHeader("cf-aig-authorization", "Bearer "+cfAuth))
 	} else if config.APIKey != "" {
 		opts = append(opts, option.WithAPIKey(config.APIKey))
@@ -107,7 +106,7 @@ func (p *Provider) StreamChat(ctx context.Context, req llm.ChatRequest, handler 
 		}
 		handler(llm.StreamEvent{Type: "done", StopReason: "tool_use"})
 	} else {
-		handler(llm.StreamEvent{Type: "done", StopReason: "end_turn"})
+		handler(llm.StreamEvent{Type: "done", StopReason: mapStopReason(accumulated.StopReason)})
 	}
 
 	return nil
@@ -152,14 +151,6 @@ func convertToolDefinitions(tools []llm.ToolDefinition) []anthropicsdk.ToolUnion
 	result := make([]anthropicsdk.ToolUnionParam, len(tools))
 	for i, t := range tools {
 		properties := t.InputSchema["properties"]
-		required, _ := t.InputSchema["required"].([]any)
-
-		var reqStrings []string
-		for _, r := range required {
-			if s, ok := r.(string); ok {
-				reqStrings = append(reqStrings, s)
-			}
-		}
 
 		result[i] = anthropicsdk.ToolUnionParam{
 			OfTool: &anthropicsdk.ToolParam{
@@ -167,10 +158,40 @@ func convertToolDefinitions(tools []llm.ToolDefinition) []anthropicsdk.ToolUnion
 				Description: anthropicsdk.String(t.Description),
 				InputSchema: anthropicsdk.ToolInputSchemaParam{
 					Properties: properties,
-					Required:   reqStrings,
+					Required:   requiredStrings(t.InputSchema["required"]),
 				},
 			},
 		}
 	}
 	return result
+}
+
+func requiredStrings(raw any) []string {
+	switch required := raw.(type) {
+	case []string:
+		return append([]string(nil), required...)
+	case []any:
+		result := make([]string, 0, len(required))
+		for _, r := range required {
+			if s, ok := r.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func mapStopReason(reason anthropicsdk.StopReason) string {
+	switch reason {
+	case "", anthropicsdk.StopReasonEndTurn:
+		return "end_turn"
+	case anthropicsdk.StopReasonToolUse:
+		return "tool_use"
+	case anthropicsdk.StopReasonMaxTokens:
+		return "max_tokens"
+	default:
+		return string(reason)
+	}
 }

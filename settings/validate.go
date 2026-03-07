@@ -15,7 +15,7 @@ func Validate(schema Schema, values map[string]any) []ValidationError {
 
 	for _, group := range schema.Groups {
 		for _, field := range group.Fields {
-			if field.Validation == nil {
+			if field.Validation == nil && field.Type != FieldSelect {
 				continue
 			}
 
@@ -25,7 +25,7 @@ func Validate(schema Schema, values map[string]any) []ValidationError {
 			}
 
 			val := values[field.Key]
-			fieldErrs := validateField(field, val)
+			fieldErrs := validateField(field, val, values)
 			errs = append(errs, fieldErrs...)
 		}
 	}
@@ -46,21 +46,21 @@ func conditionMet(c *Condition, values map[string]any) bool {
 	return false
 }
 
-func validateField(field Field, val any) []ValidationError {
+func validateField(field Field, val any, values map[string]any) []ValidationError {
 	var errs []ValidationError
 	v := field.Validation
 
 	str, isStr := val.(string)
 	num, isNum := val.(float64)
 
-	if v.Required {
+	if v != nil && v.Required {
 		if val == nil || (isStr && str == "") {
 			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s is required", field.Label)})
 			return errs
 		}
 	}
 
-	if isStr && str != "" {
+	if isStr && str != "" && v != nil {
 		if v.Pattern != "" {
 			if matched, _ := regexp.MatchString(v.Pattern, str); !matched {
 				errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s has invalid format", field.Label)})
@@ -74,7 +74,7 @@ func validateField(field Field, val any) []ValidationError {
 		}
 	}
 
-	if isNum {
+	if isNum && v != nil {
 		if v.Min != nil && num < float64(*v.Min) {
 			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s must be at least %d", field.Label, *v.Min)})
 		}
@@ -83,5 +83,32 @@ func validateField(field Field, val any) []ValidationError {
 		}
 	}
 
+	if field.Type == FieldSelect && isStr && str != "" && hasSelectableOptions(field, values) && !selectOptionAllowed(field, str, values) {
+		errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s has an invalid option", field.Label)})
+	}
+
 	return errs
+}
+
+func hasSelectableOptions(field Field, values map[string]any) bool {
+	if field.DynamicOptions != nil {
+		dependsOn, _ := values[field.DynamicOptions.DependsOn].(string)
+		return len(field.DynamicOptions.Options[dependsOn]) > 0
+	}
+	return len(field.Options) > 0
+}
+
+func selectOptionAllowed(field Field, value string, values map[string]any) bool {
+	options := field.Options
+	if field.DynamicOptions != nil {
+		dependsOn, _ := values[field.DynamicOptions.DependsOn].(string)
+		options = field.DynamicOptions.Options[dependsOn]
+	}
+
+	for _, option := range options {
+		if option.Value == value {
+			return true
+		}
+	}
+	return false
 }
