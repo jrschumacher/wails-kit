@@ -1,0 +1,329 @@
+package settings
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestNewService_WithAppName(t *testing.T) {
+	svc := NewService(WithAppName("testapp"))
+	home, _ := os.UserHomeDir()
+	expected := filepath.Join(home, ".testapp", "settings.json")
+	if svc.store.Path() != expected {
+		t.Errorf("expected store path %q, got %q", expected, svc.store.Path())
+	}
+}
+
+func TestNewService_RegistersDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	svc := NewService(
+		WithStorePath(path),
+		WithGroup(Group{
+			Key:   "general",
+			Label: "General",
+			Fields: []Field{
+				{Key: "theme", Type: FieldSelect, Label: "Theme", Default: "dark"},
+				{Key: "lang", Type: FieldSelect, Label: "Language", Default: "en"},
+				{Key: "notes", Type: FieldText, Label: "Notes"},
+			},
+		}),
+	)
+
+	values, err := svc.GetValues()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if values["theme"] != "dark" {
+		t.Errorf("expected default theme=dark, got %v", values["theme"])
+	}
+	if values["lang"] != "en" {
+		t.Errorf("expected default lang=en, got %v", values["lang"])
+	}
+	if _, ok := values["notes"]; ok {
+		t.Errorf("expected notes to not be in defaults (no Default set)")
+	}
+}
+
+func TestGetSchema_ReturnsAllGroups(t *testing.T) {
+	g1 := Group{Key: "g1", Label: "Group 1", Fields: []Field{{Key: "f1", Type: FieldText, Label: "F1"}}}
+	g2 := Group{Key: "g2", Label: "Group 2", Fields: []Field{{Key: "f2", Type: FieldToggle, Label: "F2"}}}
+
+	svc := NewService(WithGroup(g1), WithGroup(g2))
+	schema := svc.GetSchema()
+
+	if len(schema.Groups) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(schema.Groups))
+	}
+	if schema.Groups[0].Key != "g1" {
+		t.Errorf("expected first group key=g1, got %s", schema.Groups[0].Key)
+	}
+	if schema.Groups[1].Key != "g2" {
+		t.Errorf("expected second group key=g2, got %s", schema.Groups[1].Key)
+	}
+}
+
+func TestGetValues_AppliesComputeFuncs(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	svc := NewService(
+		WithStorePath(path),
+		WithGroup(Group{
+			Key:   "info",
+			Label: "Info",
+			Fields: []Field{
+				{Key: "first", Type: FieldText, Label: "First", Default: "John"},
+				{Key: "last", Type: FieldText, Label: "Last", Default: "Doe"},
+				{Key: "full_name", Type: FieldComputed, Label: "Full Name"},
+			},
+			ComputeFuncs: map[string]ComputeFunc{
+				"full_name": func(values map[string]any) any {
+					first, _ := values["first"].(string)
+					last, _ := values["last"].(string)
+					return first + " " + last
+				},
+			},
+		}),
+	)
+
+	values, err := svc.GetValues()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if values["full_name"] != "John Doe" {
+		t.Errorf("expected computed full_name=John Doe, got %v", values["full_name"])
+	}
+}
+
+func TestSetValues_ValidatesAndSaves(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	svc := NewService(
+		WithStorePath(path),
+		WithGroup(Group{
+			Key:   "config",
+			Label: "Config",
+			Fields: []Field{
+				{Key: "name", Type: FieldText, Label: "Name", Validation: &Validation{Required: true}},
+			},
+		}),
+	)
+
+	// Valid save
+	errs, err := svc.SetValues(map[string]any{"name": "Alice"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if errs != nil {
+		t.Fatalf("unexpected validation errors: %v", errs)
+	}
+
+	// Verify persisted
+	values, err := svc.GetValues()
+	if err != nil {
+		t.Fatalf("load error: %v", err)
+	}
+	if values["name"] != "Alice" {
+		t.Errorf("expected name=Alice after save, got %v", values["name"])
+	}
+}
+
+func TestSetValues_ReturnsValidationErrors(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	svc := NewService(
+		WithStorePath(path),
+		WithGroup(Group{
+			Key:   "config",
+			Label: "Config",
+			Fields: []Field{
+				{Key: "name", Type: FieldText, Label: "Name", Validation: &Validation{Required: true}},
+			},
+		}),
+	)
+
+	errs, err := svc.SetValues(map[string]any{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 validation error, got %d", len(errs))
+	}
+	if errs[0].Field != "name" {
+		t.Errorf("expected validation error for name, got %s", errs[0].Field)
+	}
+
+	// Verify nothing was persisted (file should not exist)
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Error("expected settings file to not exist after validation failure")
+	}
+}
+
+func TestSetValues_StripsComputedFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	svc := NewService(
+		WithStorePath(path),
+		WithGroup(Group{
+			Key:   "info",
+			Label: "Info",
+			Fields: []Field{
+				{Key: "first", Type: FieldText, Label: "First"},
+				{Key: "display", Type: FieldComputed, Label: "Display"},
+			},
+			ComputeFuncs: map[string]ComputeFunc{
+				"display": func(values map[string]any) any {
+					return "computed"
+				},
+			},
+		}),
+	)
+
+	_, err := svc.SetValues(map[string]any{"first": "Bob", "display": "should-be-stripped"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Load raw file to verify computed field was not saved
+	raw := NewStore("app", WithPath(path))
+	saved, err := raw.Load()
+	if err != nil {
+		t.Fatalf("load error: %v", err)
+	}
+	if _, ok := saved["display"]; ok {
+		t.Error("expected computed field 'display' to be stripped from saved data")
+	}
+	if saved["first"] != "Bob" {
+		t.Errorf("expected first=Bob, got %v", saved["first"])
+	}
+}
+
+func TestWithOnChange_CalledAfterSave(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	var called bool
+	var receivedValues map[string]any
+
+	svc := NewService(
+		WithStorePath(path),
+		WithGroup(Group{
+			Key:   "config",
+			Label: "Config",
+			Fields: []Field{
+				{Key: "key", Type: FieldText, Label: "Key"},
+			},
+		}),
+		WithOnChange(func(values map[string]any) {
+			called = true
+			receivedValues = values
+		}),
+	)
+
+	_, err := svc.SetValues(map[string]any{"key": "value"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("expected onChange callback to be called")
+	}
+	if receivedValues["key"] != "value" {
+		t.Errorf("expected onChange to receive key=value, got %v", receivedValues["key"])
+	}
+}
+
+func TestWithOnChange_NotCalledOnValidationFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	var called bool
+
+	svc := NewService(
+		WithStorePath(path),
+		WithGroup(Group{
+			Key:   "config",
+			Label: "Config",
+			Fields: []Field{
+				{Key: "name", Type: FieldText, Label: "Name", Validation: &Validation{Required: true}},
+			},
+		}),
+		WithOnChange(func(values map[string]any) {
+			called = true
+		}),
+	)
+
+	svc.SetValues(map[string]any{})
+	if called {
+		t.Error("expected onChange NOT to be called on validation failure")
+	}
+}
+
+func TestMultipleGroups_Compose(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	svc := NewService(
+		WithStorePath(path),
+		WithGroup(Group{
+			Key:   "appearance",
+			Label: "Appearance",
+			Fields: []Field{
+				{Key: "theme", Type: FieldSelect, Label: "Theme", Default: "light"},
+			},
+		}),
+		WithGroup(Group{
+			Key:   "connection",
+			Label: "Connection",
+			Fields: []Field{
+				{Key: "url", Type: FieldText, Label: "URL", Default: "https://example.com"},
+				{Key: "timeout", Type: FieldNumber, Label: "Timeout", Default: float64(30)},
+			},
+		}),
+	)
+
+	schema := svc.GetSchema()
+	if len(schema.Groups) != 2 {
+		t.Fatalf("expected 2 groups, got %d", len(schema.Groups))
+	}
+
+	values, err := svc.GetValues()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if values["theme"] != "light" {
+		t.Errorf("expected theme=light, got %v", values["theme"])
+	}
+	if values["url"] != "https://example.com" {
+		t.Errorf("expected url=https://example.com, got %v", values["url"])
+	}
+	if values["timeout"] != float64(30) {
+		t.Errorf("expected timeout=30, got %v", values["timeout"])
+	}
+
+	// Save and reload
+	_, err = svc.SetValues(map[string]any{
+		"theme":   "dark",
+		"url":     "https://other.com",
+		"timeout": float64(60),
+	})
+	if err != nil {
+		t.Fatalf("save error: %v", err)
+	}
+
+	values, err = svc.GetValues()
+	if err != nil {
+		t.Fatalf("reload error: %v", err)
+	}
+	if values["theme"] != "dark" {
+		t.Errorf("expected theme=dark, got %v", values["theme"])
+	}
+	if values["timeout"] != float64(60) {
+		t.Errorf("expected timeout=60, got %v", values["timeout"])
+	}
+}
