@@ -9,8 +9,11 @@ import (
 
 func TestNewStore_DefaultPath(t *testing.T) {
 	s := NewStore("myapp")
-	home, _ := os.UserHomeDir()
-	expected := filepath.Join(home, ".myapp", "settings.json")
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		t.Skip("no config dir available")
+	}
+	expected := filepath.Join(configDir, "myapp", "settings.json")
 	if s.Path() != expected {
 		t.Errorf("expected path %q, got %q", expected, s.Path())
 	}
@@ -96,6 +99,49 @@ func TestLoad_SavedValuesOverrideDefaults(t *testing.T) {
 	}
 	if values["language"] != "en" {
 		t.Errorf("expected default language=en to remain, got %v", values["language"])
+	}
+}
+
+func TestSave_AtomicWrite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	s := NewStore("app", WithPath(path))
+
+	if err := s.Save(map[string]any{"key": "value"}); err != nil {
+		t.Fatalf("save error: %v", err)
+	}
+
+	// Temp file should not remain
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Error("expected temp file to be cleaned up after atomic write")
+	}
+
+	// Actual file should exist
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected settings file to exist: %v", err)
+	}
+}
+
+func TestLoad_StripsUnknownKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	// Write a file with an extra key
+	data, _ := json.Marshal(map[string]any{"known": "yes", "stale": "garbage"})
+	os.WriteFile(path, data, 0600)
+
+	s := NewStore("app", WithPath(path))
+	s.SetKnownKeys(map[string]bool{"known": true})
+
+	values, err := s.Load()
+	if err != nil {
+		t.Fatalf("load error: %v", err)
+	}
+	if values["known"] != "yes" {
+		t.Errorf("expected known=yes, got %v", values["known"])
+	}
+	if _, ok := values["stale"]; ok {
+		t.Error("expected unknown key 'stale' to be stripped")
 	}
 }
 

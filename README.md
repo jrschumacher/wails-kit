@@ -1,19 +1,55 @@
 # wails-kit
 
-Reusable Go module for Wails apps. Provides a schema-driven settings framework and LLM provider management.
+Reusable Go module for Wails v3 apps. Provides a schema-driven settings framework, LLM provider management, OS keyring integration, structured logging, typed events, and user-facing error types.
 
 ## Packages
+
+### `keyring` — OS Keyring Credential Storage
+
+Generic OS keyring wrapper with environment variable fallback. Used internally by settings for password fields, and available directly for app-specific secrets.
+
+```go
+import "github.com/jrschumacher/wails-kit/keyring"
+
+// OS keyring with env var fallback (e.g. MYAPP_API_KEY)
+store := keyring.NewOSStore("my-app", keyring.WithEnvPrefix("MYAPP"))
+
+store.Set("api_key", "sk-abc123")
+val, err := store.Get("api_key")
+store.Has("api_key")  // true
+store.Delete("api_key")
+
+// Store structured data (OAuth tokens, etc.)
+keyring.SetJSON(store, "oauth_token", myToken)
+keyring.GetJSON(store, "oauth_token", &token)
+
+// In-memory store for tests
+testStore := keyring.NewMemoryStore()
+```
+
+**Env var fallback:** `Get("api_key")` checks the keyring first. If not found and an env prefix is configured, it checks `MYAPP_API_KEY` (uppercased, dots/dashes become underscores). This enables headless/CI operation without an OS keyring.
 
 ### `settings` — Schema-Driven Settings
 
 The backend defines a settings schema (fields, types, options, visibility conditions) and any frontend renders from it dynamically.
 
+**Storage paths** (OS-standard via `os.UserConfigDir()`):
+- macOS: `~/Library/Application Support/{app}/settings.json`
+- Linux: `$XDG_CONFIG_HOME/{app}/settings.json`
+- Windows: `%AppData%/{app}/settings.json`
+
 ```go
-import "github.com/jrschumacher/wails-kit/settings"
+import (
+    "github.com/jrschumacher/wails-kit/settings"
+    "github.com/jrschumacher/wails-kit/keyring"
+)
+
+store := keyring.NewOSStore("my-app", keyring.WithEnvPrefix("MYAPP"))
 
 svc := settings.NewService(
-    settings.WithAppName("my-app"),             // persists to ~/.my-app/settings.json
-    settings.WithGroup(mySettingsGroup()),       // register settings groups
+    settings.WithAppName("my-app"),
+    settings.WithKeyring(store),                 // OS keyring for password fields
+    settings.WithGroup(mySettingsGroup()),
     settings.WithOnChange(func(v map[string]any) {
         // react to settings changes
     }),
@@ -56,12 +92,32 @@ func mySettingsGroup() settings.Group {
 }
 ```
 
+**Password fields** are stored in the OS keyring, never in the JSON file:
+
+```go
+settings.Field{
+    Key:   "api.token",
+    Type:  settings.FieldPassword,
+    Label: "API Token",
+}
+```
+
+- `GetValues()` returns `"••••••••"` for set passwords, `""` for unset
+- `SetValues()` with `"••••••••"` is a no-op (user didn't change it)
+- `SetValues()` with `""` clears the secret from keyring
+- `GetSecret(key)` returns the actual value (backend use only)
+
 **Schema features:**
 - `Field.DynamicOptions` — select options that change based on another field's value
 - `Field.Condition` — show/hide field based on another field's value
 - `Field.Advanced` — render behind a "Show advanced" toggle
 - `Field.Validation` — required, pattern, min/max length, min/max number
 - `Group.ComputeFuncs` — server-side computed readonly fields
+
+**Other behaviors:**
+- **Atomic writes** — writes to `.tmp` then renames, preventing corruption on crash
+- **Schema migration** — unknown keys in saved files are stripped on load
+- **File permissions** — directories 0700, settings file 0600
 
 ### `llm` — LLM Provider Management
 
@@ -115,6 +171,33 @@ Providers self-register via `init()`. Import with blank identifier to activate.
 - Per-provider advanced: base URL, API key, API format, custom model ID
 - Computed resolved model ID
 
+#### Context Window Builder
+
+Manages conversation history for LLM chat with bounded context windows.
+
+```go
+cb := llm.NewContextBuilder("You are a helpful assistant.")
+cb.WindowSize = 20  // keep last 20 messages (default)
+cb.MaxTokens = 4096 // default
+
+// Optionally add widget/page context to the system prompt
+cb.SetWidgetContext("User is viewing issue ABC-123")
+
+// Build a request from full conversation history
+req := cb.BuildRequest(allMessages)
+// req.SystemPrompt includes base prompt + widget context
+// req.Messages is windowed with older messages summarized
+// req.MaxTokens is set
+
+provider.StreamChat(ctx, req, handler)
+```
+
+**Behavior:**
+- Sliding window keeps the last N messages
+- Tool-use / tool-result pairs are kept atomic (never split across the window boundary)
+- Older messages beyond the window are summarized into a synthetic message
+- Summary caps at 8 topics with content truncated to 100 chars
+
 ### `llm/mock` — Test Helper
 
 ```go
@@ -128,6 +211,119 @@ p := &mock.Provider{
         handler(llm.StreamEvent{Type: "done", StopReason: "end_turn"})
         return nil
     },
+}
+```
+
+### `errors` — User-Facing Error Types
+
+Generic error types for Wails apps. Apps add their own domain-specific codes and messages.
+
+```go
+import "github.com/jrschumacher/wails-kit/errors"
+
+// Create errors with codes
+err := errors.New(errors.ErrAuthExpired, "token expired at 2pm", nil)
+err = errors.Newf(errors.ErrValidation, "field %s invalid", "email")
+err = errors.Wrap(errors.ErrProviderError, "anthropic failed", originalErr)
+
+// Add structured context
+err = err.WithField("provider", "anthropic").WithField("status", 429)
+
+// Extract user-facing info from any error
+msg := errors.GetUserMessage(err)  // "Your session has expired. Please sign in again."
+code := errors.GetCode(err)        // errors.ErrAuthExpired
+errors.IsCode(err, errors.ErrRateLimited)  // false
+
+// Register app-specific messages
+errors.RegisterMessages(map[errors.Code]string{
+    "jira_unreachable": "Cannot reach Jira. Check your network connection.",
+})
+```
+
+**Built-in codes:** `auth_invalid`, `auth_expired`, `auth_missing`, `not_found`, `permission_denied`, `validation`, `rate_limited`, `timeout`, `cancelled`, `internal`, `storage_read`, `storage_write`, `config_invalid`, `config_missing`, `provider_error`
+
+Each code has a default user-facing message. Apps override or extend via `RegisterMessages()`.
+
+### `logging` — Structured Logging
+
+OS-aware structured logging with file rotation and sensitive field redaction. Built on `slog` with JSON output.
+
+```go
+import "github.com/jrschumacher/wails-kit/logging"
+
+err := logging.Init(&logging.Config{
+    AppName:       "my-app",
+    Level:         "info",         // debug, info, warn, error
+    AddSource:     true,
+    MaxSize:       100,            // MB per file
+    MaxAge:        7,              // days
+    MaxBackups:    10,
+    Compress:      true,
+    SensitiveKeys: []string{"password", "token", "api_key"},
+})
+
+// Package-level convenience
+logging.Info("server started", "port", 8080)
+logging.Error("request failed", err, "path", "/api/data")
+logging.Debug("cache hit", "key", "user:123")
+
+// Logger with preset fields
+logger := logging.Get().WithFields("component", "sync", "user_id", "abc")
+logger.Info("sync started")
+```
+
+**Log paths** (OS-specific):
+- macOS: `~/Library/Logs/{app}/`
+- Linux: `$XDG_STATE_HOME/{app}/` (fallback `~/.local/state/{app}/`)
+- Windows: `%LOCALAPPDATA%/{app}/logs/`
+
+**Features:**
+- JSON structured output via `slog`
+- File rotation via lumberjack (size, age, backup count, compression)
+- Multi-writer: stdout + file
+- Sensitive field redaction — configured field names are replaced with `[REDACTED:N chars]`
+- Source file/line in log entries
+
+### `events` — Typed Event System
+
+Type-safe wrapper for Wails v3 event emission. Keeps the kit Wails-version-agnostic via a `Backend` interface.
+
+```go
+import "github.com/jrschumacher/wails-kit/events"
+
+// In your app setup, wrap the Wails app
+emitter := events.New(events.BackendFunc(func(name string, data any) {
+    app.EmitEvent(name, data)
+}))
+
+// Emit events
+emitter.Emit(events.SettingsChanged, events.SettingsChangedPayload{
+    Keys: []string{"appearance.theme"},
+})
+
+// For testing
+mem := events.NewMemoryEmitter()
+emitter := events.New(mem)
+// ... trigger actions ...
+mem.Events()  // all emitted events
+mem.Last()    // most recent event
+mem.Count()   // number of events
+mem.Clear()   // reset
+```
+
+**Kit-provided event constants:**
+- `events.SettingsChanged` (`"settings:changed"`)
+
+Apps define their own event constants and payload types following the same pattern.
+
+**Recommended frontend TypeScript pattern:**
+```ts
+export const Events = {
+    SETTINGS_CHANGED: 'settings:changed',
+} as const
+
+export interface EventMap {
+    [Events.SETTINGS_CHANGED]: { keys: string[] }
 }
 ```
 
@@ -152,3 +348,4 @@ for each group in schema.groups:
 | `ANTHROPIC_API_KEY` | Anthropic API key (used by SDK if no secret in settings) |
 | `OPENAI_API_KEY` | OpenAI API key (used by SDK if no secret in settings) |
 | `CF_AIG_AUTHORIZATION` | Cloudflare AI Gateway token |
+| `{APP_PREFIX}_{FIELD_KEY}` | Keyring env var fallback for any password field (headless/CI) |

@@ -43,11 +43,11 @@ type ProviderConfig struct {
 }
 
 type StreamEvent struct {
-	Type       string         // "delta", "done", "error", "tool_use"
+	Type       string // "delta", "done", "error", "tool_use"
 	Text       string
 	Err        error
 	ToolUses   []ToolUseBlock
-	StopReason string // "end_turn", "tool_use"
+	StopReason string // e.g. "end_turn", "tool_use", "max_tokens"
 }
 
 type Provider interface {

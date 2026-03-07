@@ -221,6 +221,75 @@ func TestValidate_ConditionalSkip(t *testing.T) {
 	}
 }
 
+func TestValidate_SelectOptionMembership(t *testing.T) {
+	schema := makeSchema(Field{
+		Key:   "provider",
+		Type:  FieldSelect,
+		Label: "Provider",
+		Options: []SelectOption{
+			{Label: "Anthropic", Value: "anthropic"},
+			{Label: "OpenAI", Value: "openai"},
+		},
+	})
+
+	errs := Validate(schema, map[string]any{"provider": "invalid"})
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %d", len(errs))
+	}
+	if errs[0].Field != "provider" {
+		t.Fatalf("expected provider error, got %q", errs[0].Field)
+	}
+}
+
+func TestValidate_DynamicSelectOptionMembership(t *testing.T) {
+	schema := makeSchema(
+		Field{
+			Key:   "provider",
+			Type:  FieldSelect,
+			Label: "Provider",
+			Options: []SelectOption{
+				{Label: "Anthropic", Value: "anthropic"},
+				{Label: "OpenAI", Value: "openai"},
+			},
+		},
+		Field{
+			Key:   "model",
+			Type:  FieldSelect,
+			Label: "Model",
+			DynamicOptions: &DynamicOptions{
+				DependsOn: "provider",
+				Options: map[string][]SelectOption{
+					"anthropic": {
+						{Label: "Claude", Value: "claude"},
+					},
+					"openai": {
+						{Label: "GPT-4o", Value: "gpt-4o"},
+					},
+				},
+			},
+		},
+	)
+
+	errs := Validate(schema, map[string]any{
+		"provider": "openai",
+		"model":    "claude",
+	})
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error, got %d", len(errs))
+	}
+	if errs[0].Field != "model" {
+		t.Fatalf("expected model error, got %q", errs[0].Field)
+	}
+
+	errs = Validate(schema, map[string]any{
+		"provider": "openai",
+		"model":    "gpt-4o",
+	})
+	if errs != nil {
+		t.Fatalf("expected no errors, got %v", errs)
+	}
+}
+
 func TestValidate_NoValidationRules(t *testing.T) {
 	schema := makeSchema(Field{
 		Key:   "notes",

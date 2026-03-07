@@ -4,12 +4,17 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/jrschumacher/wails-kit/keyring"
 )
 
 func TestNewService_WithAppName(t *testing.T) {
 	svc := NewService(WithAppName("testapp"))
-	home, _ := os.UserHomeDir()
-	expected := filepath.Join(home, ".testapp", "settings.json")
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		t.Skip("no config dir available")
+	}
+	expected := filepath.Join(configDir, "testapp", "settings.json")
 	if svc.store.Path() != expected {
 		t.Errorf("expected store path %q, got %q", expected, svc.store.Path())
 	}
@@ -325,5 +330,189 @@ func TestMultipleGroups_Compose(t *testing.T) {
 	}
 	if values["timeout"] != float64(60) {
 		t.Errorf("expected timeout=60, got %v", values["timeout"])
+	}
+}
+
+// --- Password / Keyring tests ---
+
+func TestPasswordField_StoredInKeyring(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	secrets := keyring.NewMemoryStore()
+
+	svc := NewService(
+		WithStorePath(path),
+		WithKeyring(secrets),
+		WithGroup(Group{
+			Key:   "auth",
+			Label: "Auth",
+			Fields: []Field{
+				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+				{Key: "host", Type: FieldText, Label: "Host"},
+			},
+		}),
+	)
+
+	// Save with a password
+	_, err := svc.SetValues(map[string]any{"api_key": "sk-secret123", "host": "example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Password should be in keyring
+	val, err := secrets.Get("api_key")
+	if err != nil {
+		t.Fatalf("expected secret in keyring: %v", err)
+	}
+	if val != "sk-secret123" {
+		t.Errorf("expected sk-secret123, got %s", val)
+	}
+
+	// Password should NOT be in the JSON file
+	raw := NewStore("app", WithPath(path))
+	saved, _ := raw.Load()
+	if _, ok := saved["api_key"]; ok {
+		t.Error("expected password to NOT be in JSON file")
+	}
+	if saved["host"] != "example.com" {
+		t.Errorf("expected host=example.com, got %v", saved["host"])
+	}
+}
+
+func TestPasswordField_MaskedInGetValues(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	secrets := keyring.NewMemoryStore()
+	secrets.Set("api_key", "realvalue")
+
+	svc := NewService(
+		WithStorePath(path),
+		WithKeyring(secrets),
+		WithGroup(Group{
+			Key:   "auth",
+			Label: "Auth",
+			Fields: []Field{
+				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+			},
+		}),
+	)
+
+	values, err := svc.GetValues()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values["api_key"] != SecretMask {
+		t.Errorf("expected masked value %q, got %v", SecretMask, values["api_key"])
+	}
+}
+
+func TestPasswordField_MaskSentinelIsNoOp(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	secrets := keyring.NewMemoryStore()
+	secrets.Set("api_key", "original")
+
+	svc := NewService(
+		WithStorePath(path),
+		WithKeyring(secrets),
+		WithGroup(Group{
+			Key:   "auth",
+			Label: "Auth",
+			Fields: []Field{
+				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+			},
+		}),
+	)
+
+	// Sending the mask sentinel should not change the stored value
+	_, err := svc.SetValues(map[string]any{"api_key": SecretMask})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	val, _ := secrets.Get("api_key")
+	if val != "original" {
+		t.Errorf("expected original value preserved, got %s", val)
+	}
+}
+
+func TestPasswordField_EmptyClearsSecret(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	secrets := keyring.NewMemoryStore()
+	secrets.Set("api_key", "todelete")
+
+	svc := NewService(
+		WithStorePath(path),
+		WithKeyring(secrets),
+		WithGroup(Group{
+			Key:   "auth",
+			Label: "Auth",
+			Fields: []Field{
+				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+			},
+		}),
+	)
+
+	// Empty string clears the secret
+	_, err := svc.SetValues(map[string]any{"api_key": ""})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if secrets.Has("api_key") {
+		t.Error("expected secret to be deleted from keyring")
+	}
+}
+
+func TestPasswordField_UnsetReturnsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	svc := NewService(
+		WithStorePath(path),
+		WithGroup(Group{
+			Key:   "auth",
+			Label: "Auth",
+			Fields: []Field{
+				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+			},
+		}),
+	)
+
+	values, _ := svc.GetValues()
+	if values["api_key"] != "" {
+		t.Errorf("expected empty string for unset password, got %v", values["api_key"])
+	}
+}
+
+func TestGetSecret_ReturnsActualValue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	secrets := keyring.NewMemoryStore()
+
+	svc := NewService(
+		WithStorePath(path),
+		WithKeyring(secrets),
+		WithGroup(Group{
+			Key:   "auth",
+			Label: "Auth",
+			Fields: []Field{
+				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+			},
+		}),
+	)
+
+	_, err := svc.SetValues(map[string]any{"api_key": "real-secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	val, err := svc.GetSecret("api_key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != "real-secret" {
+		t.Errorf("expected real-secret, got %s", val)
 	}
 }
