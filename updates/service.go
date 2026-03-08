@@ -259,10 +259,10 @@ func (s *Service) DownloadUpdate(ctx context.Context) (string, error) {
 		})
 	})
 
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	if err != nil {
-		os.Remove(tmpFile.Name())
+		_ = os.Remove(tmpFile.Name())
 		s.emitError(ErrUpdateDownload, err)
 		return "", errors.Wrap(ErrUpdateDownload, "download update", err)
 	}
@@ -292,7 +292,7 @@ func (s *Service) ApplyUpdate(ctx context.Context) error {
 		s.emitError(ErrUpdateApply, err)
 		return errors.Wrap(ErrUpdateApply, "extract update", err)
 	}
-	defer os.RemoveAll(extractDir)
+	defer func() { _ = os.RemoveAll(extractDir) }()
 
 	// Find the binary in the extracted archive
 	binaryPath, err := findBinary(extractDir, s.binaryName)
@@ -314,7 +314,7 @@ func (s *Service) ApplyUpdate(ctx context.Context) error {
 	}
 
 	// Clean up the download
-	os.Remove(downloadPath)
+	_ = os.Remove(downloadPath)
 	s.mu.Lock()
 	s.downloadPath = ""
 	s.mu.Unlock()

@@ -90,7 +90,9 @@ func TestRedactingHandler_EmptyValue(t *testing.T) {
 	logger.Info("test", "password", "")
 
 	var entry map[string]any
-	json.Unmarshal(buf.Bytes(), &entry)
+	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+		t.Fatalf("failed to parse log entry: %v", err)
+	}
 
 	// Empty values should not be redacted
 	if strings.Contains(entry["password"].(string), "REDACTED") {
@@ -109,7 +111,9 @@ func TestRedactingHandler_WithAttrs(t *testing.T) {
 	logger.Info("test")
 
 	var entry map[string]any
-	json.Unmarshal(buf.Bytes(), &entry)
+	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+		t.Fatalf("failed to parse log entry: %v", err)
+	}
 
 	if !strings.Contains(entry["secret"].(string), "REDACTED") {
 		t.Errorf("expected pre-set secret to be redacted, got %v", entry["secret"])
@@ -125,7 +129,9 @@ func TestWithFields(t *testing.T) {
 	derived.Info("test msg")
 
 	var entry map[string]any
-	json.Unmarshal(buf.Bytes(), &entry)
+	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+		t.Fatalf("failed to parse log entry: %v", err)
+	}
 
 	if entry["component"] != "auth" {
 		t.Errorf("expected component=auth, got %v", entry["component"])

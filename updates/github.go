@@ -77,7 +77,7 @@ func (g *GitHubSource) fetchLatestIncludingPrereleases(ctx context.Context, base
 	if err != nil {
 		return nil, fmt.Errorf("fetch releases: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if err := checkResponse(resp, g.owner, g.repo); err != nil {
 		return nil, err
@@ -121,7 +121,7 @@ func (g *GitHubSource) fetchRelease(ctx context.Context, url string) (*Release, 
 	if err != nil {
 		return nil, fmt.Errorf("fetch latest release: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if err := checkResponse(resp, g.owner, g.repo); err != nil {
 		return nil, err
@@ -199,7 +199,7 @@ func (g *GitHubSource) DownloadAsset(ctx context.Context, asset *Asset, dest io.
 	if err != nil {
 		return fmt.Errorf("download asset: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download returned status %d", resp.StatusCode)

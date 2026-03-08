@@ -35,7 +35,7 @@ func TestLatestRelease(t *testing.T) {
 		if r.Header.Get("Accept") != "application/vnd.github+json" {
 			t.Errorf("missing Accept header")
 		}
-		json.NewEncoder(w).Encode(release)
+		_ = json.NewEncoder(w).Encode(release)
 	})
 	defer srv.Close()
 
@@ -66,7 +66,7 @@ func TestLatestReleaseWithToken(t *testing.T) {
 		if auth != "Bearer test-token" {
 			t.Errorf("got auth %q, want %q", auth, "Bearer test-token")
 		}
-		json.NewEncoder(w).Encode(Release{TagName: "v1.0.0"})
+		_ = json.NewEncoder(w).Encode(Release{TagName: "v1.0.0"})
 	})
 	defer srv.Close()
 
@@ -113,7 +113,7 @@ func TestDownloadAsset(t *testing.T) {
 	content := []byte("binary-content-here")
 	srv := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", "19")
-		w.Write(content)
+		_, _ = w.Write(content)
 	})
 	defer srv.Close()
 
@@ -204,7 +204,7 @@ func TestLatestReleaseIncludingPrereleases(t *testing.T) {
 
 	srv := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/repos/owner/repo/releases" {
-			json.NewEncoder(w).Encode(releases)
+			_ = json.NewEncoder(w).Encode(releases)
 			return
 		}
 		http.NotFound(w, r)
@@ -228,7 +228,7 @@ func TestLatestReleaseStableIgnoresPrereleases(t *testing.T) {
 	// GitHub already filters to stable releases only
 	srv := newTestServer(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/repos/owner/repo/releases/latest" {
-			json.NewEncoder(w).Encode(Release{TagName: "v1.0.0"})
+			_ = json.NewEncoder(w).Encode(Release{TagName: "v1.0.0"})
 			return
 		}
 		t.Errorf("unexpected path: %s", r.URL.Path)

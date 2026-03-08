@@ -263,7 +263,7 @@ func TestWithOnChange_NotCalledOnValidationFailure(t *testing.T) {
 		}),
 	)
 
-	svc.SetValues(map[string]any{})
+	_, _ = svc.SetValues(map[string]any{})
 	if called {
 		t.Error("expected onChange NOT to be called on validation failure")
 	}
@@ -383,7 +383,7 @@ func TestPasswordField_MaskedInGetValues(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
 	secrets := keyring.NewMemoryStore()
-	secrets.Set("api_key", "realvalue")
+	_ = secrets.Set("api_key", "realvalue")
 
 	svc := NewService(
 		WithStorePath(path),
@@ -410,7 +410,7 @@ func TestPasswordField_MaskSentinelIsNoOp(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
 	secrets := keyring.NewMemoryStore()
-	secrets.Set("api_key", "original")
+	_ = secrets.Set("api_key", "original")
 
 	svc := NewService(
 		WithStorePath(path),
@@ -440,7 +440,7 @@ func TestPasswordField_EmptyClearsSecret(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
 	secrets := keyring.NewMemoryStore()
-	secrets.Set("api_key", "todelete")
+	_ = secrets.Set("api_key", "todelete")
 
 	svc := NewService(
 		WithStorePath(path),

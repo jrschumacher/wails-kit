@@ -1,8 +1,6 @@
 package settings
 
 import (
-	"sync"
-
 	"github.com/jrschumacher/wails-kit/keyring"
 )
 
@@ -15,7 +13,6 @@ type Service struct {
 	store    *Store
 	secrets  keyring.Store
 	onChange []func(values map[string]any)
-	mu       sync.Mutex
 }
 
 type ServiceOption func(*Service)

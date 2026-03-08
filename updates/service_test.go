@@ -28,7 +28,7 @@ func TestNewServiceRequiresVersion(t *testing.T) {
 
 func TestCheckForUpdateNewer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(Release{
+		_ = json.NewEncoder(w).Encode(Release{
 			TagName: "v2.0.0",
 			Body:    "New features",
 			HTMLURL: "https://github.com/owner/repo/releases/tag/v2.0.0",
@@ -70,7 +70,7 @@ func TestCheckForUpdateNewer(t *testing.T) {
 
 func TestCheckForUpdateUpToDate(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(Release{TagName: "v1.0.0"})
+		_ = json.NewEncoder(w).Encode(Release{TagName: "v1.0.0"})
 	}))
 	defer srv.Close()
 
@@ -101,7 +101,7 @@ func TestCheckForUpdateUpToDate(t *testing.T) {
 
 func TestCheckForUpdateOlder(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(Release{TagName: "v0.9.0"})
+		_ = json.NewEncoder(w).Encode(Release{TagName: "v0.9.0"})
 	}))
 	defer srv.Close()
 
@@ -214,12 +214,12 @@ func TestCheckForUpdateWithSettingsPrereleases(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/repos/owner/repo/releases":
-			json.NewEncoder(w).Encode([]Release{
+			_ = json.NewEncoder(w).Encode([]Release{
 				{TagName: "v2.0.0-beta.1", Draft: false, Prerelease: true},
 				{TagName: "v1.0.0", Draft: false, Prerelease: false},
 			})
 		case "/repos/owner/repo/releases/latest":
-			json.NewEncoder(w).Encode(Release{TagName: "v1.0.0"})
+			_ = json.NewEncoder(w).Encode(Release{TagName: "v1.0.0"})
 		default:
 			http.NotFound(w, r)
 		}
@@ -233,7 +233,7 @@ func TestCheckForUpdateWithSettingsPrereleases(t *testing.T) {
 		settings.WithGroup(SettingsGroup()),
 	)
 	// Set include_prereleases to true
-	settingsSvc.SetValues(map[string]any{
+	_, _ = settingsSvc.SetValues(map[string]any{
 		SettingCheckFrequency:     "daily",
 		SettingAutoDownload:       false,
 		SettingIncludePrereleases: true,
@@ -268,7 +268,7 @@ func TestCheckForUpdateWithoutSettingsFallsBackToOption(t *testing.T) {
 		if r.URL.Path != "/repos/owner/repo/releases/latest" {
 			t.Errorf("expected /releases/latest, got %s", r.URL.Path)
 		}
-		json.NewEncoder(w).Encode(Release{TagName: "v1.0.0"})
+		_ = json.NewEncoder(w).Encode(Release{TagName: "v1.0.0"})
 	}))
 	defer srv.Close()
 
@@ -295,7 +295,7 @@ func TestCheckForUpdateSettingsOverridesOption(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/repos/owner/repo/releases":
-			json.NewEncoder(w).Encode([]Release{
+			_ = json.NewEncoder(w).Encode([]Release{
 				{TagName: "v2.0.0-rc.1", Draft: false, Prerelease: true},
 				{TagName: "v1.0.0", Draft: false, Prerelease: false},
 			})
@@ -312,7 +312,7 @@ func TestCheckForUpdateSettingsOverridesOption(t *testing.T) {
 		settings.WithStorePath(filepath.Join(tmpDir, "settings.json")),
 		settings.WithGroup(SettingsGroup()),
 	)
-	settingsSvc.SetValues(map[string]any{
+	_, _ = settingsSvc.SetValues(map[string]any{
 		SettingCheckFrequency:     "daily",
 		SettingAutoDownload:       false,
 		SettingIncludePrereleases: true,
@@ -345,7 +345,7 @@ func TestWithIncludePrereleasesWithoutSettings(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/repos/owner/repo/releases":
-			json.NewEncoder(w).Encode([]Release{
+			_ = json.NewEncoder(w).Encode([]Release{
 				{TagName: "v2.0.0-alpha.1", Draft: false, Prerelease: true},
 			})
 		default:

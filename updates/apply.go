@@ -68,7 +68,7 @@ func extractArchive(archivePath string) (string, error) {
 	}
 
 	if err != nil {
-		os.RemoveAll(dir)
+		_ = os.RemoveAll(dir)
 		return "", err
 	}
 
@@ -80,13 +80,13 @@ func extractTarGz(src, dest string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		return fmt.Errorf("gzip reader: %w", err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	tr := tar.NewReader(gz)
 	for {
@@ -117,11 +117,14 @@ func extractTarGz(src, dest string) error {
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(out, tr); err != nil {
-				out.Close()
-				return err
+			_, copyErr := io.Copy(out, tr)
+			closeErr := out.Close()
+			if copyErr != nil {
+				return copyErr
 			}
-			out.Close()
+			if closeErr != nil {
+				return closeErr
+			}
 		}
 	}
 
@@ -133,7 +136,7 @@ func extractZip(src, dest string) error {
 	if err != nil {
 		return fmt.Errorf("open zip: %w", err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	for _, f := range r.File {
 		target := filepath.Join(dest, f.Name)
@@ -159,16 +162,21 @@ func extractZip(src, dest string) error {
 		}
 		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, f.Mode())
 		if err != nil {
-			rc.Close()
+			_ = rc.Close()
 			return err
 		}
-		if _, err := io.Copy(out, rc); err != nil {
-			out.Close()
-			rc.Close()
-			return err
+		_, copyErr := io.Copy(out, rc)
+		closeOutErr := out.Close()
+		closeRcErr := rc.Close()
+		if copyErr != nil {
+			return copyErr
 		}
-		out.Close()
-		rc.Close()
+		if closeOutErr != nil {
+			return closeOutErr
+		}
+		if closeRcErr != nil {
+			return closeRcErr
+		}
 	}
 
 	return nil
@@ -179,13 +187,13 @@ func copyFile(src, dest string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	out, err := os.Create(dest)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	if _, err := io.Copy(out, in); err != nil {
 		return err
