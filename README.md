@@ -1,10 +1,10 @@
 # wails-kit
 
-Reusable Go module for Wails v3 apps. Provides a schema-driven settings framework, LLM provider management, OS keyring integration, structured logging, typed events, and user-facing error types.
+Reusable Go module for Wails v3 apps. Provides a schema-driven settings framework, LLM provider management, OS keyring integration, structured logging, typed events, user-facing error types, and GitHub-based auto-updates.
 
 ## Packages
 
-### `keyring` — OS Keyring Credential Storage
+### [`keyring`](keyring/README.md) — OS Keyring Credential Storage
 
 Generic OS keyring wrapper with environment variable fallback. Used internally by settings for password fields, and available directly for app-specific secrets.
 
@@ -29,7 +29,7 @@ testStore := keyring.NewMemoryStore()
 
 **Env var fallback:** `Get("api_key")` checks the keyring first. If not found and an env prefix is configured, it checks `MYAPP_API_KEY` (uppercased, dots/dashes become underscores). This enables headless/CI operation without an OS keyring.
 
-### `settings` — Schema-Driven Settings
+### [`settings`](settings/README.md) — Schema-Driven Settings
 
 The backend defines a settings schema (fields, types, options, visibility conditions) and any frontend renders from it dynamically.
 
@@ -119,7 +119,7 @@ settings.Field{
 - **Schema migration** — unknown keys in saved files are stripped on load
 - **File permissions** — directories 0700, settings file 0600
 
-### `llm` — LLM Provider Management
+### [`llm`](llm/README.md) — LLM Provider Management
 
 Provider interface, factory pattern, and a built-in settings group for LLM configuration.
 
@@ -198,7 +198,7 @@ provider.StreamChat(ctx, req, handler)
 - Older messages beyond the window are summarized into a synthetic message
 - Summary caps at 8 topics with content truncated to 100 chars
 
-### `llm/mock` — Test Helper
+### [`llm/mock`](llm/README.md#mock-provider) — Test Helper
 
 ```go
 import "github.com/jrschumacher/wails-kit/llm/mock"
@@ -214,7 +214,7 @@ p := &mock.Provider{
 }
 ```
 
-### `errors` — User-Facing Error Types
+### [`errors`](errors/README.md) — User-Facing Error Types
 
 Generic error types for Wails apps. Apps add their own domain-specific codes and messages.
 
@@ -244,7 +244,7 @@ errors.RegisterMessages(map[errors.Code]string{
 
 Each code has a default user-facing message. Apps override or extend via `RegisterMessages()`.
 
-### `logging` — Structured Logging
+### [`logging`](logging/README.md) — Structured Logging
 
 OS-aware structured logging with file rotation and sensitive field redaction. Built on `slog` with JSON output.
 
@@ -284,7 +284,7 @@ logger.Info("sync started")
 - Sensitive field redaction — configured field names are replaced with `[REDACTED:N chars]`
 - Source file/line in log entries
 
-### `events` — Typed Event System
+### [`events`](events/README.md) — Typed Event System
 
 Type-safe wrapper for Wails v3 event emission. Keeps the kit Wails-version-agnostic via a `Backend` interface.
 
@@ -327,6 +327,82 @@ export interface EventMap {
 }
 ```
 
+### [`updates`](updates/README.md) — GitHub-Based Auto-Updates
+
+Self-update mechanism for desktop apps using GitHub Releases. Zero external dependencies — built on `net/http`, `encoding/json`, and an inline semver parser.
+
+```go
+import "github.com/jrschumacher/wails-kit/updates"
+
+svc, err := updates.NewService(
+    updates.WithCurrentVersion("v1.0.0"),
+    updates.WithGitHubRepo("myorg", "myapp"),
+    updates.WithEmitter(emitter),
+    updates.WithAssetPattern("myapp_{os}_{arch}"),
+)
+
+// Check for updates (on startup, timer, or user action)
+rel, err := svc.CheckForUpdate(ctx)  // emits updates:available
+if rel != nil {
+    svc.DownloadUpdate(ctx)   // emits updates:downloading → updates:ready
+    svc.ApplyUpdate(ctx)      // replaces binary; app should prompt restart
+}
+```
+
+**Features:**
+- GitHub Releases API with optional auth token for private repos
+- Semver comparison with full prerelease support
+- Asset matching with OS/arch variants (darwin/macos, amd64/x86_64, etc.)
+- Archive extraction (tar.gz, zip) with path traversal protection
+- Progress events throttled to 250ms
+- Settings group for check frequency, auto-download, prerelease opt-in
+
+**Events:** `updates:available`, `updates:downloading`, `updates:ready`, `updates:error`
+
+**Error codes:** `update_check`, `update_download`, `update_apply`
+
+See [`updates/README.md`](updates/README.md) for full documentation.
+
+### [`taskfiles`](taskfiles/README.md) — Shared Build & Release Tasks
+
+Reusable [Task](https://taskfile.dev/) definitions for building, signing, and publishing wails-kit apps. Reads project config from a single `.wails-kit.yml` file.
+
+```yaml
+# .wails-kit.yml
+app:
+  name: MyApp
+  bundle_id: com.example.myapp
+
+release:
+  github_repo: owner/myapp
+  tap_github_repo: owner/homebrew-tap
+
+signing:
+  developer_id: "Developer ID Application: ..."
+  keychain_profile: AC_PASSWORD
+```
+
+Include in your project's Taskfile:
+
+```yaml
+includes:
+  release:
+    taskfile: https://raw.githubusercontent.com/jrschumacher/wails-kit/main/taskfiles/release.yml
+```
+
+Then run:
+
+```sh
+task release              # uses latest GitHub release tag
+task release VERSION=0.3.0  # explicit version
+```
+
+Handles macOS codesigning + notarization, archive creation, Homebrew tap upload, and cask updates. Signing is skipped gracefully when config values are empty.
+
+**Requires:** [yq](https://github.com/mikefarah/yq) (`brew install yq`), [gh](https://cli.github.com/) (`brew install gh`)
+
+See [`taskfiles/README.md`](taskfiles/README.md) for full documentation.
+
 ## Frontend Integration
 
 The schema returned by `GetSchema()` is framework-agnostic JSON. Any frontend renders it with a generic loop:
@@ -341,6 +417,13 @@ for each group in schema.groups:
     render input for field.type (text/password/select/toggle/number/computed)
 ```
 
+## Required Tools
+
+| Tool | Install | Used by |
+|------|---------|---------|
+| [yq](https://github.com/mikefarah/yq) | `brew install yq` | Shared Taskfiles (reads `.wails-kit.yml`) |
+| [gh](https://cli.github.com/) | `brew install gh` | Release upload, cask update |
+
 ## Environment Variables
 
 | Variable | Purpose |
@@ -349,3 +432,8 @@ for each group in schema.groups:
 | `OPENAI_API_KEY` | OpenAI API key (used by SDK if no secret in settings) |
 | `CF_AIG_AUTHORIZATION` | Cloudflare AI Gateway token |
 | `{APP_PREFIX}_{FIELD_KEY}` | Keyring env var fallback for any password field (headless/CI) |
+
+## Documentation
+
+- [Architecture](docs/architecture.md) — package dependency graph, design patterns, adding new packages
+- [Settings integration](docs/settings-integration.md) — how packages define and consume settings
