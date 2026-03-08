@@ -1,0 +1,89 @@
+# Shared Taskfiles
+
+Reusable [Task](https://taskfile.dev/) definitions for wails-kit apps. These handle the build-sign-release workflow so each app only needs a thin root Taskfile.
+
+## Prerequisites
+
+| Tool | Install | Purpose |
+|------|---------|---------|
+| [Task](https://taskfile.dev/) | `brew install go-task` | Task runner |
+| [yq](https://github.com/mikefarah/yq) | `brew install yq` | Reads `.wails-kit.yml` config |
+| [gh](https://cli.github.com/) | `brew install gh` | GitHub release uploads |
+
+macOS signing also requires Xcode command-line tools (`xcode-select --install`).
+
+## Setup
+
+1. Copy `.wails-kit.example.yml` to `.wails-kit.yml` in your project root and fill in your values.
+
+2. Include the release Taskfile in your project's root `Taskfile.yml`:
+
+```yaml
+version: '3'
+
+includes:
+  # Wails-generated platform Taskfiles
+  common: ./build/Taskfile.yml
+  darwin: ./build/darwin/Taskfile.yml
+  linux: ./build/linux/Taskfile.yml
+
+  # wails-kit shared tasks
+  release:
+    taskfile: https://raw.githubusercontent.com/jrschumacher/wails-kit/main/taskfiles/release.yml
+
+tasks:
+  dev:
+    cmds:
+      - wails3 dev -config ./build/config.yml
+```
+
+## Available tasks
+
+### `release` (default)
+
+Builds, signs (macOS), archives, uploads to your Homebrew tap, and updates the cask.
+
+```sh
+# Uses latest GitHub release tag
+task release
+
+# Explicit version
+task release VERSION=0.3.0
+```
+
+**Flow on macOS:**
+1. `darwin:build` (Wails-generated)
+2. `sign` — codesign with Developer ID (skipped if `signing.developer_id` is empty)
+3. `notarize` — notarytool submit + staple (skipped if `signing.keychain_profile` is empty)
+4. Archive as `.zip`
+5. Upload to Homebrew tap release
+6. Update Homebrew cask formula
+
+**Flow on Linux:**
+1. `linux:build` (Wails-generated)
+2. Archive as `.tar.gz`
+3. Upload to Homebrew tap release
+
+## Configuration
+
+All project-specific values come from `.wails-kit.yml`:
+
+```yaml
+app:
+  name: MyApp                      # Used in archive names, signing, cask
+  bundle_id: com.example.myapp     # macOS bundle identifier
+
+release:
+  github_repo: owner/myapp              # Source of release tags
+  tap_github_repo: owner/homebrew-tap   # Receives assets + cask updates
+
+signing:
+  developer_id: "Developer ID Application: ..."  # Empty = skip signing
+  keychain_profile: AC_PASSWORD                   # Empty = skip notarization
+```
+
+## How it works
+
+The shared Taskfile reads `.wails-kit.yml` via `yq` at task invocation time. It calls back into the Wails-generated platform tasks (`:darwin:build`, `:linux:build`) using Taskfile's root-scoped task references.
+
+Signing and notarization are skipped gracefully when the corresponding config values are empty, so the same Taskfile works in CI (unsigned) and on a developer's machine (signed).

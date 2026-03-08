@@ -1,0 +1,29 @@
+# .wails-kit.yml — Project configuration for wails-kit tooling
+#
+# This file is the single source of truth for app identity, signing,
+# and release configuration. Shared Taskfiles and Go code both read from it.
+#
+# Copy this file to `.wails-kit.yml` in your project root and fill in your values.
+
+app:
+  # Display name of the application (used in archives, release titles, etc.)
+  name: MyApp
+
+  # macOS bundle identifier
+  bundle_id: com.example.myapp
+
+release:
+  # GitHub owner/repo for the app's releases (used by `updates` package and release tasks)
+  github_repo: owner/myapp
+
+  # GitHub owner/repo for the Homebrew tap (receives release assets and cask updates)
+  tap_github_repo: owner/homebrew-tap
+
+signing:
+  # macOS Developer ID for codesigning (e.g. "Developer ID Application: Your Name (TEAMID)")
+  # Leave empty to skip signing.
+  developer_id: ""
+
+  # Notarytool keychain profile name (created via `xcrun notarytool store-credentials`)
+  # Leave empty to skip notarization.
+  keychain_profile: ""

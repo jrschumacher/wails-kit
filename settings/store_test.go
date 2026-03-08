@@ -128,7 +128,9 @@ func TestLoad_StripsUnknownKeys(t *testing.T) {
 
 	// Write a file with an extra key
 	data, _ := json.Marshal(map[string]any{"known": "yes", "stale": "garbage"})
-	os.WriteFile(path, data, 0600)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
 
 	s := NewStore("app", WithPath(path))
 	s.SetKnownKeys(map[string]bool{"known": true})

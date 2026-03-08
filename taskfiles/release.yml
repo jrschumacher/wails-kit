@@ -1,0 +1,181 @@
+# Shared release Taskfile for wails-kit apps.
+#
+# Include this in your project's root Taskfile.yml:
+#
+#   includes:
+#     release:
+#       taskfile: https://raw.githubusercontent.com/jrschumacher/wails-kit/main/taskfiles/release.yml
+#
+# Requires:
+#   - .wails-kit.yml in the project root (see .wails-kit.example.yml)
+#   - yq (https://github.com/mikefarah/yq)
+#   - gh (GitHub CLI)
+#   - Wails-generated platform Taskfiles included at root level as darwin:, linux:, etc.
+
+version: '3'
+
+vars:
+  # Read from .wails-kit.yml — all tasks inherit these.
+  KIT_APP_NAME:
+    sh: yq '.app.name' .wails-kit.yml
+  KIT_GITHUB_REPO:
+    sh: yq '.release.github_repo' .wails-kit.yml
+  KIT_TAP_REPO:
+    sh: yq '.release.tap_github_repo' .wails-kit.yml
+  KIT_DEVELOPER_ID:
+    sh: yq '.signing.developer_id // ""' .wails-kit.yml
+  KIT_KEYCHAIN_PROFILE:
+    sh: yq '.signing.keychain_profile // ""' .wails-kit.yml
+  BIN_DIR: bin
+
+tasks:
+  default:
+    summary: Build, sign, and publish a release
+    desc: |
+      Builds a production binary, signs it (macOS: codesign + notarize),
+      creates an archive, uploads to the Homebrew tap, and updates the cask.
+
+      Defaults to the latest GitHub release tag. Override with VERSION=x.y.z.
+
+      Usage:
+        task release
+        task release VERSION=0.3.0
+    vars:
+      VERSION:
+        sh: gh release view --json tagName -q '.tagName' -R "{{.KIT_GITHUB_REPO}}" 2>/dev/null | sed 's/^v//'
+    preconditions:
+      - sh: test -f .wails-kit.yml
+        msg: "Missing .wails-kit.yml — copy from .wails-kit.example.yml and fill in your values."
+      - sh: command -v yq
+        msg: "yq is required. Install: brew install yq"
+      - sh: command -v gh
+        msg: "GitHub CLI (gh) is required. Install: brew install gh"
+      - sh: '[ -n "{{.VERSION}}" ]'
+        msg: "Could not determine version. Pass it explicitly: task release VERSION=0.3.0"
+    cmds:
+      - echo "Releasing {{.KIT_APP_NAME}} v{{.VERSION}} for {{OS}}/{{ARCH}}"
+      - task: 'release-{{OS}}'
+        vars:
+          VERSION: '{{.VERSION}}'
+
+  release-darwin:
+    summary: Build, sign, notarize, and publish macOS release
+    internal: true
+    vars:
+      APP_LOWER:
+        sh: echo "{{.KIT_APP_NAME}}" | tr '[:upper:]' '[:lower:]'
+      ARCHIVE: '{{.APP_LOWER}}-{{.VERSION}}-darwin-{{ARCH}}.zip'
+    cmds:
+      - task: ':darwin:build'
+      - task: sign
+      - task: notarize
+      - cd "{{.BIN_DIR}}" && zip -r "{{.ARCHIVE}}" "{{.KIT_APP_NAME}}.app"
+      - task: upload
+        vars:
+          VERSION: '{{.VERSION}}'
+          ARCHIVE: '{{.ARCHIVE}}'
+      - task: update-cask
+        vars:
+          VERSION: '{{.VERSION}}'
+          ARCHIVE: '{{.ARCHIVE}}'
+
+  release-linux:
+    summary: Build and publish Linux release
+    internal: true
+    vars:
+      APP_LOWER:
+        sh: echo "{{.KIT_APP_NAME}}" | tr '[:upper:]' '[:lower:]'
+      ARCHIVE: '{{.APP_LOWER}}-{{.VERSION}}-linux-{{ARCH}}.tar.gz'
+    cmds:
+      - task: ':linux:build'
+      - cd "{{.BIN_DIR}}" && tar czf "{{.ARCHIVE}}" "{{.KIT_APP_NAME}}"
+      - task: upload
+        vars:
+          VERSION: '{{.VERSION}}'
+          ARCHIVE: '{{.ARCHIVE}}'
+
+  sign:
+    summary: Codesign the macOS app bundle
+    internal: true
+    status:
+      - '[ -z "{{.KIT_DEVELOPER_ID}}" ]'
+    cmds:
+      - |
+        codesign --force --deep --options runtime \
+          --sign "{{.KIT_DEVELOPER_ID}}" \
+          "{{.BIN_DIR}}/{{.KIT_APP_NAME}}.app"
+      - echo "Signed {{.KIT_APP_NAME}}.app with {{.KIT_DEVELOPER_ID}}"
+
+  notarize:
+    summary: Notarize the macOS app bundle
+    internal: true
+    status:
+      - '[ -z "{{.KIT_KEYCHAIN_PROFILE}}" ]'
+    cmds:
+      - |
+        cd "{{.BIN_DIR}}" && \
+        zip -r "{{.KIT_APP_NAME}}-notarize.zip" "{{.KIT_APP_NAME}}.app" && \
+        xcrun notarytool submit "{{.KIT_APP_NAME}}-notarize.zip" \
+          --keychain-profile "{{.KIT_KEYCHAIN_PROFILE}}" \
+          --wait && \
+        xcrun stapler staple "{{.KIT_APP_NAME}}.app" && \
+        rm "{{.KIT_APP_NAME}}-notarize.zip"
+      - echo "Notarized and stapled {{.KIT_APP_NAME}}.app"
+
+  upload:
+    summary: Upload archive to Homebrew tap release
+    internal: true
+    vars:
+      APP_LOWER:
+        sh: echo "{{.KIT_APP_NAME}}" | tr '[:upper:]' '[:lower:]'
+      TAG: '{{.APP_LOWER}}-v{{.VERSION}}'
+    cmds:
+      - |
+        if gh release view "{{.TAG}}" -R "{{.KIT_TAP_REPO}}" >/dev/null 2>&1; then
+          gh release upload "{{.TAG}}" "{{.BIN_DIR}}/{{.ARCHIVE}}" \
+            -R "{{.KIT_TAP_REPO}}" --clobber
+        else
+          gh release create "{{.TAG}}" "{{.BIN_DIR}}/{{.ARCHIVE}}" \
+            -R "{{.KIT_TAP_REPO}}" \
+            --title "{{.KIT_APP_NAME}} v{{.VERSION}}"
+        fi
+      - echo "Uploaded {{.ARCHIVE}} to {{.KIT_TAP_REPO}} release {{.TAG}}"
+
+  update-cask:
+    summary: Update Homebrew cask with new version and SHA
+    internal: true
+    vars:
+      SHA:
+        sh: shasum -a 256 "{{.BIN_DIR}}/{{.ARCHIVE}}" | awk '{print $1}'
+      APP_LOWER:
+        sh: echo "{{.KIT_APP_NAME}}" | tr '[:upper:]' '[:lower:]'
+    cmds:
+      - |
+        # Clone the tap repo, update the cask formula, push
+        TMPDIR=$(mktemp -d)
+        trap "rm -rf $TMPDIR" EXIT
+
+        gh repo clone "{{.KIT_TAP_REPO}}" "$TMPDIR/tap" -- --depth 1
+
+        CASK_FILE="$TMPDIR/tap/Casks/{{.APP_LOWER}}.rb"
+        if [ ! -f "$CASK_FILE" ]; then
+          echo "Warning: $CASK_FILE not found — skipping cask update"
+          exit 0
+        fi
+
+        # Update version
+        sed -i'' -e 's/version "[^"]*"/version "{{.VERSION}}"/' "$CASK_FILE"
+
+        # Update SHA for the current architecture
+        if [ "{{ARCH}}" = "arm64" ]; then
+          sed -i'' -e '/arm64/,/sha256/{s/sha256 "[^"]*"/sha256 "{{.SHA}}"/;}' "$CASK_FILE"
+        else
+          sed -i'' -e '/intel/,/sha256/{s/sha256 "[^"]*"/sha256 "{{.SHA}}"/;}' "$CASK_FILE"
+        fi
+
+        cd "$TMPDIR/tap"
+        git add -A
+        git commit -m "Update {{.APP_LOWER}} to v{{.VERSION}} ({{ARCH}})"
+        git push
+
+        echo "Updated cask {{.APP_LOWER}} to v{{.VERSION}}"
