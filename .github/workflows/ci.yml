@@ -48,6 +48,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: test
@@ -56,6 +57,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: lint
@@ -64,6 +66,7 @@ jobs:
     name: Security
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: security
