@@ -13,6 +13,7 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: jrschumacher/go-actions/release@v3
         with:
           release-token: ${{ secrets.RELEASE_TOKEN }}
