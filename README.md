@@ -233,6 +233,31 @@ p := &mock.Provider{
 }
 ```
 
+### [`lifecycle`](lifecycle/README.md) — Service Lifecycle Manager
+
+Ordered startup and shutdown of services with dependency tracking and partial failure rollback.
+
+```go
+import "github.com/jrschumacher/wails-kit/lifecycle"
+
+mgr, err := lifecycle.NewManager(
+    lifecycle.WithService("database", dbService),
+    lifecycle.WithService("settings", settingsService, lifecycle.DependsOn("database")),
+    lifecycle.WithService("storage", storageService, lifecycle.DependsOn("database")),
+    lifecycle.WithService("updates", updateService, lifecycle.DependsOn("settings")),
+)
+
+err = mgr.Startup(ctx)   // starts in dependency order; rolls back on failure
+err = mgr.Shutdown()     // stops in reverse order; collects all errors
+```
+
+**Features:**
+- Topological sort with cycle detection at construction time
+- Partial failure rollback — if service N fails, services 1..N-1 are shut down
+- All-errors shutdown — continues through failures, joins all errors
+- Events: `lifecycle:started`, `lifecycle:stopped`, `lifecycle:error`, `lifecycle:rollback`
+- Error codes: `lifecycle_cyclic_dependency`, `lifecycle_missing_dependency`, `lifecycle_startup`, `lifecycle_shutdown`
+
 ### [`errors`](errors/README.md) — User-Facing Error Types
 
 Generic error types for Wails apps. Apps add their own domain-specific codes and messages.
