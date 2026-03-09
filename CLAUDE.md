@@ -64,9 +64,19 @@ Examples:
 6. Update `docs/architecture.md` with the new package's position in the dependency graph
 7. Add the package name as a scope in the **Scopes** list above
 
+### Pre-commit checks
+
+Before committing, always run lint and tests locally to catch issues before CI:
+
+```sh
+task check
+```
+
+This runs `golangci-lint run ./...` and `go test ./...`. Both must pass before committing and pushing.
+
 ### Testing
 
-Run all tests: `go test ./...`
+Run all tests: `go test ./...` or `task test`
 Run a single package: `go test ./updates/`
 
 ### CI

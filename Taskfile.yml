@@ -1,0 +1,18 @@
+version: '3'
+
+tasks:
+  check:
+    desc: Run lint and tests (same checks as CI)
+    cmds:
+      - golangci-lint run ./...
+      - go test ./...
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run ./...
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./...
