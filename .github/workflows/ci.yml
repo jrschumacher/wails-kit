@@ -33,6 +33,7 @@ jobs:
             chore
             revert
           scopes: |
+            frontend
             keyring
             settings
             llm
