@@ -11,12 +11,12 @@ import (
 
 // Dirs holds resolved application directory paths for all categories.
 type Dirs struct {
-	appName  string
-	config   string
-	data     string
-	cache    string
-	log      string
-	temp     string
+	appName string
+	config  string
+	data    string
+	cache   string
+	log     string
+	temp    string
 }
 
 // Option configures a Dirs instance.
@@ -60,17 +60,19 @@ func New(appName string, opts ...Option) *Dirs {
 	}
 
 	// Fill in OS defaults for any paths not overridden
+	home := homeDir()
+	goos := runtime.GOOS
 	if d.config == "" {
-		d.config = defaultConfig(appName)
+		d.config = configDir(goos, home, appName)
 	}
 	if d.data == "" {
-		d.data = defaultData(appName)
+		d.data = dataDir(goos, home, appName)
 	}
 	if d.cache == "" {
-		d.cache = defaultCache(appName)
+		d.cache = cacheDir(goos, home, appName)
 	}
 	if d.log == "" {
-		d.log = defaultLog(appName)
+		d.log = logDir(goos, home, appName)
 	}
 	if d.temp == "" {
 		d.temp = filepath.Join(os.TempDir(), appName)
@@ -131,70 +133,70 @@ func homeDir() string {
 	return home
 }
 
-func defaultConfig(appName string) string {
-	switch runtime.GOOS {
+func configDir(goos, home, appName string) string {
+	switch goos {
 	case "darwin":
-		return filepath.Join(homeDir(), "Library", "Application Support", appName)
+		return filepath.Join(home, "Library", "Application Support", appName)
 	case "windows":
 		if dir := os.Getenv("APPDATA"); dir != "" {
 			return filepath.Join(dir, appName)
 		}
-		return filepath.Join(homeDir(), "AppData", "Roaming", appName)
+		return filepath.Join(home, "AppData", "Roaming", appName)
 	default:
 		if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
 			return filepath.Join(dir, appName)
 		}
-		return filepath.Join(homeDir(), ".config", appName)
+		return filepath.Join(home, ".config", appName)
 	}
 }
 
-func defaultData(appName string) string {
-	switch runtime.GOOS {
+func dataDir(goos, home, appName string) string {
+	switch goos {
 	case "darwin":
-		return filepath.Join(homeDir(), "Library", "Application Support", appName)
+		return filepath.Join(home, "Library", "Application Support", appName)
 	case "windows":
 		if dir := os.Getenv("APPDATA"); dir != "" {
 			return filepath.Join(dir, appName)
 		}
-		return filepath.Join(homeDir(), "AppData", "Roaming", appName)
+		return filepath.Join(home, "AppData", "Roaming", appName)
 	default:
 		if dir := os.Getenv("XDG_DATA_HOME"); dir != "" {
 			return filepath.Join(dir, appName)
 		}
-		return filepath.Join(homeDir(), ".local", "share", appName)
+		return filepath.Join(home, ".local", "share", appName)
 	}
 }
 
-func defaultCache(appName string) string {
-	switch runtime.GOOS {
+func cacheDir(goos, home, appName string) string {
+	switch goos {
 	case "darwin":
-		return filepath.Join(homeDir(), "Library", "Caches", appName)
+		return filepath.Join(home, "Library", "Caches", appName)
 	case "windows":
 		if dir := os.Getenv("LOCALAPPDATA"); dir != "" {
 			return filepath.Join(dir, appName, "cache")
 		}
-		return filepath.Join(homeDir(), "AppData", "Local", appName, "cache")
+		return filepath.Join(home, "AppData", "Local", appName, "cache")
 	default:
 		if dir := os.Getenv("XDG_CACHE_HOME"); dir != "" {
 			return filepath.Join(dir, appName)
 		}
-		return filepath.Join(homeDir(), ".cache", appName)
+		return filepath.Join(home, ".cache", appName)
 	}
 }
 
-func defaultLog(appName string) string {
-	switch runtime.GOOS {
+func logDir(goos, home, appName string) string {
+	switch goos {
 	case "darwin":
-		return filepath.Join(homeDir(), "Library", "Logs", appName)
+		return filepath.Join(home, "Library", "Logs", appName)
 	case "windows":
 		if dir := os.Getenv("LOCALAPPDATA"); dir != "" {
 			return filepath.Join(dir, appName, "logs")
 		}
-		return filepath.Join(homeDir(), "AppData", "Local", appName, "logs")
+		return filepath.Join(home, "AppData", "Local", appName, "logs")
 	default:
 		if dir := os.Getenv("XDG_STATE_HOME"); dir != "" {
 			return filepath.Join(dir, appName)
 		}
-		return filepath.Join(homeDir(), ".local", "state", appName)
+		return filepath.Join(home, ".local", "state", appName)
 	}
 }

@@ -290,3 +290,179 @@ func TestPartialOverride(t *testing.T) {
 		t.Fatal("Cache() should return OS default, not empty")
 	}
 }
+
+func TestConfigDirDarwin(t *testing.T) {
+	got := configDir("darwin", "/Users/test", "my-app")
+	expected := filepath.Join("/Users/test", "Library", "Application Support", "my-app")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestConfigDirLinuxDefault(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	got := configDir("linux", "/home/test", "my-app")
+	expected := filepath.Join("/home/test", ".config", "my-app")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestConfigDirLinuxXDG(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/custom/config")
+	got := configDir("linux", "/home/test", "my-app")
+	expected := filepath.Join("/custom/config", "my-app")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestConfigDirWindowsEnv(t *testing.T) {
+	t.Setenv("APPDATA", "/appdata")
+	got := configDir("windows", "/home/test", "my-app")
+	expected := filepath.Join("/appdata", "my-app")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestConfigDirWindowsFallback(t *testing.T) {
+	t.Setenv("APPDATA", "")
+	got := configDir("windows", "/home/test", "my-app")
+	expected := filepath.Join("/home/test", "AppData", "Roaming", "my-app")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestDataDirDarwin(t *testing.T) {
+	got := dataDir("darwin", "/Users/test", "my-app")
+	expected := filepath.Join("/Users/test", "Library", "Application Support", "my-app")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestDataDirLinuxDefault(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", "")
+	got := dataDir("linux", "/home/test", "my-app")
+	expected := filepath.Join("/home/test", ".local", "share", "my-app")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestDataDirLinuxXDG(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", "/custom/data")
+	got := dataDir("linux", "/home/test", "my-app")
+	expected := filepath.Join("/custom/data", "my-app")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestDataDirWindowsEnv(t *testing.T) {
+	t.Setenv("APPDATA", "/appdata")
+	got := dataDir("windows", "/home/test", "my-app")
+	expected := filepath.Join("/appdata", "my-app")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestDataDirWindowsFallback(t *testing.T) {
+	t.Setenv("APPDATA", "")
+	got := dataDir("windows", "/home/test", "my-app")
+	expected := filepath.Join("/home/test", "AppData", "Roaming", "my-app")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestCacheDirDarwin(t *testing.T) {
+	got := cacheDir("darwin", "/Users/test", "my-app")
+	expected := filepath.Join("/Users/test", "Library", "Caches", "my-app")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestCacheDirLinuxDefault(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", "")
+	got := cacheDir("linux", "/home/test", "my-app")
+	expected := filepath.Join("/home/test", ".cache", "my-app")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestCacheDirLinuxXDG(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", "/custom/cache")
+	got := cacheDir("linux", "/home/test", "my-app")
+	expected := filepath.Join("/custom/cache", "my-app")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestCacheDirWindowsEnv(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", "/localappdata")
+	got := cacheDir("windows", "/home/test", "my-app")
+	expected := filepath.Join("/localappdata", "my-app", "cache")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestCacheDirWindowsFallback(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", "")
+	got := cacheDir("windows", "/home/test", "my-app")
+	expected := filepath.Join("/home/test", "AppData", "Local", "my-app", "cache")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestLogDirDarwin(t *testing.T) {
+	got := logDir("darwin", "/Users/test", "my-app")
+	expected := filepath.Join("/Users/test", "Library", "Logs", "my-app")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestLogDirLinuxDefault(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "")
+	got := logDir("linux", "/home/test", "my-app")
+	expected := filepath.Join("/home/test", ".local", "state", "my-app")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestLogDirLinuxXDG(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "/custom/state")
+	got := logDir("linux", "/home/test", "my-app")
+	expected := filepath.Join("/custom/state", "my-app")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestLogDirWindowsEnv(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", "/localappdata")
+	got := logDir("windows", "/home/test", "my-app")
+	expected := filepath.Join("/localappdata", "my-app", "logs")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
+
+func TestLogDirWindowsFallback(t *testing.T) {
+	t.Setenv("LOCALAPPDATA", "")
+	got := logDir("windows", "/home/test", "my-app")
+	expected := filepath.Join("/home/test", "AppData", "Local", "my-app", "logs")
+	if got != expected {
+		t.Fatalf("expected %s, got %s", expected, got)
+	}
+}
