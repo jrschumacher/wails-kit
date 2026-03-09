@@ -7,25 +7,31 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 ```
 ┌──────────┐     ┌──────────┐     ┌──────────┐
 │ settings │────▶│ keyring  │     │ logging  │
-└────┬─────┘     └──────────┘     └──────────┘
-     │
+└────┬──┬──┘     └──────────┘     └────┬─────┘
+     │  │                              │
+     │  └──────────┐  ┌────────────────┘
+     ▼             ▼  ▼
+┌──────────┐     ┌──────────┐
+│   llm    │     │ appdirs  │  (leaf — no kit dependencies)
+└──────────┘     └──────────┘
+                       ▲
+┌──────────┐     ┌─────┘
+│ updates  │────▶│
+└────┬──┬──┘     │
+     │  │        │
+     │  └────────┘
      ▼
-┌──────────┐     ┌──────────┐     ┌──────────┐
-│   llm    │     │ updates  │────▶│ settings │ (optional)
-└──────────┘     └────┬─────┘     └──────────┘
-                      │
-                      ▼
-                 ┌──────────┐     ┌──────────┐
-                 │ events   │     │  errors  │
-                 └──────────┘     └──────────┘
+┌──────────┐     ┌──────────┐
+│ events   │     │  errors  │
+└──────────┘     └──────────┘
 ```
 
-- `errors` and `events` are leaf packages with no kit dependencies
+- `errors`, `events`, and `appdirs` are leaf packages with no kit dependencies
 - `keyring` is a leaf package
-- `settings` depends on `keyring` for password field storage
+- `settings` depends on `keyring` for password field storage and `appdirs` for config paths
 - `llm` depends on `settings` for configuration
-- `updates` depends on `errors` and `events`; optionally depends on `settings`
-- `logging` is standalone
+- `updates` depends on `errors`, `events`, and `appdirs`; optionally depends on `settings`
+- `logging` depends on `appdirs` for log directory paths
 
 ## Design patterns
 

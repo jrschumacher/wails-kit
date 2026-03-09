@@ -33,6 +33,7 @@ jobs:
             chore
             revert
           scopes: |
+            appdirs
             frontend
             keyring
             settings

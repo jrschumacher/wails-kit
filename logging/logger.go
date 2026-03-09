@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jrschumacher/wails-kit/appdirs"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -51,7 +52,8 @@ func Init(config *Config) error {
 
 	dir := config.LogDir
 	if dir == "" {
-		dir = logDir(config.AppName)
+		dirs := appdirs.New(config.AppName)
+		dir = dirs.Log()
 	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("logging: create dir: %w", err)

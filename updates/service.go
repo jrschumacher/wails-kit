@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/jrschumacher/wails-kit/appdirs"
 	"github.com/jrschumacher/wails-kit/errors"
 	"github.com/jrschumacher/wails-kit/events"
 	"github.com/jrschumacher/wails-kit/settings"
@@ -67,6 +68,7 @@ type Service struct {
 	emitter            *events.Emitter
 	applier            Applier
 	settings           *settings.Service
+	appName            string
 	assetPattern       string
 	binaryName         string
 	includePrereleases bool
@@ -158,6 +160,13 @@ func WithSettings(svc *settings.Service) ServiceOption {
 	}
 }
 
+// WithAppName sets the application name, used for app-namespaced temp directories.
+func WithAppName(name string) ServiceOption {
+	return func(s *Service) {
+		s.appName = name
+	}
+}
+
 // WithIncludePrereleases sets whether to include pre-release versions.
 // This is the static fallback; if WithSettings is also provided, the
 // settings value takes precedence.
@@ -239,8 +248,17 @@ func (s *Service) DownloadUpdate(ctx context.Context) (string, error) {
 		return "", errors.Wrap(ErrUpdateDownload, "find platform asset", err)
 	}
 
-	// Download to a temp file
-	tmpFile, err := os.CreateTemp("", "wails-kit-update-*-"+asset.Name)
+	// Download to an app-namespaced temp directory
+	appName := s.appName
+	if appName == "" {
+		appName = "wails-kit"
+	}
+	dirs := appdirs.New(appName)
+	tmpDir := dirs.Temp()
+	if err := os.MkdirAll(tmpDir, 0700); err != nil {
+		return "", errors.Wrap(ErrUpdateDownload, "create temp dir", err)
+	}
+	tmpFile, err := os.CreateTemp(tmpDir, "update-*-"+asset.Name)
 	if err != nil {
 		return "", errors.Wrap(ErrUpdateDownload, "create temp file", err)
 	}
