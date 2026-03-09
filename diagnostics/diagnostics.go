@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -25,24 +26,37 @@ import (
 const (
 	ErrBundleCreate errors.Code = "diagnostics_bundle"
 	ErrBundleLogs   errors.Code = "diagnostics_logs"
+	ErrBundleSubmit errors.Code = "diagnostics_submit"
 )
 
 func init() {
 	errors.RegisterMessages(map[errors.Code]string{
 		ErrBundleCreate: "Failed to create the diagnostics bundle. Please try again.",
 		ErrBundleLogs:   "Failed to collect log files for the diagnostics bundle.",
+		ErrBundleSubmit: "Failed to submit the diagnostics bundle. Please try again.",
 	})
 }
 
+// CollectorFunc is a function that collects custom data for the diagnostics bundle.
+// The returned bytes are written as-is to a file in the collectors/ directory.
+type CollectorFunc func(ctx context.Context) ([]byte, error)
+
 // Event names.
 const (
-	EventBundleCreated = "diagnostics:bundle_created"
+	EventBundleCreated   = "diagnostics:bundle_created"
+	EventBundleSubmitted = "diagnostics:bundle_submitted"
 )
 
 // BundleCreatedPayload is emitted when a bundle is successfully created.
 type BundleCreatedPayload struct {
 	Path string `json:"path"`
 	Size int64  `json:"size"`
+}
+
+// BundleSubmittedPayload is emitted when a bundle is successfully submitted via webhook.
+type BundleSubmittedPayload struct {
+	Path       string `json:"path"`
+	StatusCode int    `json:"statusCode"`
 }
 
 // SystemInfo holds system and application metadata for the bundle.
@@ -64,7 +78,12 @@ type Service struct {
 	dirs       *appdirs.Dirs
 	settings   *settings.Service
 	emitter    *events.Emitter
-	maxLogSize int64 // bytes; total cap for log files in bundle
+	maxLogSize       int64 // bytes; total cap for log files in bundle
+	collectors       map[string]CollectorFunc
+	webhookToken     string
+	webhookTimeout   time.Duration
+	webhookMaxRetries int
+	httpClient       *http.Client
 }
 
 // ServiceOption configures a Service.
@@ -105,6 +124,39 @@ func WithEmitter(e *events.Emitter) ServiceOption {
 // include in the bundle. Defaults to 10MB.
 func WithMaxLogSize(bytes int64) ServiceOption {
 	return func(s *Service) { s.maxLogSize = bytes }
+}
+
+// WithCustomCollector registers a named collector that contributes data to the
+// bundle. The collector's output is written to collectors/{name} in the zip.
+// If the collector returns an error, it is skipped silently.
+func WithCustomCollector(name string, fn CollectorFunc) ServiceOption {
+	return func(s *Service) {
+		if s.collectors == nil {
+			s.collectors = make(map[string]CollectorFunc)
+		}
+		s.collectors[name] = fn
+	}
+}
+
+// WithWebhookToken sets the bearer token for authenticating webhook requests.
+func WithWebhookToken(token string) ServiceOption {
+	return func(s *Service) { s.webhookToken = token }
+}
+
+// WithWebhookTimeout sets the timeout for webhook HTTP requests. Defaults to 30s.
+func WithWebhookTimeout(d time.Duration) ServiceOption {
+	return func(s *Service) { s.webhookTimeout = d }
+}
+
+// WithWebhookMaxRetries sets the maximum number of attempts for webhook
+// submission. Defaults to 3.
+func WithWebhookMaxRetries(n int) ServiceOption {
+	return func(s *Service) { s.webhookMaxRetries = n }
+}
+
+// WithHTTPClient sets a custom HTTP client for webhook requests. Useful for testing.
+func WithHTTPClient(c *http.Client) ServiceOption {
+	return func(s *Service) { s.httpClient = c }
 }
 
 const defaultMaxLogSize = 10 * 1024 * 1024 // 10MB
@@ -180,7 +232,13 @@ func (s *Service) CreateBundle(ctx context.Context, outputDir string) (string, e
 		}
 	}
 
-	// 4. Manifest
+	// 4. Custom collectors
+	if len(s.collectors) > 0 {
+		collectorFiles := s.writeCollectors(ctx, zw)
+		manifest = append(manifest, collectorFiles...)
+	}
+
+	// 5. Manifest
 	if err := writeManifest(zw, manifest); err != nil {
 		return "", errors.Wrap(ErrBundleCreate, "write manifest", err)
 	}
@@ -382,6 +440,32 @@ func addFileToZip(zw *zip.Writer, zipPath, srcPath string) error {
 	}
 	_, err = io.Copy(w, src)
 	return err
+}
+
+func (s *Service) writeCollectors(ctx context.Context, zw *zip.Writer) []string {
+	// Sort keys for deterministic output
+	names := make([]string, 0, len(s.collectors))
+	for name := range s.collectors {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var included []string
+	for _, name := range names {
+		data, err := s.collectors[name](ctx)
+		if err != nil {
+			continue // skip failed collectors
+		}
+		w, err := zw.Create("collectors/" + name)
+		if err != nil {
+			continue
+		}
+		if _, err := w.Write(data); err != nil {
+			continue
+		}
+		included = append(included, "collectors/"+name)
+	}
+	return included
 }
 
 func writeManifest(zw *zip.Writer, files []string) error {

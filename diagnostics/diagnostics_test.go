@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -305,6 +306,75 @@ func TestCreateBundle(t *testing.T) {
 		_, err = svc.CreateBundle(context.Background(), outputDir)
 		if err != nil {
 			t.Fatal("nonexistent log dir should not cause error")
+		}
+	})
+}
+
+func TestCustomCollectors(t *testing.T) {
+	t.Run("includes collector output in bundle", func(t *testing.T) {
+		outputDir := t.TempDir()
+		svc, err := NewService(
+			WithAppName("test-app"),
+			WithCustomCollector("db-version.json", func(ctx context.Context) ([]byte, error) {
+				return []byte(`{"version": "3.42.0"}`), nil
+			}),
+			WithCustomCollector("routes.json", func(ctx context.Context) ([]byte, error) {
+				return []byte(`["/api/v1/users"]`), nil
+			}),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		path, err := svc.CreateBundle(context.Background(), outputDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		files := readZipFiles(t, path)
+		if data, ok := files["collectors/db-version.json"]; !ok {
+			t.Error("missing collectors/db-version.json")
+		} else if string(data) != `{"version": "3.42.0"}` {
+			t.Errorf("unexpected collector content: %s", data)
+		}
+
+		if _, ok := files["collectors/routes.json"]; !ok {
+			t.Error("missing collectors/routes.json")
+		}
+
+		// Check manifest
+		manifest := string(files["manifest.txt"])
+		if !strings.Contains(manifest, "collectors/db-version.json") {
+			t.Error("manifest should list collector files")
+		}
+	})
+
+	t.Run("skips failed collectors", func(t *testing.T) {
+		outputDir := t.TempDir()
+		svc, err := NewService(
+			WithAppName("test-app"),
+			WithCustomCollector("good.json", func(ctx context.Context) ([]byte, error) {
+				return []byte(`"ok"`), nil
+			}),
+			WithCustomCollector("bad.json", func(ctx context.Context) ([]byte, error) {
+				return nil, fmt.Errorf("collector failed")
+			}),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		path, err := svc.CreateBundle(context.Background(), outputDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		files := readZipFiles(t, path)
+		if _, ok := files["collectors/good.json"]; !ok {
+			t.Error("expected good.json to be included")
+		}
+		if _, ok := files["collectors/bad.json"]; ok {
+			t.Error("expected bad.json to be excluded")
 		}
 	})
 }

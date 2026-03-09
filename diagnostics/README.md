@@ -15,6 +15,10 @@ svc, err := diagnostics.NewService(
     diagnostics.WithSettings(settingsSvc),      // optional: include sanitized settings
     diagnostics.WithEmitter(emitter),           // optional: event notifications
     diagnostics.WithMaxLogSize(10*1024*1024),   // optional: log size cap (default 10MB)
+    diagnostics.WithCustomCollector("db.json", dbCollector), // optional: custom data
+    diagnostics.WithWebhookToken("token"),      // optional: bearer auth for webhook
+    diagnostics.WithWebhookTimeout(30*time.Second), // optional: webhook timeout (default 30s)
+    diagnostics.WithWebhookMaxRetries(3),       // optional: webhook retries (default 3)
 )
 ```
 
@@ -31,6 +35,51 @@ path, err := svc.CreateBundle(ctx, "/path/to/save/")
 info := svc.GetSystemInfo()
 // SystemInfo{OS, Arch, GoVersion, AppName, AppVersion, NumCPU, Timestamp}
 ```
+
+### Submit bundle via webhook
+
+```go
+err := svc.SubmitBundle(ctx, bundlePath, "https://support.example.com/diagnostics")
+```
+
+Sends a multipart POST with the zip bundle. Includes `X-App-Name` and `X-App-Version` headers, and optional `Authorization: Bearer <token>` if configured. Retries with exponential backoff on 5xx errors; fails immediately on 4xx errors.
+
+### Custom collectors
+
+Register functions that contribute arbitrary data to the bundle:
+
+```go
+svc, _ := diagnostics.NewService(
+    diagnostics.WithAppName("my-app"),
+    diagnostics.WithCustomCollector("db-version.json", func(ctx context.Context) ([]byte, error) {
+        version, err := db.QueryVersion(ctx)
+        if err != nil {
+            return nil, err
+        }
+        return json.Marshal(map[string]string{"version": version})
+    }),
+    diagnostics.WithCustomCollector("feature-flags.json", func(ctx context.Context) ([]byte, error) {
+        return json.Marshal(featureFlags)
+    }),
+)
+```
+
+Each collector's output is written to `collectors/{name}` in the zip. Failed collectors are silently skipped.
+
+### Panic capture
+
+Wrap goroutines with `RecoverAndLog` to capture panics as crash logs:
+
+```go
+go func() {
+    defer diagnostics.RecoverAndLog(diagSvc)()
+    // ... work that may panic ...
+}()
+```
+
+On panic, writes a `crash-{timestamp}.log` file to the log directory containing the panic message and stack trace. These crash logs are automatically included in the next bundle created by `CreateBundle`.
+
+**Limitations:** Only captures panics in goroutines that explicitly use this helper. Does not capture panics in the main goroutine or goroutines started by third-party libraries.
 
 ### Register as a Wails service
 
@@ -51,8 +100,11 @@ diagnostics-my-app-2026-03-08T12-00-00.zip
 ├── manifest.txt      # Lists all files in the bundle for user review
 ├── system.json       # OS, arch, Go version, app version, CPU count
 ├── settings.json     # Sanitized settings (passwords redacted)
+├── collectors/
+│   └── db-version.json   # Output from custom collectors
 └── logs/
     ├── app.log               # Current log file
+    ├── crash-2026-03-08T12-00-00.log  # Panic crash log
     └── app-2026-03-07.log.gz # Recent rotated logs
 ```
 
@@ -72,6 +124,7 @@ When a settings service is provided, all password fields (identified by `setting
 | Event | Payload | When |
 |-------|---------|------|
 | `diagnostics:bundle_created` | `BundleCreatedPayload{Path, Size}` | Bundle zip successfully created |
+| `diagnostics:bundle_submitted` | `BundleSubmittedPayload{Path, StatusCode}` | Bundle successfully submitted via webhook |
 
 ## Error codes
 
@@ -79,6 +132,7 @@ When a settings service is provided, all password fields (identified by `setting
 |------|-------------|
 | `diagnostics_bundle` | Failed to create the diagnostics bundle. Please try again. |
 | `diagnostics_logs` | Failed to collect log files for the diagnostics bundle. |
+| `diagnostics_submit` | Failed to submit the diagnostics bundle. Please try again. |
 
 ## Example: full integration
 
@@ -90,6 +144,10 @@ func setupDiagnostics(dirs *appdirs.Dirs, settingsSvc *settings.Service, emitter
         diagnostics.WithDirs(dirs),
         diagnostics.WithSettings(settingsSvc),
         diagnostics.WithEmitter(emitter),
+        diagnostics.WithWebhookToken(os.Getenv("SUPPORT_TOKEN")),
+        diagnostics.WithCustomCollector("db-version.json", func(ctx context.Context) ([]byte, error) {
+            return json.Marshal(map[string]string{"sqlite": db.Version()})
+        }),
     )
     if err != nil {
         log.Fatal(err)
