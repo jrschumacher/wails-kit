@@ -28,6 +28,91 @@ type Backend interface {
 
 `BackendFunc` adapts a plain function to the `Backend` interface for convenience.
 
+## Multi-window support
+
+Register windows to send targeted events:
+
+```go
+emitter.RegisterWindow("preferences", prefsBackend)
+
+// Target a specific window
+emitter.EmitTo("preferences", events.SettingsChanged, payload)
+
+// Broadcast to all windows (default backend)
+emitter.Emit(events.SettingsChanged, payload)
+```
+
+## Event history and replay
+
+Enable history to replay recent events to late-joining windows:
+
+```go
+emitter := events.NewEmitter(backend, events.WithHistory(100))
+
+// Emit some events...
+emitter.Emit(events.SettingsChanged, payload)
+
+// Later, when a new window joins:
+emitter.RegisterWindow("preferences", prefsBackend)
+emitter.Replay("preferences", events.SettingsChanged) // sends most recent
+emitter.ReplayAll("preferences")                       // sends latest of each event name
+```
+
+History uses a ring buffer — older events are evicted when the buffer is full. Both `Emit` and `EmitTo` events are recorded.
+
+## Middleware
+
+Middleware processes broadcast events (`Emit`) before they reach the backend. Targeted events (`EmitTo`) bypass middleware.
+
+### Debounce
+
+Delays emission until no new events arrive for the specified duration. Only the last payload is emitted.
+
+```go
+emitter := events.NewEmitter(backend,
+    events.WithDebounce(events.SettingsChanged, 100*time.Millisecond),
+)
+```
+
+### Throttle
+
+Allows at most one event per duration (leading edge). Events within the throttle window are dropped.
+
+```go
+emitter := events.NewEmitter(backend,
+    events.WithThrottle("mouse:move", 16*time.Millisecond),
+)
+```
+
+### Batching
+
+Collects events until `maxSize` is reached or the duration elapses, then emits them as a single `[]any` payload.
+
+```go
+emitter := events.NewEmitter(backend,
+    events.WithBatching("log:entry", 500*time.Millisecond, 50),
+)
+```
+
+### Cleanup
+
+Call `Close()` when shutting down to flush pending debounced and batched events:
+
+```go
+emitter.Close()
+```
+
+## Typed subscriptions
+
+Register type-safe handlers that run on the emitting goroutine:
+
+```go
+sub := events.On(emitter, events.SettingsChanged, func(p events.SettingsChangedPayload) {
+    // handle
+})
+sub.Cancel() // unsubscribe
+```
+
 ## Kit-provided events
 
 | Constant | Event name | Payload |
@@ -46,13 +131,16 @@ emitter := events.NewEmitter(mem)
 
 // ... trigger actions ...
 
-mem.Events()  // []Record — all emitted events
-mem.Last()    // *Record — most recent event
-mem.Count()   // int — number of events
-mem.Clear()   // reset
+mem.Events()              // []Record — all emitted events
+mem.Last()                // *Record — most recent event
+mem.Count()               // int — number of events
+mem.Clear()               // reset
+mem.Broadcasts()          // []Record — non-targeted events only
+mem.EventsFor("main")    // []Record — events for a specific window
+mem.WaitFor("name", 1*time.Second) // block until event is emitted
 ```
 
-Each `Record` has `Name string` and `Data any` fields.
+Each `Record` has `Name string`, `Data any`, and `WindowID string` (empty for broadcasts) fields.
 
 ## Frontend pattern
 

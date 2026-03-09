@@ -8,11 +8,21 @@ import "sync"
 // Emitter supports multi-window apps via window registration and targeted
 // emission. Windows are registered with RegisterWindow and events can be
 // sent to specific windows with EmitTo, or broadcast to all with Emit.
+//
+// Optional features can be enabled via EmitterOption functions:
+//   - WithHistory: ring buffer for replaying events to late-joining windows
+//   - WithDebounce: delay emission until quiet period (broadcast only)
+//   - WithThrottle: rate-limit emission (broadcast only)
+//   - WithBatching: collect events into batches (broadcast only)
 type Emitter struct {
-	backend  Backend
-	windows  map[string]Backend
-	handlers []*handler
-	mu       sync.RWMutex
+	backend   Backend
+	windows   map[string]Backend
+	handlers  []*handler
+	history   *history
+	debounces map[string]*debouncer
+	throttles map[string]*throttler
+	batchers  map[string]*batcher
+	mu        sync.RWMutex
 }
 
 // Backend is the interface for the underlying event emission mechanism.
@@ -27,29 +37,62 @@ type BackendFunc func(name string, data any)
 func (f BackendFunc) Emit(name string, data any) { f(name, data) }
 
 // NewEmitter creates an Emitter backed by the given Backend.
-func NewEmitter(backend Backend) *Emitter {
-	return &Emitter{
+func NewEmitter(backend Backend, opts ...EmitterOption) *Emitter {
+	e := &Emitter{
 		backend: backend,
 		windows: make(map[string]Backend),
 	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
+}
+
+// rawEmit sends the event through the backend, records history, and
+// notifies handlers. This is the final step after middleware processing.
+func (e *Emitter) rawEmit(name string, data any) {
+	e.backend.Emit(name, data)
+	if e.history != nil {
+		e.history.record(Record{Name: name, Data: data})
+	}
+	e.notify(name, data)
 }
 
 // Emit broadcasts a named event with a typed payload to all windows
-// via the default backend. Registered handlers are also notified.
+// via the default backend. Middleware (debounce, throttle, batch) is
+// applied if configured for this event name. Registered handlers are
+// also notified.
 func (e *Emitter) Emit(name string, data any) {
-	e.backend.Emit(name, data)
-	e.notify(name, data)
+	if d, ok := e.debounces[name]; ok {
+		d.push(name, data, e.rawEmit)
+		return
+	}
+	if t, ok := e.throttles[name]; ok {
+		if t.allow() {
+			e.rawEmit(name, data)
+		}
+		return
+	}
+	if b, ok := e.batchers[name]; ok {
+		b.add(name, data, e.rawEmit)
+		return
+	}
+	e.rawEmit(name, data)
 }
 
 // EmitTo sends a named event to a specific registered window.
 // If the window ID is not registered, the event is silently dropped.
-// Registered handlers are notified regardless.
+// Registered handlers are notified regardless. Middleware is not applied
+// to targeted emissions.
 func (e *Emitter) EmitTo(windowID string, name string, data any) {
 	e.mu.RLock()
 	w, ok := e.windows[windowID]
 	e.mu.RUnlock()
 	if ok {
 		w.Emit(name, data)
+	}
+	if e.history != nil {
+		e.history.record(Record{Name: name, Data: data, WindowID: windowID})
 	}
 	e.notify(name, data)
 }
@@ -66,6 +109,53 @@ func (e *Emitter) UnregisterWindow(id string) {
 	e.mu.Lock()
 	delete(e.windows, id)
 	e.mu.Unlock()
+}
+
+// Replay sends the most recent event of the given name to the specified
+// window. If history is not enabled or no matching event exists, this is
+// a no-op.
+func (e *Emitter) Replay(windowID string, eventName string) {
+	if e.history == nil {
+		return
+	}
+	r := e.history.last(eventName)
+	if r == nil {
+		return
+	}
+	e.mu.RLock()
+	w, ok := e.windows[windowID]
+	e.mu.RUnlock()
+	if ok {
+		w.Emit(r.Name, r.Data)
+	}
+}
+
+// ReplayAll sends the latest event of each distinct name to the specified
+// window. Useful for initializing a new window with current state.
+func (e *Emitter) ReplayAll(windowID string) {
+	if e.history == nil {
+		return
+	}
+	e.mu.RLock()
+	w, ok := e.windows[windowID]
+	e.mu.RUnlock()
+	if !ok {
+		return
+	}
+	for _, r := range e.history.latest() {
+		w.Emit(r.Name, r.Data)
+	}
+}
+
+// Close flushes any pending middleware events (debounced events are emitted,
+// batched events are flushed). Call this when shutting down the application.
+func (e *Emitter) Close() {
+	for _, d := range e.debounces {
+		d.flush()
+	}
+	for _, b := range e.batchers {
+		b.flush()
+	}
 }
 
 // Subscription represents a cancellable event subscription.
