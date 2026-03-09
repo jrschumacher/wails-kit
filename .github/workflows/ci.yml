@@ -34,6 +34,7 @@ jobs:
             revert
           scopes: |
             appdirs
+            ci
             database
             diagnostics
             frontend
