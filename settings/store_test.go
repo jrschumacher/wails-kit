@@ -178,6 +178,39 @@ func TestLoad_StripsUnknownKeys(t *testing.T) {
 	}
 }
 
+func TestSave_StripsUnknownKeysFromDisk(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	data, _ := json.Marshal(map[string]any{"known": "yes", "stale": "garbage"})
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatalf("write error: %v", err)
+	}
+
+	s := NewStore("app", WithPath(path))
+	s.SetKnownKeys(map[string]bool{"known": true})
+
+	if err := s.Save(map[string]any{"known": "updated"}); err != nil {
+		t.Fatalf("save error: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+
+	var saved map[string]any
+	if err := json.Unmarshal(raw, &saved); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if saved["known"] != "updated" {
+		t.Fatalf("expected known=updated, got %v", saved["known"])
+	}
+	if _, ok := saved["stale"]; ok {
+		t.Fatal("expected stale key to be removed from disk")
+	}
+}
+
 func TestSave_DirectoryPermissions(t *testing.T) {
 	dir := t.TempDir()
 	subdir := filepath.Join(dir, "newdir")
