@@ -64,6 +64,12 @@ func TestWithModelBudget(t *testing.T) {
 	if cb.MaxTokens != 16384 {
 		t.Errorf("expected max tokens 16384 from model budget, got %d", cb.MaxTokens)
 	}
+	if cb.effectiveContextWindow() != 200000 {
+		t.Errorf("expected context window 200000 from model budget, got %d", cb.effectiveContextWindow())
+	}
+	if cb.WindowSize != DefaultWindowSize {
+		t.Errorf("expected message window size to stay at default %d, got %d", DefaultWindowSize, cb.WindowSize)
+	}
 }
 
 func TestWithModelBudget_UnknownModel(t *testing.T) {
@@ -330,6 +336,27 @@ func TestWithTokenCounter(t *testing.T) {
 	// The windowed messages (excluding summary/bridge) should be fewer than original
 	if len(result) > 47 {
 		t.Errorf("expected significant trimming, got %d messages", len(result))
+	}
+}
+
+func TestWithTokenCounterAndModelBudget_UsesModelContextWindow(t *testing.T) {
+	wordCounter := func(s string) int {
+		if s == "" {
+			return 0
+		}
+		return len(strings.Fields(s))
+	}
+
+	cb := NewContextBuilder("You are helpful.",
+		WithTokenCounter(wordCounter),
+		WithModelBudget("gpt-4o"),
+	)
+
+	msgs := makeMessages(50)
+	result := cb.BuildMessages(msgs)
+
+	if len(result) != len(msgs) {
+		t.Fatalf("expected all messages to fit within model context budget, got %d of %d", len(result), len(msgs))
 	}
 }
 

@@ -30,6 +30,7 @@ type ContextBuilder struct {
 	WindowSize     int
 	SystemPrompt   string
 	MaxTokens      int
+	contextWindow  int
 	maxTopics      int
 	truncateLength int
 	widgetCtx      string
@@ -93,6 +94,9 @@ func WithTruncateLength(n int) ContextBuilderOption {
 func WithModelBudget(modelID string) ContextBuilderOption {
 	return func(cb *ContextBuilder) {
 		if budget, ok := GetModelBudget(modelID); ok {
+			if budget.ContextWindow > 0 {
+				cb.contextWindow = budget.ContextWindow
+			}
 			if budget.DefaultMaxReply > 0 {
 				cb.MaxTokens = budget.DefaultMaxReply
 			}
@@ -251,9 +255,10 @@ func (cb *ContextBuilder) computeTokenWindowStart(messages []ChatMessage) int {
 
 // effectiveContextWindow returns the context window size for token budgeting.
 func (cb *ContextBuilder) effectiveContextWindow() int {
-	// Use WindowSize as a proxy; in token mode callers should set this
-	// to the model's actual context window via WithWindowSize or WithModelBudget.
-	// Default to a reasonable fallback.
+	if cb.contextWindow > 0 {
+		return cb.contextWindow
+	}
+	// Fall back to WindowSize for callers that set token budgets manually.
 	return cb.WindowSize
 }
 
