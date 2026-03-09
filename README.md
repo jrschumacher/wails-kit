@@ -1,6 +1,6 @@
 # wails-kit
 
-Reusable Go module for Wails v3 apps. Provides a schema-driven settings framework, LLM provider management, OS keyring integration, structured logging, typed events, user-facing error types, GitHub-based auto-updates, and diagnostics bundle creation.
+Reusable Go module for Wails v3 apps. Provides a schema-driven settings framework, LLM provider management, OS keyring integration, SQLite database management with migrations, structured logging, typed events, user-facing error types, GitHub-based auto-updates, and diagnostics bundle creation.
 
 ## Packages
 
@@ -232,6 +232,44 @@ p := &mock.Provider{
     },
 }
 ```
+
+### [`database`](database/README.md) — SQLite Database with Migrations
+
+SQLite database management with [goose](https://github.com/pressly/goose) migrations. Pure-Go SQLite driver (no CGO), OS-standard database paths, WAL mode and sensible pragmas out of the box.
+
+```go
+import (
+    "embed"
+    "github.com/jrschumacher/wails-kit/database"
+)
+
+//go:embed migrations/*.sql
+var migrations embed.FS
+
+db, err := database.New(
+    database.WithAppName("my-app"),        // uses appdirs for OS path
+    database.WithMigrations(migrations),   // goose SQL migrations
+)
+defer db.Close()
+
+// Access the underlying *sql.DB
+db.DB().QueryRow("SELECT ...")
+
+// Check schema version
+version, _ := db.Version()
+```
+
+**Features:**
+- Goose-managed SQL migrations with `embed.FS` support
+- OS-standard data directory via `appdirs`
+- WAL mode, foreign keys, busy timeout enabled by default
+- Bring your own `*sql.DB` with `WithDB()`
+
+**Events:** `database:migrated`
+
+**Error codes:** `database_open`, `database_migrate`
+
+See [`database/README.md`](database/README.md) for full documentation.
 
 ### [`diagnostics`](diagnostics/README.md) — Support Bundle Creation
 
