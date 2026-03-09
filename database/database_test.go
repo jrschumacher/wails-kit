@@ -2,8 +2,10 @@ package database
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -477,5 +479,256 @@ func TestNew_WithBaselineVersion_PartialMigrations(t *testing.T) {
 	err = db.DB().QueryRow("SELECT created_at FROM users WHERE id = 1").Scan(&createdAt)
 	if err != nil {
 		t.Fatalf("SELECT created_at error: %v", err)
+	}
+}
+
+func TestNew_VersionGuard_SetsUserVersion(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := New(
+		WithPath(dbPath),
+		WithMigrations(testMigrations()),
+	)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	// After migrations, PRAGMA user_version should be set to max migration version.
+	var userVersion int64
+	if err := db.DB().QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+		t.Fatalf("PRAGMA user_version error: %v", err)
+	}
+	if userVersion != 2 {
+		t.Errorf("user_version = %d, want 2", userVersion)
+	}
+}
+
+func TestNew_VersionGuard_RejectsNewerDB(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// First: create DB with migrations and a high user_version (simulating a newer app).
+	db1, err := New(
+		WithPath(dbPath),
+		WithMigrations(testMigrations()),
+	)
+	if err != nil {
+		t.Fatalf("first New() error: %v", err)
+	}
+	// Simulate a newer app having set user_version to 5.
+	_, err = db1.DB().Exec("PRAGMA user_version = 5")
+	if err != nil {
+		t.Fatalf("set user_version error: %v", err)
+	}
+	_ = db1.Close()
+
+	// Second: open with same migrations (max version 2) — should fail.
+	_, err = New(
+		WithPath(dbPath),
+		WithMigrations(testMigrations()),
+	)
+	if err == nil {
+		t.Fatal("expected error when DB version is newer than app supports")
+	}
+
+	// Verify it's the right error code.
+	if !strings.Contains(err.Error(), "database schema version 5 is newer than this app supports (max 2)") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestNew_VersionGuard_AllowsSameVersion(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// First run: creates and migrates.
+	db1, err := New(
+		WithPath(dbPath),
+		WithMigrations(testMigrations()),
+	)
+	if err != nil {
+		t.Fatalf("first New() error: %v", err)
+	}
+	_ = db1.Close()
+
+	// Second run with same migrations — should succeed.
+	db2, err := New(
+		WithPath(dbPath),
+		WithMigrations(testMigrations()),
+	)
+	if err != nil {
+		t.Fatalf("second New() error: %v", err)
+	}
+	defer func() { _ = db2.Close() }()
+}
+
+func TestNew_BackupBeforeMigration_CreatesBackup(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Create initial DB with first migration only.
+	migrations1 := &fstest.MapFS{
+		"001_create_users.sql": &fstest.MapFile{
+			Data: []byte(`-- +goose Up
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE
+);
+
+-- +goose Down
+DROP TABLE users;
+`),
+		},
+	}
+
+	db1, err := New(
+		WithPath(dbPath),
+		WithMigrations(migrations1),
+	)
+	if err != nil {
+		t.Fatalf("first New() error: %v", err)
+	}
+	_ = db1.Close()
+
+	// Re-open with both migrations and backup enabled.
+	db2, err := New(
+		WithPath(dbPath),
+		WithMigrations(testMigrations()),
+		WithBackupBeforeMigration(true),
+	)
+	if err != nil {
+		t.Fatalf("second New() error: %v", err)
+	}
+	defer func() { _ = db2.Close() }()
+
+	// Backup should exist with the pre-migration version (1).
+	backupPath := dbPath + ".backup-v1"
+	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+		t.Error("backup file was not created")
+	}
+
+	// Verify backup is a valid SQLite database with the old schema.
+	backupDB, err := sql.Open("sqlite", backupPath)
+	if err != nil {
+		t.Fatalf("open backup error: %v", err)
+	}
+	defer func() { _ = backupDB.Close() }()
+
+	// The backup should have the users table but no created_at column (pre-migration 2).
+	_, err = backupDB.Exec("INSERT INTO users (name, email) VALUES (?, ?)", "Test", "test@example.com")
+	if err != nil {
+		t.Fatalf("backup INSERT error: %v", err)
+	}
+}
+
+func TestNew_BackupBeforeMigration_SkipsWhenNoMigrations(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Create DB with all migrations applied.
+	db1, err := New(
+		WithPath(dbPath),
+		WithMigrations(testMigrations()),
+	)
+	if err != nil {
+		t.Fatalf("first New() error: %v", err)
+	}
+	_ = db1.Close()
+
+	// Re-open with backup enabled — no pending migrations, so no backup.
+	db2, err := New(
+		WithPath(dbPath),
+		WithMigrations(testMigrations()),
+		WithBackupBeforeMigration(true),
+	)
+	if err != nil {
+		t.Fatalf("second New() error: %v", err)
+	}
+	defer func() { _ = db2.Close() }()
+
+	// No backup should exist.
+	matches, _ := filepath.Glob(dbPath + ".backup-v*")
+	if len(matches) > 0 {
+		t.Errorf("expected no backup files, found %v", matches)
+	}
+}
+
+func TestNew_BackupBeforeMigration_SkipsFreshDB(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Fresh DB with backup enabled — file doesn't exist yet, so no backup.
+	db, err := New(
+		WithPath(dbPath),
+		WithMigrations(testMigrations()),
+		WithBackupBeforeMigration(true),
+	)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	matches, _ := filepath.Glob(dbPath + ".backup-v*")
+	if len(matches) > 0 {
+		t.Errorf("expected no backup files for fresh DB, found %v", matches)
+	}
+}
+
+func TestNew_BackupBeforeMigration_CleansOldBackups(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Create fake old backup files.
+	for i := 0; i < 5; i++ {
+		backupPath := fmt.Sprintf("%s.backup-v%d", dbPath, i)
+		if err := os.WriteFile(backupPath, []byte("fake"), 0600); err != nil {
+			t.Fatalf("create fake backup error: %v", err)
+		}
+	}
+
+	// Create initial DB with first migration.
+	migrations1 := &fstest.MapFS{
+		"001_create_users.sql": &fstest.MapFile{
+			Data: []byte(`-- +goose Up
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE
+);
+
+-- +goose Down
+DROP TABLE users;
+`),
+		},
+	}
+
+	db1, err := New(
+		WithPath(dbPath),
+		WithMigrations(migrations1),
+	)
+	if err != nil {
+		t.Fatalf("first New() error: %v", err)
+	}
+	_ = db1.Close()
+
+	// Re-open with all migrations, backup enabled, maxBackups = 2.
+	db2, err := New(
+		WithPath(dbPath),
+		WithMigrations(testMigrations()),
+		WithBackupBeforeMigration(true),
+		WithMaxBackups(2),
+	)
+	if err != nil {
+		t.Fatalf("second New() error: %v", err)
+	}
+	defer func() { _ = db2.Close() }()
+
+	// Should have at most 2 backup files.
+	matches, _ := filepath.Glob(dbPath + ".backup-v*")
+	if len(matches) > 2 {
+		t.Errorf("expected at most 2 backup files, found %d: %v", len(matches), matches)
 	}
 }

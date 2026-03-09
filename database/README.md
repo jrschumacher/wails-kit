@@ -86,6 +86,40 @@ db, err := database.New(
 - If the database has no user tables (fresh) → no-op (let goose run from scratch)
 - If the database has tables but no goose tracking → creates `goose_db_version` and stamps versions 0 through n, then runs any remaining migrations
 
+### Schema version guard
+
+The database package automatically protects against schema version mismatches caused by app downgrades. After running migrations, `PRAGMA user_version` is set to the highest migration version. On subsequent opens, if the database's version is higher than the app's max migration, a clear error is returned instead of silently proceeding:
+
+```
+database schema version 5 is newer than this app supports (max 3); please update the app
+```
+
+This is automatic — no configuration needed.
+
+### Pre-migration backup
+
+Enable automatic backups before migrations run. If any migrations are pending, the database is copied before they are applied:
+
+```go
+db, err := database.New(
+    database.WithPath(path),
+    database.WithMigrations(migrations),
+    database.WithBackupBeforeMigration(true),
+)
+```
+
+**Behavior:**
+- Only creates a backup when there are pending migrations (not on every startup)
+- Names the backup with the current version: `data.db.backup-v2`
+- Keeps at most 3 backups by default, deleting oldest (configurable via `WithMaxBackups`)
+- Skips backup for fresh installs (no prior version stamp)
+- Uses `VACUUM INTO` for a consistent copy that handles WAL mode correctly
+
+```go
+database.WithBackupBeforeMigration(true),
+database.WithMaxBackups(5), // keep 5 backups instead of default 3
+```
+
 ### External database connection
 
 If you manage the `*sql.DB` yourself:
@@ -108,6 +142,8 @@ db, err := database.New(
 | `WithEmitter(e)` | Event emitter for lifecycle events |
 | `WithPragmas(map)` | Override or extend default SQLite pragmas |
 | `WithBaselineVersion(n)` | Stamp versions 0–n as applied for pre-existing databases |
+| `WithBackupBeforeMigration(bool)` | Create a backup before running pending migrations |
+| `WithMaxBackups(n)` | Maximum number of pre-migration backups to retain (default 3) |
 | `WithDB(db)` | Use an existing `*sql.DB` (caller retains ownership) |
 
 ## Default pragmas
@@ -145,3 +181,5 @@ database.WithPragmas(map[string]string{
 | `database_open` | Unable to open the database. Please check file permissions and try again. |
 | `database_migrate` | Database migration failed. Please contact support. |
 | `database_baseline` | Database baseline failed. Please contact support. |
+| `database_version_mismatch` | The database was created by a newer version of this app. Please update the app. |
+| `database_backup` | Failed to create a database backup before migration. Please check disk space and try again. |
