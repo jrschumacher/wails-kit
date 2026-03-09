@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/jrschumacher/wails-kit/compare/v1.1.0...v1.2.0) (2026-03-09)
+
+
+### Features
+
+* **database:** add schema version guard and pre-migration backup ([#70](https://github.com/jrschumacher/wails-kit/issues/70)) ([cf098cc](https://github.com/jrschumacher/wails-kit/commit/cf098cca77660727e31cb3891f4d26e5361ee525))
+
 ## [1.1.0](https://github.com/jrschumacher/wails-kit/compare/v1.0.1...v1.1.0) (2026-03-09)
 
 
