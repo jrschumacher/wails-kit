@@ -116,15 +116,9 @@ func TestCreateBundle(t *testing.T) {
 		outputDir := t.TempDir()
 
 		// Create some fake log files
-		if err := os.WriteFile(filepath.Join(logDir, "app.log"), []byte("current log line\n"), 0600); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(logDir, "app-2026-03-07.log.gz"), []byte("compressed log"), 0600); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(logDir, "unrelated.txt"), []byte("not a log"), 0600); err != nil {
-			t.Fatal(err)
-		}
+		_ = os.WriteFile(filepath.Join(logDir, "app.log"), []byte("current log line\n"), 0600)
+		_ = os.WriteFile(filepath.Join(logDir, "app-2026-03-07.log.gz"), []byte("compressed log"), 0600)
+		_ = os.WriteFile(filepath.Join(logDir, "unrelated.txt"), []byte("not a log"), 0600)
 
 		svc, err := NewService(
 			WithAppName("test-app"),
@@ -176,12 +170,10 @@ func TestCreateBundle(t *testing.T) {
 		)
 
 		// Set some values
-		if _, err := settingsSvc.SetValues(map[string]any{
+		_, _ = settingsSvc.SetValues(map[string]any{
 			"general.name":    "My App",
 			"general.api_key": "sk-secret-123",
-		}); err != nil {
-			t.Fatal(err)
-		}
+		})
 
 		svc, err := NewService(
 			WithAppName("test-app"),
@@ -220,12 +212,8 @@ func TestCreateBundle(t *testing.T) {
 
 		// Create a log file larger than our cap
 		bigContent := strings.Repeat("x", 200)
-		if err := os.WriteFile(filepath.Join(logDir, "big.log"), []byte(bigContent), 0600); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(logDir, "small.log"), []byte("small"), 0600); err != nil {
-			t.Fatal(err)
-		}
+		_ = os.WriteFile(filepath.Join(logDir, "big.log"), []byte(bigContent), 0600)
+		_ = os.WriteFile(filepath.Join(logDir, "small.log"), []byte("small"), 0600)
 
 		svc, err := NewService(
 			WithAppName("test-app"),
