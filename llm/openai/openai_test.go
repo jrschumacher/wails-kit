@@ -123,7 +123,7 @@ func TestFinalStreamResult_ReturnsToolUses(t *testing.T) {
 }
 
 func TestNormalizeToolInput_WrapsInvalidJSON(t *testing.T) {
-	got := normalizeToolInput(json.RawMessage(`{"city"`))
+	got := normalizeToolInput("test_tool", json.RawMessage(`{"city"`))
 	if string(got) != `{"_raw":"{\"city\""}` {
 		t.Fatalf("unexpected fallback JSON: %s", got)
 	}
