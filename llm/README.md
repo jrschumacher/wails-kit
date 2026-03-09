@@ -77,9 +77,15 @@ import _ "github.com/jrschumacher/wails-kit/llm/anthropic"
 Manages conversation history with bounded context windows:
 
 ```go
-cb := llm.NewContextBuilder("You are a helpful assistant.")
-cb.WindowSize = 20  // keep last 20 messages (default)
-cb.MaxTokens = 4096 // default
+cb := llm.NewContextBuilder("You are a helpful assistant.",
+    llm.WithWindowSize(20),     // keep last 20 messages (default)
+    llm.WithMaxTokens(4096),    // default
+    llm.WithMaxTopics(8),       // max topics in summary (default)
+    llm.WithTruncateLength(100),// max chars per topic (default)
+)
+
+// Use a model's registered budget for automatic max tokens
+cb = llm.NewContextBuilder("prompt", llm.WithModelBudget("claude-sonnet-4-6"))
 
 // Optionally add context to the system prompt
 cb.SetWidgetContext("User is viewing issue ABC-123")
@@ -89,12 +95,62 @@ req := cb.BuildRequest(allMessages)
 provider.StreamChat(ctx, req, handler)
 ```
 
+### System prompt composition
+
+Compose system prompts from multiple sources with priority ordering:
+
+```go
+cb := llm.NewContextBuilder("")
+cb.AddSystemSegment("base", 0, "You are a helpful assistant.")
+cb.AddSystemSegment("widgets", 10, "Current widget: dashboard")
+cb.AddSystemSegment("tools", 20, "You have access to: search, calculator")
+
+// Segments are sorted by priority (lower first) and joined
+prompt := cb.BuildSystemPrompt()
+// "You are a helpful assistant.\n\nCurrent widget: dashboard\n\nYou have access to: search, calculator"
+
+// Replace or remove segments dynamically
+cb.AddSystemSegment("widgets", 10, "Current widget: settings") // replaces existing
+cb.RemoveSystemSegment("tools")
+```
+
+### Token-based windowing
+
+For precise token budgeting, provide a token counter:
+
+```go
+cb := llm.NewContextBuilder("You are helpful.",
+    llm.WithTokenCounter(myTokenCounter),
+    llm.WithWindowSize(200000),  // set to model's context window in tokens
+    llm.WithMaxTokens(16384),
+)
+```
+
+When a token counter is set, the builder fits as many recent messages as possible within the token budget (context window minus system prompt minus max reply tokens) instead of using a fixed message count.
+
+### Per-model token budgets
+
+Register model budgets so the context builder can size automatically:
+
+```go
+// Built-in budgets are registered for Claude and GPT models.
+// Register custom models:
+llm.RegisterModelBudget("my-model", llm.ModelBudget{
+    ContextWindow:   32000,
+    DefaultMaxReply: 2048,
+})
+
+// Query a model's budget:
+budget, ok := llm.GetModelBudget("claude-sonnet-4-6")
+// budget.ContextWindow == 200000, budget.DefaultMaxReply == 16384
+```
+
 ### Behavior
 
-- Sliding window keeps the last N messages
+- Sliding window keeps the last N messages (or token-budget-based window when a counter is set)
 - Tool-use / tool-result pairs are kept atomic (never split across the window boundary)
 - Older messages beyond the window are summarized into a synthetic message
-- Summary caps at 8 topics with content truncated to 100 chars
+- Summary topic count and truncation length are configurable
 
 ## Mock provider
 
