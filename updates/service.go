@@ -60,7 +60,7 @@ type (
 	}
 
 	ErrorPayload struct {
-		Message string     `json:"message"`
+		Message string      `json:"message"`
 		Code    errors.Code `json:"code"`
 	}
 )
@@ -433,7 +433,7 @@ func (s *Service) emit(name string, data any) {
 
 func (s *Service) emitError(code errors.Code, err error) {
 	s.emit(EventError, ErrorPayload{
-		Message: errors.GetUserMessage(err),
+		Message: errors.New(code, "", nil).UserMsg,
 		Code:    code,
 	})
 }

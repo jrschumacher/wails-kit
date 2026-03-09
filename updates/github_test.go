@@ -160,6 +160,27 @@ func TestFindAsset(t *testing.T) {
 	}
 }
 
+func TestFindAssetPrefersExactArchiveOverAdjacentArtifacts(t *testing.T) {
+	release := &Release{
+		Assets: []Asset{
+			{Name: "app_darwin_arm64_debug.tar.gz"},
+			{Name: "app_darwin_arm64.tar.gz.sig"},
+			{Name: "app_darwin_arm64.tar.gz"},
+		},
+	}
+
+	asset, err := FindAsset(release, "app_{os}_{arch}")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if asset == nil {
+		t.Fatal("expected to find an asset")
+	}
+	if asset.Name != "app_darwin_arm64.tar.gz" {
+		t.Fatalf("got %q, want exact archive match", asset.Name)
+	}
+}
+
 func TestFindAssetNotFound(t *testing.T) {
 	release := &Release{
 		TagName: "v1.0.0",
