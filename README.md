@@ -1,6 +1,6 @@
 # wails-kit
 
-Reusable Go module for Wails v3 apps. Provides a schema-driven settings framework, LLM provider management, OS keyring integration, SQLite database management with migrations, structured logging, typed events, user-facing error types, GitHub-based auto-updates, and diagnostics bundle creation.
+Reusable Go module for Wails v3 apps. Provides a schema-driven settings framework, LLM provider management, OS keyring integration, SQLite database management with migrations, structured logging, typed events, user-facing error types, GitHub-based auto-updates, native menu shortcuts, and diagnostics bundle creation.
 
 ## Packages
 
@@ -298,6 +298,30 @@ info := svc.GetSystemInfo()
 
 **Error codes:** `diagnostics_bundle`, `diagnostics_logs`
 
+### [`shortcuts`](shortcuts/README.md) — Native Menu Shortcuts
+
+Standard keyboard shortcuts and native menu bar for Wails v3 apps. Handles platform differences automatically and emits events via the kit event system.
+
+```go
+import "github.com/jrschumacher/wails-kit/shortcuts"
+
+mgr := shortcuts.New(
+    shortcuts.WithDefaults(),   // App, File, Edit, View, Window menus
+    shortcuts.WithSettings(),   // ⌘, / Ctrl+, → emits "settings:open"
+    shortcuts.WithEmitter(emitter),
+)
+mgr.Apply(app)
+```
+
+**Features:**
+- Standard menus: App (macOS), File, Edit, View, Window
+- Settings shortcut: ⌘, (macOS) / Ctrl+, (others) → emits `settings:open`
+- Platform-correct placement (App menu on macOS, Edit menu elsewhere)
+
+**Events:** `settings:open`
+
+See [`shortcuts/README.md`](shortcuts/README.md) for full documentation.
+
 ### [`lifecycle`](lifecycle/README.md) — Service Lifecycle Manager
 
 Ordered startup and shutdown of services with dependency tracking and partial failure rollback.
@@ -525,6 +549,13 @@ for each group in schema.groups:
     if field.dynamicOptions: lookup options[values[dependsOn]]
     render input for field.type (text/password/select/toggle/number/computed)
 ```
+
+### TypeScript Packages
+
+| Package | Path | Description |
+|---------|------|-------------|
+| [`@wails-kit/types`](frontend/types/README.md) | `frontend/types` | TypeScript type definitions mirroring Go types |
+| [`@wails-kit/settings`](frontend/settings/README.md) | `frontend/settings` | Headless settings logic: validation, conditions, dynamic options |
 
 ## Required Tools
 

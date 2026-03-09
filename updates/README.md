@@ -18,6 +18,8 @@ svc, err := updates.NewService(
     updates.WithHTTPClient(client),             // optional: custom HTTP client
     updates.WithApplier(customApplier),         // optional: custom binary replacement
     updates.WithIncludePrereleases(false),      // optional: static fallback if no settings
+    updates.WithPublicKey(publicKey),           // optional: Ed25519 key for signature verification
+    updates.WithSkipVerification(),             // optional: skip verification (dev only)
 )
 ```
 
@@ -95,6 +97,56 @@ All events are emitted through the `events.Emitter` if one is provided via `With
 | `update_check` | Unable to check for updates. Please try again later. |
 | `update_download` | Failed to download the update. Please try again. |
 | `update_apply` | Failed to install the update. Please try again. |
+| `update_verify` | Update signature verification failed. The download may be corrupted or tampered with. |
+
+## Signature verification
+
+The updates service supports Ed25519 signature verification to ensure downloaded binaries haven't been tampered with. When a public key is configured, each release asset must have a corresponding `.sig` file (e.g., `myapp_darwin_arm64.tar.gz.sig`) containing the raw Ed25519 signature.
+
+```go
+import "crypto/ed25519"
+
+// Embed or load your Ed25519 public key
+var publicKey ed25519.PublicKey = ...
+
+svc, err := updates.NewService(
+    updates.WithCurrentVersion(version),
+    updates.WithGitHubRepo("myorg", "myapp"),
+    updates.WithPublicKey(publicKey),
+)
+```
+
+**Behavior:**
+- Verification happens after download, before the update is marked ready
+- If the `.sig` asset is missing from the release, the download fails
+- If the signature is invalid, the downloaded file is deleted and an `update_verify` error is emitted
+- Without `WithPublicKey`, verification is skipped (backward compatible)
+
+**Signing in CI:**
+
+Generate a keypair and sign assets in your release workflow:
+
+```bash
+# Generate keypair (one-time)
+go run crypto/ed25519/cmd/generate.go  # or use any Ed25519 tool
+
+# Sign an asset
+echo -n "$(cat myapp_darwin_arm64.tar.gz)" | \
+  openssl pkeyutl -sign -inkey private.pem | \
+  dd of=myapp_darwin_arm64.tar.gz.sig
+```
+
+**Development mode:**
+
+Use `WithSkipVerification()` during development to bypass signature checks. A warning is logged when active:
+
+```go
+svc, err := updates.NewService(
+    updates.WithCurrentVersion(version),
+    updates.WithGitHubRepo("myorg", "myapp"),
+    updates.WithSkipVerification(), // logs warning — do not use in production
+)
+```
 
 ## Asset matching
 
