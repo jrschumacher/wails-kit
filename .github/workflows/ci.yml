@@ -34,8 +34,10 @@ jobs:
             revert
           scopes: |
             appdirs
+            diagnostics
             frontend
             keyring
+            lifecycle
             settings
             llm
             errors

@@ -9,6 +9,7 @@ wails-kit is a reusable Go module for Wails v3 desktop apps. It provides infrast
 Go module at `github.com/jrschumacher/wails-kit` with these packages:
 
 - `appdirs` — OS-standard application directory paths
+- `diagnostics` — Support bundle creation for crash reporting
 - `keyring` — OS keyring credential storage
 - `settings` — Schema-driven settings framework
 - `llm` — LLM provider management (with `llm/anthropic`, `llm/openai`, `llm/mock`)
@@ -45,7 +46,7 @@ type(scope): description
 
 **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
 
-**Scopes** (optional, use the package name): `appdirs`, `keyring`, `settings`, `llm`, `errors`, `events`, `lifecycle`, `logging`, `updates`
+**Scopes** (optional, use the package name): `appdirs`, `diagnostics`, `keyring`, `settings`, `llm`, `errors`, `events`, `lifecycle`, `logging`, `updates`
 
 Examples:
 - `feat(updates): add GitHub Releases auto-update`
