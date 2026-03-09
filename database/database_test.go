@@ -321,3 +321,161 @@ func TestNew_CreatesParentDirectories(t *testing.T) {
 		t.Error("parent directories were not created")
 	}
 }
+
+func TestNew_WithBaselineVersion_ExistingDB(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Simulate a pre-existing database with tables matching migrations 1-2.
+	preDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open error: %v", err)
+	}
+	_, err = preDB.Exec(`
+		CREATE TABLE users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			email TEXT NOT NULL UNIQUE,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		t.Fatalf("CREATE TABLE error: %v", err)
+	}
+	_ = preDB.Close()
+
+	// Open with baseline version 2 — should stamp and not re-run migrations.
+	db, err := New(
+		WithPath(dbPath),
+		WithMigrations(testMigrations()),
+		WithBaselineVersion(2),
+	)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	version, err := db.Version()
+	if err != nil {
+		t.Fatalf("Version() error: %v", err)
+	}
+	if version != 2 {
+		t.Errorf("Version() = %d, want 2", version)
+	}
+}
+
+func TestNew_WithBaselineVersion_FreshDB(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Fresh database — baseline should be a no-op, migrations run normally.
+	db, err := New(
+		WithPath(dbPath),
+		WithMigrations(testMigrations()),
+		WithBaselineVersion(2),
+	)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	version, err := db.Version()
+	if err != nil {
+		t.Fatalf("Version() error: %v", err)
+	}
+	if version != 2 {
+		t.Errorf("Version() = %d, want 2", version)
+	}
+
+	// Verify migrations actually ran (table exists with correct schema).
+	_, err = db.DB().Exec("INSERT INTO users (name, email) VALUES (?, ?)", "Bob", "bob@example.com")
+	if err != nil {
+		t.Fatalf("INSERT error: %v", err)
+	}
+}
+
+func TestNew_WithBaselineVersion_GooseTableExists(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Run migrations first to create goose_db_version table.
+	db1, err := New(
+		WithPath(dbPath),
+		WithMigrations(testMigrations()),
+	)
+	if err != nil {
+		t.Fatalf("first New() error: %v", err)
+	}
+	_ = db1.Close()
+
+	// Re-open with baseline — should be a no-op since goose table exists.
+	db2, err := New(
+		WithPath(dbPath),
+		WithMigrations(testMigrations()),
+		WithBaselineVersion(2),
+	)
+	if err != nil {
+		t.Fatalf("second New() error: %v", err)
+	}
+	defer func() { _ = db2.Close() }()
+
+	version, err := db2.Version()
+	if err != nil {
+		t.Fatalf("Version() error: %v", err)
+	}
+	if version != 2 {
+		t.Errorf("Version() = %d, want 2", version)
+	}
+}
+
+func TestNew_WithBaselineVersion_PartialMigrations(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	// Simulate a pre-existing database with only migration 1 applied.
+	preDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open error: %v", err)
+	}
+	_, err = preDB.Exec(`
+		CREATE TABLE users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			email TEXT NOT NULL UNIQUE
+		)
+	`)
+	if err != nil {
+		t.Fatalf("CREATE TABLE error: %v", err)
+	}
+	_ = preDB.Close()
+
+	// Baseline at version 1 — migration 2 should still run.
+	db, err := New(
+		WithPath(dbPath),
+		WithMigrations(testMigrations()),
+		WithBaselineVersion(1),
+	)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	version, err := db.Version()
+	if err != nil {
+		t.Fatalf("Version() error: %v", err)
+	}
+	if version != 2 {
+		t.Errorf("Version() = %d, want 2", version)
+	}
+
+	// Verify migration 2 ran (created_at column exists).
+	var createdAt sql.NullString
+	_, err = db.DB().Exec("INSERT INTO users (name, email) VALUES (?, ?)", "Alice", "alice@example.com")
+	if err != nil {
+		t.Fatalf("INSERT error: %v", err)
+	}
+	err = db.DB().QueryRow("SELECT created_at FROM users WHERE id = 1").Scan(&createdAt)
+	if err != nil {
+		t.Fatalf("SELECT created_at error: %v", err)
+	}
+}
