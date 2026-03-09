@@ -34,6 +34,7 @@ jobs:
             revert
           scopes: |
             appdirs
+            database
             diagnostics
             frontend
             keyring
@@ -42,7 +43,6 @@ jobs:
             llm
             errors
             events
-            lifecycle
             logging
             updates
           requireScope: false
