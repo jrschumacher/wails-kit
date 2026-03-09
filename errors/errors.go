@@ -30,11 +30,11 @@ const (
 
 // UserError represents an error with both technical and user-friendly messages.
 type UserError struct {
-	Code       Code
-	Message    string         // Technical message for logs
-	UserMsg    string         // User-friendly message for UI
-	Underlying error          // Original error
-	Fields     map[string]any // Structured context
+	Code       Code           `json:"code"`
+	Message    string         `json:"message"`              // Technical message for logs
+	UserMsg    string         `json:"userMsg"`              // User-friendly message for UI
+	Underlying error          `json:"-"`                    // Original error (excluded from JSON)
+	Fields     map[string]any `json:"fields,omitempty"`     // Structured context
 }
 
 func (e *UserError) Error() string {

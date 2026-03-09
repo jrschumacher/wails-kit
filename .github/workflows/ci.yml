@@ -67,6 +67,19 @@ jobs:
         with:
           job: lint
 
+  typecheck:
+    name: TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install --save-dev typescript
+        working-directory: frontend
+      - run: npx tsc --noEmit
+        working-directory: frontend
+
   security:
     name: Security
     runs-on: ubuntu-latest
