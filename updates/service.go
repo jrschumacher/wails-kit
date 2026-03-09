@@ -2,7 +2,9 @@ package updates
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"sync"
@@ -26,6 +28,7 @@ const (
 	ErrUpdateCheck    errors.Code = "update_check"
 	ErrUpdateDownload errors.Code = "update_download"
 	ErrUpdateApply    errors.Code = "update_apply"
+	ErrUpdateVerify   errors.Code = "update_verify"
 )
 
 func init() {
@@ -33,6 +36,7 @@ func init() {
 		ErrUpdateCheck:    "Unable to check for updates. Please try again later.",
 		ErrUpdateDownload: "Failed to download the update. Please try again.",
 		ErrUpdateApply:    "Failed to install the update. Please try again.",
+		ErrUpdateVerify:   "Update signature verification failed. The download may be corrupted or tampered with.",
 	})
 }
 
@@ -72,6 +76,8 @@ type Service struct {
 	assetPattern       string
 	binaryName         string
 	includePrereleases bool
+	publicKey          ed25519.PublicKey
+	skipVerification   bool
 	mu                 sync.Mutex
 	latestRelease      *Release
 	downloadPath       string
@@ -173,6 +179,24 @@ func WithAppName(name string) ServiceOption {
 func WithIncludePrereleases(include bool) ServiceOption {
 	return func(s *Service) {
 		s.includePrereleases = include
+	}
+}
+
+// WithPublicKey sets the Ed25519 public key used to verify update signatures.
+// When set, each downloaded asset must have a corresponding .sig file in the
+// release. The signature is verified after download, before the update is applied.
+func WithPublicKey(key ed25519.PublicKey) ServiceOption {
+	return func(s *Service) {
+		s.publicKey = key
+	}
+}
+
+// WithSkipVerification disables signature verification.
+// This is intended for local development and testing only.
+// A warning is logged when this option is active.
+func WithSkipVerification() ServiceOption {
+	return func(s *Service) {
+		s.skipVerification = true
 	}
 }
 
@@ -285,6 +309,13 @@ func (s *Service) DownloadUpdate(ctx context.Context) (string, error) {
 		return "", errors.Wrap(ErrUpdateDownload, "download update", err)
 	}
 
+	// Verify the downloaded asset's signature
+	if err := s.verifyDownload(ctx, rel, asset, tmpFile.Name()); err != nil {
+		_ = os.Remove(tmpFile.Name())
+		s.emitError(ErrUpdateVerify, err)
+		return "", errors.Wrap(ErrUpdateVerify, "verify update signature", err)
+	}
+
 	s.mu.Lock()
 	s.downloadPath = tmpFile.Name()
 	s.mu.Unlock()
@@ -350,6 +381,48 @@ func (s *Service) GetLatestRelease() *Release {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.latestRelease
+}
+
+// verifyDownload handles signature verification for a downloaded asset.
+// If no public key is configured and skip is not set, this is a no-op.
+// If skip is set, a warning is logged.
+func (s *Service) verifyDownload(ctx context.Context, rel *Release, asset *Asset, assetPath string) error {
+	if s.skipVerification {
+		slog.Warn("updates: signature verification skipped — do not use in production")
+		return nil
+	}
+	if s.publicKey == nil {
+		return nil
+	}
+
+	// Find the corresponding .sig asset
+	sigAssetName := asset.Name + ".sig"
+	var sigAsset *Asset
+	for i := range rel.Assets {
+		if rel.Assets[i].Name == sigAssetName {
+			sigAsset = &rel.Assets[i]
+			break
+		}
+	}
+	if sigAsset == nil {
+		return fmt.Errorf("signature file %q not found in release %s", sigAssetName, rel.TagName)
+	}
+
+	// Download the signature to a temp file
+	sigFile, err := os.CreateTemp("", "update-sig-*")
+	if err != nil {
+		return fmt.Errorf("create temp sig file: %w", err)
+	}
+	sigPath := sigFile.Name()
+	defer func() { _ = os.Remove(sigPath) }()
+
+	if err := s.github.DownloadAsset(ctx, sigAsset, sigFile, nil); err != nil {
+		_ = sigFile.Close()
+		return fmt.Errorf("download signature: %w", err)
+	}
+	_ = sigFile.Close()
+
+	return verifySignature(s.publicKey, assetPath, sigPath)
 }
 
 func (s *Service) emit(name string, data any) {
