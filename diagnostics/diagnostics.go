@@ -148,10 +148,10 @@ func (s *Service) CreateBundle(ctx context.Context, outputDir string) (string, e
 	if err != nil {
 		return "", errors.Wrap(ErrBundleCreate, "create bundle file", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	zw := zip.NewWriter(f)
-	defer zw.Close()
+	defer func() { _ = zw.Close() }()
 
 	var manifest []string
 
@@ -374,7 +374,7 @@ func addFileToZip(zw *zip.Writer, zipPath, srcPath string) error {
 	if err != nil {
 		return err
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	w, err := zw.Create(zipPath)
 	if err != nil {
