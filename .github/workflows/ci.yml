@@ -75,3 +75,35 @@ jobs:
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: security
+
+  ts-typecheck:
+    name: TypeScript Typecheck
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/types
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/types/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+
+  ts-lint:
+    name: TypeScript Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/types
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/types/package-lock.json
+      - run: npm ci
+      - run: npm run lint
