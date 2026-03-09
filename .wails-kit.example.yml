@@ -27,3 +27,7 @@ signing:
   # Notarytool keychain profile name (created via `xcrun notarytool store-credentials`)
   # Leave empty to skip notarization.
   keychain_profile: ""
+
+  # Path to entitlements plist for hardened runtime (e.g. "build/darwin/entitlements.plist")
+  # Leave empty to sign without entitlements.
+  entitlements: ""

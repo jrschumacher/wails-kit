@@ -4,7 +4,11 @@
 #
 #   includes:
 #     release:
-#       taskfile: https://raw.githubusercontent.com/jrschumacher/wails-kit/main/taskfiles/release.yml
+#       taskfile: ./taskfiles/release.yml
+#
+# To install, copy from the module cache:
+#   mkdir -p taskfiles
+#   cp "$(go env GOMODCACHE)/github.com/jrschumacher/wails-kit@<version>/taskfiles/release.yml" taskfiles/release.yml
 #
 # Requires:
 #   - .wails-kit.yml in the project root (see .wails-kit.example.yml)
@@ -26,6 +30,8 @@ vars:
     sh: yq '.signing.developer_id // ""' .wails-kit.yml
   KIT_KEYCHAIN_PROFILE:
     sh: yq '.signing.keychain_profile // ""' .wails-kit.yml
+  KIT_ENTITLEMENTS:
+    sh: yq '.signing.entitlements // ""' .wails-kit.yml
   BIN_DIR: bin
 
 tasks:
@@ -66,7 +72,7 @@ tasks:
         sh: echo "{{.KIT_APP_NAME}}" | tr '[:upper:]' '[:lower:]'
       ARCHIVE: '{{.APP_LOWER}}-{{.VERSION}}-darwin-{{ARCH}}.zip'
     cmds:
-      - task: ':darwin:build'
+      - task: ':darwin:package'
       - task: sign
       - task: notarize
       - cd "{{.BIN_DIR}}" && zip -r "{{.ARCHIVE}}" "{{.KIT_APP_NAME}}.app"
@@ -103,6 +109,7 @@ tasks:
       - |
         codesign --force --deep --options runtime \
           --sign "{{.KIT_DEVELOPER_ID}}" \
+          {{if .KIT_ENTITLEMENTS}}--entitlements "{{.KIT_ENTITLEMENTS}}" {{end}}\
           "{{.BIN_DIR}}/{{.KIT_APP_NAME}}.app"
       - echo "Signed {{.KIT_APP_NAME}}.app with {{.KIT_DEVELOPER_ID}}"
 
@@ -166,11 +173,17 @@ tasks:
         # Update version
         sed -i'' -e 's/version "[^"]*"/version "{{.VERSION}}"/' "$CASK_FILE"
 
-        # Update SHA for the current architecture
-        if [ "{{ARCH}}" = "arm64" ]; then
-          sed -i'' -e '/arm64/,/sha256/{s/sha256 "[^"]*"/sha256 "{{.SHA}}"/;}' "$CASK_FILE"
+        # Update SHA — detect multi-arch vs single-arch cask
+        if grep -q 'arch arm64\|on_arm\|hardware.arch' "$CASK_FILE" 2>/dev/null; then
+          # Multi-arch cask: update SHA within the architecture-specific block
+          if [ "{{ARCH}}" = "arm64" ]; then
+            sed -i'' -e '/arm64/,/sha256/{s/sha256 "[^"]*"/sha256 "{{.SHA}}"/;}' "$CASK_FILE"
+          else
+            sed -i'' -e '/intel/,/sha256/{s/sha256 "[^"]*"/sha256 "{{.SHA}}"/;}' "$CASK_FILE"
+          fi
         else
-          sed -i'' -e '/intel/,/sha256/{s/sha256 "[^"]*"/sha256 "{{.SHA}}"/;}' "$CASK_FILE"
+          # Single-arch cask: replace the only sha256 line
+          sed -i'' -e 's/sha256 "[^"]*"/sha256 "{{.SHA}}"/' "$CASK_FILE"
         fi
 
         cd "$TMPDIR/tap"
