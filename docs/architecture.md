@@ -48,6 +48,20 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 - `diagnostics` depends on `errors`; optionally depends on `appdirs`, `settings`, and `events`
 - `logging` depends on `appdirs` for log directory paths
 
+### Frontend packages
+
+```
+┌───────────────────┐
+│ @wails-kit/settings │──▶ @wails-kit/types
+└───────────────────┘
+┌───────────────────┐
+│ @wails-kit/types  │     (leaf — no kit dependencies)
+└───────────────────┘
+```
+
+- `@wails-kit/types` (`frontend/types`) — TypeScript type definitions mirroring Go schema types
+- `@wails-kit/settings` (`frontend/settings`) — headless settings logic: validation, condition evaluation, dynamic option resolution. Mirrors `settings/validate.go`
+
 ## Design patterns
 
 ### Functional options
