@@ -51,9 +51,9 @@ type ServiceStoppedPayload struct {
 
 // ErrorPayload is emitted when a service fails to start or stop.
 type ErrorPayload struct {
-	Name    string `json:"name"`
-	Message string `json:"message"`
-	Code    string `json:"code"`
+	Name    string      `json:"name"`
+	Message string      `json:"message"`
+	Code    errors.Code `json:"code"`
 }
 
 // RollbackPayload is emitted when a partial startup failure triggers rollback.
@@ -156,7 +156,7 @@ func (m *Manager) Startup(ctx context.Context) error {
 			m.emit(EventError, ErrorPayload{
 				Name:    name,
 				Message: errors.GetUserMessage(startErr),
-				Code:    string(ErrStartup),
+				Code:    ErrStartup,
 			})
 
 			// Rollback already-started services in reverse order.
@@ -192,7 +192,7 @@ func (m *Manager) Shutdown() error {
 			m.emit(EventError, ErrorPayload{
 				Name:    name,
 				Message: errors.GetUserMessage(shutErr),
-				Code:    string(ErrShutdown),
+				Code:    ErrShutdown,
 			})
 
 			errs = append(errs, shutErr)

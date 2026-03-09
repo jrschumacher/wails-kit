@@ -1,6 +1,8 @@
 // Event constants and payload types — mirrors events/events.go and updates/service.go
 // Kept in sync via Go reflection test in frontend/types_test.go
 
+import type { ErrorCode } from "./errors";
+
 // Settings events
 export const SettingsChanged = "settings:changed" as const;
 
@@ -33,7 +35,7 @@ export interface UpdateReadyPayload {
 
 export interface UpdateErrorPayload {
   message: string;
-  code: string;
+  code: ErrorCode;
 }
 
 // Event map for type-safe event subscription
