@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Release represents a GitHub release.
@@ -170,14 +171,27 @@ func FindAsset(release *Release, pattern string) (*Asset, error) {
 
 	// Build candidate names from the pattern
 	candidates := buildCandidateNames(pattern, goos, goarch)
+	var fuzzy *Asset
 
-	for _, asset := range release.Assets {
+	for i := range release.Assets {
+		asset := &release.Assets[i]
 		lower := strings.ToLower(asset.Name)
+		if isSignatureLikeAsset(lower) {
+			continue
+		}
+		base := stripAssetExtensions(lower)
 		for _, candidate := range candidates {
-			if strings.Contains(lower, strings.ToLower(candidate)) {
-				return &asset, nil
+			lowerCandidate := strings.ToLower(candidate)
+			if lower == lowerCandidate || base == lowerCandidate {
+				return asset, nil
+			}
+			if fuzzy == nil && (tokenContains(base, lowerCandidate) || tokenContains(lower, lowerCandidate)) {
+				fuzzy = asset
 			}
 		}
+	}
+	if fuzzy != nil {
+		return fuzzy, nil
 	}
 
 	return nil, fmt.Errorf("no asset found for %s/%s in release %s (tried patterns: %v)",
@@ -288,4 +302,56 @@ func buildCandidateNames(pattern, goos, goarch string) []string {
 	}
 
 	return candidates
+}
+
+func isSignatureLikeAsset(name string) bool {
+	for _, suffix := range []string{".sig", ".sha256", ".sha512", ".checksums", ".checksum"} {
+		if strings.HasSuffix(name, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func stripAssetExtensions(name string) string {
+	for _, suffix := range []string{
+		".tar.gz",
+		".tgz",
+		".zip",
+		".tar",
+		".gz",
+		".bz2",
+		".xz",
+		".dmg",
+		".pkg",
+		".msi",
+		".exe",
+		".appimage",
+	} {
+		if strings.HasSuffix(name, suffix) {
+			return strings.TrimSuffix(name, suffix)
+		}
+	}
+	return name
+}
+
+func tokenContains(name, candidate string) bool {
+	for start := strings.Index(name, candidate); start >= 0; {
+		end := start + len(candidate)
+		beforeOK := start == 0 || !isAlphaNumeric(rune(name[start-1]))
+		afterOK := end == len(name) || !isAlphaNumeric(rune(name[end]))
+		if beforeOK && afterOK {
+			return true
+		}
+		next := strings.Index(name[start+1:], candidate)
+		if next < 0 {
+			break
+		}
+		start += next + 1
+	}
+	return false
+}
+
+func isAlphaNumeric(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r)
 }

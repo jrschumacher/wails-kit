@@ -153,6 +153,16 @@ func TestCheckForUpdateError(t *testing.T) {
 	if evts[0].Name != EventError {
 		t.Errorf("got event %q, want %q", evts[0].Name, EventError)
 	}
+	payload, ok := evts[0].Data.(ErrorPayload)
+	if !ok {
+		t.Fatalf("expected ErrorPayload, got %T", evts[0].Data)
+	}
+	if payload.Code != ErrUpdateCheck {
+		t.Fatalf("got code %q, want %q", payload.Code, ErrUpdateCheck)
+	}
+	if payload.Message != "Unable to check for updates. Please try again later." {
+		t.Fatalf("got message %q", payload.Message)
+	}
 }
 
 func TestDownloadUpdateWithoutCheck(t *testing.T) {
@@ -376,4 +386,3 @@ func TestWithIncludePrereleasesWithoutSettings(t *testing.T) {
 		t.Errorf("got tag %q, want %q", rel.TagName, "v2.0.0-alpha.1")
 	}
 }
-

@@ -108,13 +108,23 @@ func (s *Store) Save(values map[string]any) error {
 	if err == nil {
 		_ = json.Unmarshal(data, &existing)
 	}
+	mergedValues := make(map[string]any)
+	for k, v := range existing {
+		if len(s.knownKeys) > 0 && !s.knownKeys[k] {
+			continue
+		}
+		mergedValues[k] = v
+	}
 
 	// Merge: new values override existing
 	for k, v := range values {
-		existing[k] = v
+		if len(s.knownKeys) > 0 && !s.knownKeys[k] {
+			continue
+		}
+		mergedValues[k] = v
 	}
 
-	merged, err := json.MarshalIndent(existing, "", "  ")
+	merged, err := json.MarshalIndent(mergedValues, "", "  ")
 	if err != nil {
 		return err
 	}
