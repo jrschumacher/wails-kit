@@ -9,7 +9,6 @@ import {
   CodeMin,
   CodeMax,
   CodeInvalidType,
-  CodeInvalidOption,
 } from "./validate";
 
 function makeSchema(...fields: Field[]): Schema {
