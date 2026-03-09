@@ -1,6 +1,6 @@
 # wails-kit
 
-Reusable Go module for Wails v3 apps. Provides a schema-driven settings framework, LLM provider management, OS keyring integration, structured logging, typed events, user-facing error types, and GitHub-based auto-updates.
+Reusable Go module for Wails v3 apps. Provides a schema-driven settings framework, LLM provider management, OS keyring integration, structured logging, typed events, user-facing error types, GitHub-based auto-updates, and diagnostics bundle creation.
 
 ## Packages
 
@@ -232,6 +232,33 @@ p := &mock.Provider{
     },
 }
 ```
+
+### [`diagnostics`](diagnostics/README.md) — Support Bundle Creation
+
+Collects application state, logs, and system info into a shareable zip bundle for crash reporting and user support. Integrates with `appdirs`, `settings`, and `logging`.
+
+```go
+import "github.com/jrschumacher/wails-kit/diagnostics"
+
+svc, err := diagnostics.NewService(
+    diagnostics.WithAppName("my-app"),
+    diagnostics.WithVersion("1.2.3"),
+    diagnostics.WithDirs(dirs),            // log directory from appdirs
+    diagnostics.WithSettings(settingsSvc), // sanitized settings snapshot
+)
+
+// Create a zip bundle for the user to share
+path, err := svc.CreateBundle(ctx, outputDir)
+
+// Get system info for an About screen
+info := svc.GetSystemInfo()
+```
+
+**Bundle contents:** `system.json` (OS, arch, versions), `settings.json` (passwords redacted), `logs/` (recent log files with size cap), `manifest.txt` (file listing for user review).
+
+**Events:** `diagnostics:bundle_created`
+
+**Error codes:** `diagnostics_bundle`, `diagnostics_logs`
 
 ### [`lifecycle`](lifecycle/README.md) — Service Lifecycle Manager
 
