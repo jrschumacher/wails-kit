@@ -75,6 +75,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - run: npm ci
+        working-directory: frontend/types
+      - run: npm ci
+        working-directory: frontend/settings
       - run: npm install --save-dev typescript
         working-directory: frontend
       - run: npx tsc --noEmit
