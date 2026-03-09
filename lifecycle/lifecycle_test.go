@@ -5,6 +5,7 @@ import (
 	stderrors "errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jrschumacher/wails-kit/errors"
 	"github.com/jrschumacher/wails-kit/events"
@@ -37,6 +38,36 @@ func (m *mockService) OnShutdown() error {
 	}
 	m.stopped = true
 	return nil
+}
+
+// slowService blocks for a duration on startup and/or shutdown.
+type slowService struct {
+	startDelay time.Duration
+	stopDelay  time.Duration
+}
+
+func (s *slowService) OnStartup(ctx context.Context) error {
+	select {
+	case <-time.After(s.startDelay):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *slowService) OnShutdown() error {
+	time.Sleep(s.stopDelay)
+	return nil
+}
+
+// healthyService implements HealthChecker and always returns a fixed status.
+type healthyService struct {
+	mockService
+	status HealthStatus
+}
+
+func (h *healthyService) Health() HealthStatus {
+	return h.status
 }
 
 func TestNewManager_NoDeps(t *testing.T) {
@@ -349,5 +380,234 @@ func TestDiamondDependency(t *testing.T) {
 	}
 	if indexOf("b") >= indexOf("a") || indexOf("c") >= indexOf("a") {
 		t.Fatalf("b and c must come before a, got %v", sorted)
+	}
+}
+
+// --- Timeout tests ---
+
+func TestStartup_GlobalTimeout_Triggers(t *testing.T) {
+	slow := &slowService{startDelay: 500 * time.Millisecond}
+
+	mem := events.NewMemoryEmitter()
+	mgr, err := NewManager(
+		WithService("slow", slow),
+		WithTimeout(50*time.Millisecond),
+		WithEmitter(events.NewEmitter(mem)),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = mgr.Startup(context.Background())
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !errors.IsCode(err, ErrStartup) {
+		t.Fatalf("expected ErrStartup wrapping timeout, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("expected timeout message, got: %s", err.Error())
+	}
+
+	// Verify timeout event was emitted.
+	var foundTimeout bool
+	for _, evt := range mem.Events() {
+		if evt.Name == EventTimeout {
+			foundTimeout = true
+			payload := evt.Data.(TimeoutPayload)
+			if payload.Name != "slow" || payload.Phase != "startup" {
+				t.Fatalf("unexpected timeout payload: %+v", payload)
+			}
+		}
+	}
+	if !foundTimeout {
+		t.Fatal("expected timeout event")
+	}
+}
+
+func TestStartup_GlobalTimeout_NoTimeoutWhenFast(t *testing.T) {
+	fast := &mockService{name: "fast"}
+
+	mgr, err := NewManager(
+		WithService("fast", fast),
+		WithTimeout(1*time.Second),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := mgr.Startup(context.Background()); err != nil {
+		t.Fatalf("startup should succeed: %v", err)
+	}
+	if !fast.started {
+		t.Fatal("service should have started")
+	}
+}
+
+func TestStartup_PerServiceTimeout_Overrides(t *testing.T) {
+	// Global timeout is generous, but per-service timeout is short.
+	slow := &slowService{startDelay: 500 * time.Millisecond}
+
+	mgr, err := NewManager(
+		WithService("slow", slow, WithServiceTimeout(50*time.Millisecond)),
+		WithTimeout(5*time.Second),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = mgr.Startup(context.Background())
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("expected timeout message, got: %s", err.Error())
+	}
+}
+
+func TestShutdown_Timeout_ContinuesOtherServices(t *testing.T) {
+	fast := &mockService{name: "fast"}
+	slow := &slowService{stopDelay: 500 * time.Millisecond}
+
+	mem := events.NewMemoryEmitter()
+	mgr, err := NewManager(
+		WithService("slow", slow),
+		WithService("fast", fast, DependsOn("slow")),
+		WithTimeout(50*time.Millisecond),
+		WithEmitter(events.NewEmitter(mem)),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := mgr.Startup(context.Background()); err != nil {
+		t.Fatalf("startup failed: %v", err)
+	}
+	mem.Clear()
+
+	err = mgr.Shutdown()
+	if err == nil {
+		t.Fatal("expected shutdown error from timeout")
+	}
+	// The fast service should have stopped successfully despite slow timing out.
+	if !fast.stopped {
+		t.Fatal("fast service should have been stopped")
+	}
+}
+
+func TestStartup_TimeoutTriggersRollback(t *testing.T) {
+	fast := &mockService{name: "fast"}
+	slow := &slowService{startDelay: 500 * time.Millisecond}
+
+	mgr, err := NewManager(
+		WithService("fast", fast),
+		WithService("slow", slow, DependsOn("fast"), WithServiceTimeout(50*time.Millisecond)),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = mgr.Startup(context.Background())
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+
+	// fast should have been rolled back.
+	if !fast.stopped {
+		t.Fatal("fast service should have been rolled back")
+	}
+}
+
+// --- Health check tests ---
+
+func TestHealth_AllHealthy(t *testing.T) {
+	a := &mockService{name: "a"}
+	b := &mockService{name: "b"}
+
+	mgr, err := NewManager(
+		WithService("a", a),
+		WithService("b", b),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := mgr.Startup(context.Background()); err != nil {
+		t.Fatalf("startup failed: %v", err)
+	}
+
+	health := mgr.Health()
+	if len(health) != 2 {
+		t.Fatalf("expected 2 health entries, got %d", len(health))
+	}
+	for _, h := range health {
+		if h.Status != StatusHealthy {
+			t.Fatalf("expected healthy, got %s for %s", h.Status, h.Name)
+		}
+	}
+}
+
+func TestHealth_WithHealthChecker(t *testing.T) {
+	a := &mockService{name: "a"}
+	b := &healthyService{
+		mockService: mockService{name: "b"},
+		status:      StatusDegraded,
+	}
+
+	mgr, err := NewManager(
+		WithService("a", a),
+		WithService("b", b),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := mgr.Startup(context.Background()); err != nil {
+		t.Fatalf("startup failed: %v", err)
+	}
+
+	health := mgr.Health()
+	statusByName := make(map[string]HealthStatus)
+	for _, h := range health {
+		statusByName[h.Name] = h.Status
+	}
+
+	if statusByName["a"] != StatusHealthy {
+		t.Fatalf("expected a=healthy, got %s", statusByName["a"])
+	}
+	if statusByName["b"] != StatusDegraded {
+		t.Fatalf("expected b=degraded, got %s", statusByName["b"])
+	}
+}
+
+func TestHealth_EmptyBeforeStartup(t *testing.T) {
+	mgr, err := NewManager(
+		WithService("a", &mockService{name: "a"}),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	health := mgr.Health()
+	if len(health) != 0 {
+		t.Fatalf("expected 0 health entries before startup, got %d", len(health))
+	}
+}
+
+func TestHealth_Unhealthy(t *testing.T) {
+	svc := &healthyService{
+		mockService: mockService{name: "db"},
+		status:      StatusUnhealthy,
+	}
+
+	mgr, err := NewManager(WithService("db", svc))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := mgr.Startup(context.Background()); err != nil {
+		t.Fatalf("startup failed: %v", err)
+	}
+
+	health := mgr.Health()
+	if len(health) != 1 || health[0].Status != StatusUnhealthy {
+		t.Fatalf("expected unhealthy, got %+v", health)
 	}
 }

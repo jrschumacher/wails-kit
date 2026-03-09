@@ -9,6 +9,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"time"
 
 	"github.com/jrschumacher/wails-kit/errors"
 	"github.com/jrschumacher/wails-kit/events"
@@ -20,6 +21,7 @@ const (
 	ErrMissingDep       errors.Code = "lifecycle_missing_dependency"
 	ErrStartup          errors.Code = "lifecycle_startup"
 	ErrShutdown         errors.Code = "lifecycle_shutdown"
+	ErrTimeout          errors.Code = "lifecycle_timeout"
 )
 
 func init() {
@@ -28,6 +30,7 @@ func init() {
 		ErrMissingDep:       "Service configuration error: a required dependency is missing.",
 		ErrStartup:          "Failed to start a required service. Please try restarting the application.",
 		ErrShutdown:         "An error occurred while shutting down. Some resources may not have been cleaned up.",
+		ErrTimeout:          "A service took too long to respond. Please try restarting the application.",
 	})
 }
 
@@ -37,6 +40,7 @@ const (
 	EventStopped  = "lifecycle:stopped"
 	EventError    = "lifecycle:error"
 	EventRollback = "lifecycle:rollback"
+	EventTimeout  = "lifecycle:timeout"
 )
 
 // ServiceStartedPayload is emitted when a service starts successfully.
@@ -63,10 +67,38 @@ type RollbackPayload struct {
 	RollbackErrors   []string `json:"rollbackErrors,omitempty"`
 }
 
+// HealthStatus represents the health state of a service.
+type HealthStatus string
+
+const (
+	StatusHealthy   HealthStatus = "healthy"
+	StatusDegraded  HealthStatus = "degraded"
+	StatusUnhealthy HealthStatus = "unhealthy"
+)
+
+// TimeoutPayload is emitted when a service operation times out.
+type TimeoutPayload struct {
+	Name      string `json:"name"`
+	Phase     string `json:"phase"` // "startup" or "shutdown"
+	Timeout   string `json:"timeout"`
+}
+
+// ServiceHealth reports the health of a single service.
+type ServiceHealth struct {
+	Name   string       `json:"name"`
+	Status HealthStatus `json:"status"`
+}
+
 // Service is the interface that managed services must implement.
 type Service interface {
 	OnStartup(ctx context.Context) error
 	OnShutdown() error
+}
+
+// HealthChecker is an optional interface that services can implement
+// to report their health status.
+type HealthChecker interface {
+	Health() HealthStatus
 }
 
 // entry holds a registered service and its dependency metadata.
@@ -74,6 +106,7 @@ type entry struct {
 	name    string
 	service Service
 	deps    []string
+	timeout time.Duration // per-service timeout override; 0 means use global
 }
 
 // Manager manages ordered startup and shutdown of services.
@@ -82,6 +115,7 @@ type Manager struct {
 	order   []string // topologically sorted service names
 	started []string // services that have been started (in start order)
 	emitter *events.Emitter
+	timeout time.Duration // global timeout; 0 means no timeout
 }
 
 // ManagerOption configures a Manager.
@@ -95,6 +129,13 @@ type ServiceOption func(*entry)
 func DependsOn(names ...string) ServiceOption {
 	return func(e *entry) {
 		e.deps = append(e.deps, names...)
+	}
+}
+
+// WithServiceTimeout sets a per-service timeout that overrides the global timeout.
+func WithServiceTimeout(d time.Duration) ServiceOption {
+	return func(e *entry) {
+		e.timeout = d
 	}
 }
 
@@ -113,6 +154,14 @@ func WithService(name string, svc Service, opts ...ServiceOption) ManagerOption 
 func WithEmitter(emitter *events.Emitter) ManagerOption {
 	return func(m *Manager) {
 		m.emitter = emitter
+	}
+}
+
+// WithTimeout sets a global timeout for service startup and shutdown operations.
+// Individual services can override this with WithServiceTimeout.
+func WithTimeout(d time.Duration) ManagerOption {
+	return func(m *Manager) {
+		m.timeout = d
 	}
 }
 
@@ -149,7 +198,7 @@ func (m *Manager) Startup(ctx context.Context) error {
 
 	for _, name := range m.order {
 		e := byName[name]
-		if err := e.service.OnStartup(ctx); err != nil {
+		if err := m.startService(ctx, e); err != nil {
 			startErr := errors.Wrap(ErrStartup, fmt.Sprintf("service %q failed to start", name), err).
 				WithField("service", name)
 
@@ -185,7 +234,7 @@ func (m *Manager) Shutdown() error {
 	for i := len(m.started) - 1; i >= 0; i-- {
 		name := m.started[i]
 		e := byName[name]
-		if err := e.service.OnShutdown(); err != nil {
+		if err := m.stopService(e); err != nil {
 			shutErr := errors.Wrap(ErrShutdown, fmt.Sprintf("service %q failed to shut down", name), err).
 				WithField("service", name)
 
@@ -207,6 +256,91 @@ func (m *Manager) Shutdown() error {
 		return stderrors.Join(errs...)
 	}
 	return nil
+}
+
+// Health returns the health status of all started services. Services that
+// implement HealthChecker report their own status; others are reported as healthy.
+func (m *Manager) Health() []ServiceHealth {
+	byName := m.entryMap()
+	result := make([]ServiceHealth, 0, len(m.started))
+
+	for _, name := range m.started {
+		e := byName[name]
+		status := StatusHealthy
+		if hc, ok := e.service.(HealthChecker); ok {
+			status = hc.Health()
+		}
+		result = append(result, ServiceHealth{Name: name, Status: status})
+	}
+
+	return result
+}
+
+// serviceTimeout returns the effective timeout for a service entry.
+func (m *Manager) serviceTimeout(e *entry) time.Duration {
+	if e.timeout > 0 {
+		return e.timeout
+	}
+	return m.timeout
+}
+
+// startService starts a single service, applying a timeout if configured.
+func (m *Manager) startService(ctx context.Context, e *entry) error {
+	timeout := m.serviceTimeout(e)
+	if timeout <= 0 {
+		return e.service.OnStartup(ctx)
+	}
+
+	startCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- e.service.OnStartup(startCtx) }()
+
+	select {
+	case err := <-done:
+		return err
+	case <-startCtx.Done():
+		if ctx.Err() != nil {
+			// Parent context was cancelled, not a timeout.
+			return ctx.Err()
+		}
+		m.emit(EventTimeout, TimeoutPayload{
+			Name:    e.name,
+			Phase:   "startup",
+			Timeout: timeout.String(),
+		})
+		return errors.New(ErrTimeout,
+			fmt.Sprintf("service %q startup timed out after %s", e.name, timeout), startCtx.Err()).
+			WithField("service", e.name).
+			WithField("timeout", timeout.String())
+	}
+}
+
+// stopService stops a single service, applying a timeout if configured.
+func (m *Manager) stopService(e *entry) error {
+	timeout := m.serviceTimeout(e)
+	if timeout <= 0 {
+		return e.service.OnShutdown()
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- e.service.OnShutdown() }()
+
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(timeout):
+		m.emit(EventTimeout, TimeoutPayload{
+			Name:    e.name,
+			Phase:   "shutdown",
+			Timeout: timeout.String(),
+		})
+		return errors.New(ErrTimeout,
+			fmt.Sprintf("service %q shutdown timed out after %s", e.name, timeout), nil).
+			WithField("service", e.name).
+			WithField("timeout", timeout.String())
+	}
 }
 
 // rollback shuts down already-started services in reverse order after a
