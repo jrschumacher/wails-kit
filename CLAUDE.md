@@ -19,6 +19,7 @@ Go module at `github.com/jrschumacher/wails-kit` with these packages:
 - `logging` — Structured logging with rotation
 - `updates` — GitHub Releases-based auto-updates
 - `lifecycle` — Service lifecycle manager with dependency ordering
+- `shortcuts` — Native menu shortcuts and keyboard accelerators
 
 ## Documentation
 
@@ -47,7 +48,7 @@ type(scope): description
 
 **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
 
-**Scopes** (optional, use the package name): `appdirs`, `database`, `diagnostics`, `keyring`, `settings`, `llm`, `errors`, `events`, `lifecycle`, `logging`, `updates`
+**Scopes** (optional, use the package name): `appdirs`, `database`, `diagnostics`, `keyring`, `settings`, `llm`, `errors`, `events`, `lifecycle`, `logging`, `shortcuts`, `updates`
 
 Examples:
 - `feat(updates): add GitHub Releases auto-update`
