@@ -96,21 +96,62 @@ emitter := events.NewEmitter(backend,
 
 ### Cleanup
 
-Call `Close()` when shutting down to flush pending debounced and batched events:
+Call `Close()` when shutting down to flush pending debounced and batched events and stop async handler goroutines:
 
 ```go
 emitter.Close()
 ```
 
-## Typed subscriptions
+## Scoped emitters
 
-Register type-safe handlers that run on the emitting goroutine:
+Multi-tab and multi-pane apps can scope events so subscribers only receive
+events from a specific scope:
 
 ```go
-sub := events.On(emitter, events.SettingsChanged, func(p events.SettingsChangedPayload) {
+// Create a scoped emitter for a specific tab
+tabEmitter := emitter.Scope("tab:abc123")
+tabEmitter.Emit("stream:delta", payload)
+
+// Subscribe to events from a specific scope only
+unsub := events.OnScoped(emitter, "tab:abc123", "stream:delta", func(p Payload) {
+    // only receives from tab:abc123
+})
+defer unsub()
+
+// Subscribe to all scopes of an event (including unscoped)
+unsub = events.On(emitter, "stream:delta", func(p Payload) {
+    // receives from all scopes and unscoped emits
+})
+defer unsub()
+```
+
+Scoped events are emitted to the backend with the wire name `@scope/eventName`.
+Use `events.ScopedName(scope, name)` and `events.ParseScopedName(wireName)` to
+construct and parse scoped event names.
+
+## Async emission
+
+By default, handlers run synchronously on the emitting goroutine. For hot
+paths (e.g., LLM streaming), enable async delivery so slow handlers don't
+block the emitter:
+
+```go
+emitter := events.NewEmitter(backend, events.WithAsync(100))
+defer emitter.Close() // stops handler goroutines
+```
+
+Each handler gets a dedicated goroutine with a buffered channel. When the
+buffer is full, events are dropped to avoid blocking the emitter.
+
+## Typed subscriptions
+
+Register type-safe handlers and unsubscribe when done:
+
+```go
+unsub := events.On(emitter, events.SettingsChanged, func(p events.SettingsChangedPayload) {
     // handle
 })
-sub.Cancel() // unsubscribe
+unsub() // unsubscribe
 ```
 
 ## Kit-provided events

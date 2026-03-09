@@ -60,3 +60,15 @@ func WithBatching(name string, d time.Duration, maxSize int) EmitterOption {
 		}
 	}
 }
+
+// WithAsync enables asynchronous event delivery to handlers. Each handler
+// gets a dedicated goroutine with a buffered channel of the given size.
+// When the buffer is full, events are dropped to avoid blocking the emitter.
+// Call Close to stop handler goroutines on shutdown.
+func WithAsync(bufferSize int) EmitterOption {
+	return func(e *Emitter) {
+		if bufferSize > 0 {
+			e.asyncBuf = bufferSize
+		}
+	}
+}
