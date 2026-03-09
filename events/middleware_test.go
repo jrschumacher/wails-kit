@@ -46,8 +46,8 @@ func TestWithDebounce_Handler_Called(t *testing.T) {
 	emitter := NewEmitter(mem, WithDebounce("test", 30*time.Millisecond))
 
 	ch := make(chan string, 1)
-	sub := On(emitter, "test", func(s string) { ch <- s })
-	defer sub.Cancel()
+	unsub := On(emitter, "test", func(s string) { ch <- s })
+	defer unsub()
 
 	emitter.Emit("test", "hello")
 
