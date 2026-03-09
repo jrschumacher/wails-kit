@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"testing"
 )
 
@@ -161,22 +162,24 @@ func TestFindAsset(t *testing.T) {
 }
 
 func TestFindAssetPrefersExactArchiveOverAdjacentArtifacts(t *testing.T) {
+	pattern := "app_{os}_{arch}"
+	candidate := buildCandidateNames(pattern, runtime.GOOS, runtime.GOARCH)[0]
 	release := &Release{
 		Assets: []Asset{
-			{Name: "app_darwin_arm64_debug.tar.gz"},
-			{Name: "app_darwin_arm64.tar.gz.sig"},
-			{Name: "app_darwin_arm64.tar.gz"},
+			{Name: candidate + "_debug.tar.gz"},
+			{Name: candidate + ".tar.gz.sig"},
+			{Name: candidate + ".tar.gz"},
 		},
 	}
 
-	asset, err := FindAsset(release, "app_{os}_{arch}")
+	asset, err := FindAsset(release, pattern)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if asset == nil {
 		t.Fatal("expected to find an asset")
 	}
-	if asset.Name != "app_darwin_arm64.tar.gz" {
+	if asset.Name != candidate+".tar.gz" {
 		t.Fatalf("got %q, want exact archive match", asset.Name)
 	}
 }
