@@ -157,7 +157,7 @@ func New(opts ...Option) (*DB, error) {
 	// Apply pragmas.
 	if err := d.applyPragmas(); err != nil {
 		if d.owned {
-			d.db.Close()
+			_ = d.db.Close()
 		}
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func New(opts ...Option) (*DB, error) {
 	if d.migrations != nil {
 		if err := d.migrate(); err != nil {
 			if d.owned {
-				d.db.Close()
+				_ = d.db.Close()
 			}
 			return nil, err
 		}

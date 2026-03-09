@@ -43,7 +43,7 @@ func TestNew_WithPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if db.Path() != dbPath {
 		t.Errorf("Path() = %q, want %q", db.Path(), dbPath)
@@ -68,7 +68,7 @@ func TestNew_WithAppName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if db.DB() == nil {
 		t.Error("DB() returned nil")
@@ -93,7 +93,7 @@ func TestNew_WithMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Verify migrations ran.
 	version, err := db.Version()
@@ -128,7 +128,7 @@ func TestNew_WALMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	var journalMode string
 	err = db.DB().QueryRow("PRAGMA journal_mode").Scan(&journalMode)
@@ -148,7 +148,7 @@ func TestNew_ForeignKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	var fk int
 	err = db.DB().QueryRow("PRAGMA foreign_keys").Scan(&fk)
@@ -173,7 +173,7 @@ func TestNew_WithCustomPragmas(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	var cacheSize int
 	err = db.DB().QueryRow("PRAGMA cache_size").Scan(&cacheSize)
@@ -194,7 +194,7 @@ func TestNew_WithExternalDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open error: %v", err)
 	}
-	defer extDB.Close()
+	defer func() { _ = extDB.Close() }()
 
 	db, err := New(
 		WithDB(extDB),
@@ -230,7 +230,7 @@ func TestNew_EmitsMigratedEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if mem.Count() != 1 {
 		t.Fatalf("expected 1 event, got %d", mem.Count())
@@ -269,7 +269,7 @@ func TestNew_NoEventWhenNoMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first New() error: %v", err)
 	}
-	db1.Close()
+	_ = db1.Close()
 	mem.Clear()
 
 	// Second run — no pending migrations.
@@ -281,7 +281,7 @@ func TestNew_NoEventWhenNoMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second New() error: %v", err)
 	}
-	defer db2.Close()
+	defer func() { _ = db2.Close() }()
 
 	if mem.Count() != 0 {
 		t.Errorf("expected 0 events on second run, got %d", mem.Count())
@@ -315,7 +315,7 @@ func TestNew_CreatesParentDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if _, err := os.Stat(filepath.Dir(dbPath)); os.IsNotExist(err) {
 		t.Error("parent directories were not created")
