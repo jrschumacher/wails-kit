@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/jrschumacher/wails-kit/llm"
+	"github.com/jrschumacher/wails-kit/logging"
 	openaisdk "github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
 )
@@ -107,7 +108,7 @@ func buildMessages(req llm.ChatRequest) []openaisdk.ChatCompletionMessageParamUn
 					OfFunction: &openaisdk.ChatCompletionMessageFunctionToolCallParam{
 						ID: tu.ID,
 						Function: openaisdk.ChatCompletionMessageFunctionToolCallFunctionParam{
-							Arguments: string(normalizeToolInput(tu.Input)),
+							Arguments: string(normalizeToolInput(tu.Name, tu.Input)),
 							Name:      tu.Name,
 						},
 					},
@@ -162,26 +163,29 @@ func convertToolUses(toolCalls []openaisdk.ChatCompletionMessageToolCallUnion) [
 			result = append(result, llm.ToolUseBlock{
 				ID:    variant.ID,
 				Name:  variant.Function.Name,
-				Input: normalizeToolInput(json.RawMessage(variant.Function.Arguments)),
+				Input: normalizeToolInput(variant.Function.Name, json.RawMessage(variant.Function.Arguments)),
 			})
 		case openaisdk.ChatCompletionMessageCustomToolCall:
 			result = append(result, llm.ToolUseBlock{
 				ID:    variant.ID,
 				Name:  variant.Custom.Name,
-				Input: normalizeToolInput(json.RawMessage(variant.Custom.Input)),
+				Input: normalizeToolInput(variant.Custom.Name, json.RawMessage(variant.Custom.Input)),
 			})
 		}
 	}
 	return result
 }
 
-func normalizeToolInput(input json.RawMessage) json.RawMessage {
+func normalizeToolInput(toolName string, input json.RawMessage) json.RawMessage {
 	if len(input) == 0 {
 		return json.RawMessage(`{}`)
 	}
 	if json.Valid(input) {
 		return input
 	}
+
+	logging.Warn("malformed tool input JSON, wrapping in fallback",
+		"tool", toolName, "raw_input", string(input))
 
 	fallback, err := json.Marshal(map[string]any{"_raw": string(input)})
 	if err != nil {
