@@ -2,10 +2,11 @@ version: '3'
 
 tasks:
   check:
-    desc: Run lint and tests (same checks as CI)
+    desc: Run all checks (same as CI)
     cmds:
-      - golangci-lint run ./...
-      - go test ./...
+      - task: lint
+      - task: test
+      - task: ts:check
 
   lint:
     desc: Run golangci-lint
@@ -13,6 +14,14 @@ tasks:
       - golangci-lint run ./...
 
   test:
-    desc: Run all tests
+    desc: Run all Go tests
     cmds:
       - go test ./...
+
+  ts:check:
+    desc: Run TypeScript typecheck and lint
+    dir: frontend/types
+    cmds:
+      - npm ci --silent
+      - npm run typecheck
+      - npm run lint
