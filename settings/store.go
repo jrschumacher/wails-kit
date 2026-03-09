@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/jrschumacher/wails-kit/appdirs"
 )
 
 type Store struct {
@@ -22,20 +24,14 @@ func WithPath(path string) StoreOption {
 	return func(s *Store) { s.path = path }
 }
 
-// NewStore creates a settings store. The default path uses os.UserConfigDir():
+// NewStore creates a settings store. The default path uses appdirs.Config():
 //   - macOS: ~/Library/Application Support/{appName}/settings.json
 //   - Linux: $XDG_CONFIG_HOME/{appName}/settings.json
 //   - Windows: %AppData%/{appName}/settings.json
 func NewStore(appName string, opts ...StoreOption) *Store {
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		// Fallback to home directory dot-dir
-		home, _ := os.UserHomeDir()
-		configDir = home
-		appName = "." + appName
-	}
+	dirs := appdirs.New(appName)
 	s := &Store{
-		path:      filepath.Join(configDir, appName, "settings.json"),
+		path:      filepath.Join(dirs.Config(), "settings.json"),
 		defaults:  make(map[string]any),
 		knownKeys: make(map[string]bool),
 	}
