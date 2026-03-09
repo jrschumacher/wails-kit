@@ -44,6 +44,7 @@ jobs:
             errors
             events
             logging
+            shortcuts
             updates
           requireScope: false
           subjectPattern: ^.+$
@@ -120,3 +121,54 @@ jobs:
           cache-dependency-path: frontend/types/package-lock.json
       - run: npm ci
       - run: npm run lint
+
+  settings-ts-typecheck:
+    name: Settings TypeScript Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/settings/package-lock.json
+      - run: npm ci
+        working-directory: frontend/types
+      - run: npm ci
+        working-directory: frontend/settings
+      - run: npm run typecheck
+        working-directory: frontend/settings
+
+  settings-ts-lint:
+    name: Settings TypeScript Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/settings/package-lock.json
+      - run: npm ci
+        working-directory: frontend/types
+      - run: npm ci
+        working-directory: frontend/settings
+      - run: npm run lint
+        working-directory: frontend/settings
+
+  settings-ts-test:
+    name: Settings TypeScript Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/settings/package-lock.json
+      - run: npm ci
+        working-directory: frontend/types
+      - run: npm ci
+        working-directory: frontend/settings
+      - run: npm run test
+        working-directory: frontend/settings

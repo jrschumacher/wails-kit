@@ -36,6 +36,10 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 ┌─────────────┐
 │ diagnostics │──▶ appdirs, settings, events, errors (all optional except errors)
 └─────────────┘
+
+┌─────────────┐────▶ events (optional)
+│  shortcuts  │────▶ wails/v3 (native menus)
+└─────────────┘
 ```
 
 - `errors`, `events`, and `appdirs` are leaf packages with no kit dependencies
@@ -47,6 +51,7 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 - `lifecycle` depends on `errors` and `events`; manages startup/shutdown ordering of any services
 - `diagnostics` depends on `errors`; optionally depends on `appdirs`, `settings`, and `events`
 - `logging` depends on `appdirs` for log directory paths
+- `shortcuts` depends on `events` (optional) and `wails/v3` for native menu APIs
 
 ### Frontend packages
 
