@@ -19,9 +19,24 @@ tasks:
       - go test ./...
 
   ts:check:
-    desc: Run TypeScript typecheck and lint
+    desc: Run frontend TypeScript checks
+    cmds:
+      - task: ts:check:types
+      - task: ts:check:settings
+
+  ts:check:types:
+    desc: Run frontend/types TypeScript typecheck and lint
     dir: frontend/types
     cmds:
       - npm ci --silent
       - npm run typecheck
       - npm run lint
+
+  ts:check:settings:
+    desc: Run frontend/settings typecheck, lint, and tests
+    dir: frontend/settings
+    cmds:
+      - npm ci --silent
+      - npm run typecheck
+      - npm run lint
+      - npm test
