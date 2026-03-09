@@ -48,7 +48,8 @@ func WithTempDir(path string) Option {
 }
 
 // New creates a Dirs instance for the given app name with OS-appropriate defaults.
-// Panics if appName is empty.
+// Panics if appName is empty or if the home directory cannot be resolved and
+// is needed for default paths (i.e., not all directories are overridden via options).
 func New(appName string, opts ...Option) *Dirs {
 	if appName == "" {
 		panic("appdirs: appName must not be empty")
@@ -59,8 +60,18 @@ func New(appName string, opts ...Option) *Dirs {
 		opt(d)
 	}
 
+	// Only resolve home dir if we need it for defaults
+	needsHome := d.config == "" || d.data == "" || d.cache == "" || d.log == ""
+	var home string
+	if needsHome {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			panic("appdirs: cannot resolve home directory: " + err.Error())
+		}
+	}
+
 	// Fill in OS defaults for any paths not overridden
-	home := homeDir()
 	goos := runtime.GOOS
 	if d.config == "" {
 		d.config = configDir(goos, home, appName)
@@ -126,11 +137,6 @@ func (d *Dirs) CleanTemp() error {
 		return err
 	}
 	return os.MkdirAll(d.temp, 0700)
-}
-
-func homeDir() string {
-	home, _ := os.UserHomeDir()
-	return home
 }
 
 func configDir(goos, home, appName string) string {

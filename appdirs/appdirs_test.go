@@ -23,6 +23,40 @@ func TestNewPanicsOnEmpty(t *testing.T) {
 	New("")
 }
 
+func TestNewPanicsOnNoHome(t *testing.T) {
+	// Unsetting HOME should cause os.UserHomeDir() to fail
+	t.Setenv("HOME", "")
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", "")
+	}
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic when home directory cannot be resolved")
+		}
+	}()
+	New("test-app")
+}
+
+func TestNewNoHomeWithAllOverrides(t *testing.T) {
+	// With all dirs overridden, home dir is not needed — should not panic
+	t.Setenv("HOME", "")
+	if runtime.GOOS == "windows" {
+		t.Setenv("USERPROFILE", "")
+	}
+
+	dirs := New("test-app",
+		WithConfigDir("/c"),
+		WithDataDir("/d"),
+		WithCacheDir("/ca"),
+		WithLogDir("/l"),
+		WithTempDir("/t"),
+	)
+	if dirs.Config() != "/c" {
+		t.Fatalf("expected /c, got %s", dirs.Config())
+	}
+}
+
 func TestConfig(t *testing.T) {
 	dirs := New("test-app")
 	path := dirs.Config()
