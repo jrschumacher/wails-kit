@@ -49,7 +49,35 @@ func TestInit_CreatesLogDir(t *testing.T) {
 	}
 
 	// Reset for other tests
+	loggerMu.Lock()
 	defaultLogger = nil
+	loggerMu.Unlock()
+	initOnce = syncOnce()
+}
+
+func TestInit_RaceCondition(t *testing.T) {
+	// Verify that Init and Get are safe for concurrent use.
+	dir := filepath.Join(t.TempDir(), "logs")
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = Init(&Config{AppName: "test", LogDir: dir})
+		}()
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = Get()
+		}()
+	}
+	wg.Wait()
+
+	// Reset for other tests
+	loggerMu.Lock()
+	defaultLogger = nil
+	loggerMu.Unlock()
 	initOnce = syncOnce()
 }
 
@@ -70,14 +98,37 @@ func TestRedactingHandler(t *testing.T) {
 		t.Fatalf("failed to parse log entry: %v", err)
 	}
 
-	if !strings.Contains(entry["password"].(string), "REDACTED") {
-		t.Errorf("expected password to be redacted, got %v", entry["password"])
+	if entry["password"] != "[REDACTED]" {
+		t.Errorf("expected password to be [REDACTED], got %v", entry["password"])
 	}
-	if !strings.Contains(entry["token"].(string), "REDACTED") {
-		t.Errorf("expected token to be redacted, got %v", entry["token"])
+	if entry["token"] != "[REDACTED]" {
+		t.Errorf("expected token to be [REDACTED], got %v", entry["token"])
 	}
 	if entry["username"] != "alice" {
 		t.Errorf("expected username to be preserved, got %v", entry["username"])
+	}
+}
+
+func TestRedactingHandler_DoesNotLeakLength(t *testing.T) {
+	var buf bytes.Buffer
+	inner := slog.NewJSONHandler(&buf, nil)
+	handler := NewRedactingHandler(inner, []string{"secret"})
+	logger := slog.New(handler)
+
+	logger.Info("test", "secret", "short")
+
+	var entry map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+		t.Fatalf("failed to parse log entry: %v", err)
+	}
+
+	// Must not contain character count
+	val := entry["secret"].(string)
+	if strings.Contains(val, "chars") {
+		t.Errorf("redacted value leaks length info: %s", val)
+	}
+	if val != "[REDACTED]" {
+		t.Errorf("expected [REDACTED], got %s", val)
 	}
 }
 
@@ -115,8 +166,8 @@ func TestRedactingHandler_WithAttrs(t *testing.T) {
 		t.Fatalf("failed to parse log entry: %v", err)
 	}
 
-	if !strings.Contains(entry["secret"].(string), "REDACTED") {
-		t.Errorf("expected pre-set secret to be redacted, got %v", entry["secret"])
+	if entry["secret"] != "[REDACTED]" {
+		t.Errorf("expected pre-set secret to be [REDACTED], got %v", entry["secret"])
 	}
 }
 
@@ -138,6 +189,14 @@ func TestWithFields(t *testing.T) {
 	}
 	if entry["version"] != float64(2) {
 		t.Errorf("expected version=2, got %v", entry["version"])
+	}
+}
+
+func TestCompressDefaultTrue(t *testing.T) {
+	// When Compress is nil (zero value), it should default to true.
+	config := &Config{AppName: "test"}
+	if config.Compress != nil {
+		t.Error("expected nil Compress in zero-value Config")
 	}
 }
 

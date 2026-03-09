@@ -94,8 +94,9 @@ func (s *Store) Load() (map[string]any, error) {
 	return result, nil
 }
 
-// Save writes values to the settings file atomically.
-// It writes to a temp file first, then renames to prevent corruption.
+// Save merges values into the existing saved settings and writes atomically.
+// Only the keys present in values are updated; existing keys not in values
+// are preserved. Password keys (managed by keyring) should not be included.
 func (s *Store) Save(values map[string]any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -105,14 +106,26 @@ func (s *Store) Save(values map[string]any) error {
 		return err
 	}
 
-	data, err := json.MarshalIndent(values, "", "  ")
+	// Load existing saved data to merge with
+	existing := make(map[string]any)
+	data, err := os.ReadFile(s.path)
+	if err == nil {
+		_ = json.Unmarshal(data, &existing)
+	}
+
+	// Merge: new values override existing
+	for k, v := range values {
+		existing[k] = v
+	}
+
+	merged, err := json.MarshalIndent(existing, "", "  ")
 	if err != nil {
 		return err
 	}
 
 	// Atomic write: write to temp file, then rename
 	tmpPath := s.path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+	if err := os.WriteFile(tmpPath, merged, 0600); err != nil {
 		return err
 	}
 	return os.Rename(tmpPath, s.path)

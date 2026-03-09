@@ -28,7 +28,52 @@ func NewProvider(name, modelID string, config ProviderConfig) (Provider, error) 
 	if !ok {
 		return nil, fmt.Errorf("unknown provider: %s", name)
 	}
-	return factory(modelID, config), nil
+	p := factory(modelID, config)
+	if p == nil {
+		return nil, fmt.Errorf("provider factory %q returned nil", name)
+	}
+	return p, nil
+}
+
+// ResolveModelID determines the effective model ID from settings values.
+// It applies custom model overrides and anthropic openai-compatible prefixing.
+// This is the single source of truth for model resolution — used by both
+// ConfigFromValues and the computed settings field.
+func ResolveModelID(values map[string]any) string {
+	provider, _ := values["llm.provider"].(string)
+	if provider == "" {
+		provider = "anthropic"
+	}
+	modelID, _ := values["llm.model"].(string)
+
+	prefix := "llm." + provider + "."
+	if custom, _ := values[prefix+"customModel"].(string); custom != "" {
+		modelID = custom
+	}
+
+	if provider == "anthropic" {
+		apiFormat, _ := values["llm.anthropic.apiFormat"].(string)
+		if apiFormat == "openai-compatible" && !strings.HasPrefix(modelID, "anthropic/") {
+			modelID = "anthropic/" + modelID
+		}
+	}
+
+	return modelID
+}
+
+// resolveTransportProvider determines which provider transport to use.
+func resolveTransportProvider(values map[string]any) string {
+	provider, _ := values["llm.provider"].(string)
+	if provider == "" {
+		provider = "anthropic"
+	}
+	if provider == "anthropic" {
+		apiFormat, _ := values["llm.anthropic.apiFormat"].(string)
+		if apiFormat == "openai-compatible" {
+			return "openai"
+		}
+	}
+	return provider
 }
 
 // ConfigFromValues extracts provider name, resolved model ID, and ProviderConfig
@@ -38,26 +83,13 @@ func ConfigFromValues(values map[string]any) (transportProvider, modelID string,
 	if provider == "" {
 		provider = "anthropic"
 	}
-	modelID, _ = values["llm.model"].(string)
 
 	prefix := "llm." + provider + "."
 	config.BaseURL, _ = values[prefix+"baseURL"].(string)
 	config.APIKey, _ = values[prefix+"secret"].(string)
 
-	if custom, _ := values[prefix+"customModel"].(string); custom != "" {
-		modelID = custom
-	}
-
-	transportProvider = provider
-	if provider == "anthropic" {
-		apiFormat, _ := values[prefix+"apiFormat"].(string)
-		if apiFormat == "openai-compatible" {
-			transportProvider = "openai"
-			if !strings.HasPrefix(modelID, "anthropic/") {
-				modelID = "anthropic/" + modelID
-			}
-		}
-	}
+	transportProvider = resolveTransportProvider(values)
+	modelID = ResolveModelID(values)
 
 	return
 }

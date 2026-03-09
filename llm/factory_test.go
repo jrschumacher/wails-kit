@@ -55,6 +55,18 @@ func TestNewProviderUnknown(t *testing.T) {
 	}
 }
 
+func TestNewProvider_NilFactory(t *testing.T) {
+	resetFactories()
+	RegisterProvider("nil-factory", func(modelID string, config ProviderConfig) Provider {
+		return nil
+	})
+
+	_, err := NewProvider("nil-factory", "model", ProviderConfig{})
+	if err == nil {
+		t.Fatal("expected error when factory returns nil, got nil")
+	}
+}
+
 func TestConfigFromValues_AnthropicDefaults(t *testing.T) {
 	values := map[string]any{
 		"llm.provider": "anthropic",
@@ -77,8 +89,8 @@ func TestConfigFromValues_AnthropicDefaults(t *testing.T) {
 
 func TestConfigFromValues_OpenAI(t *testing.T) {
 	values := map[string]any{
-		"llm.provider":     "openai",
-		"llm.model":        "gpt-4o",
+		"llm.provider":       "openai",
+		"llm.model":          "gpt-4o",
 		"llm.openai.baseURL": "https://api.openai.com",
 		"llm.openai.secret":  "sk-test",
 	}

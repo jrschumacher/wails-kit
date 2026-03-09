@@ -22,7 +22,7 @@ type Config struct {
 	MaxSize       int      // Max log file size in MB (default: 100)
 	MaxAge        int      // Max age in days (default: 7)
 	MaxBackups    int      // Max old log files (default: 10)
-	Compress      bool     // Compress rotated files (default: true)
+	Compress      *bool    // Compress rotated files (default: true); use pointer to distinguish unset from false
 	AddSource     bool     // Add source file:line to logs
 	SensitiveKeys []string // Field names to redact
 	Stdout        bool     // Also write to stdout (default: true)
@@ -34,11 +34,13 @@ type Logger struct {
 }
 
 var (
+	loggerMu      sync.RWMutex
 	defaultLogger *Logger
 	initOnce      sync.Once
 )
 
-// Init initializes the global logger.
+// Init initializes the global logger. It is safe to call multiple times;
+// each call replaces the previous logger.
 func Init(config *Config) error {
 	if config == nil {
 		config = &Config{AppName: "app"}
@@ -67,10 +69,9 @@ func Init(config *Config) error {
 	if maxBackups <= 0 {
 		maxBackups = 10
 	}
-	compress := config.Compress
-	// Compress defaults to true if not explicitly set in a zero-value config
-	if config.MaxSize == 0 && config.MaxAge == 0 {
-		compress = true
+	compress := true
+	if config.Compress != nil {
+		compress = *config.Compress
 	}
 
 	logFile := &lumberjack.Logger{
@@ -110,19 +111,31 @@ func Init(config *Config) error {
 		handler = NewRedactingHandler(handler, config.SensitiveKeys)
 	}
 
-	defaultLogger = &Logger{Logger: slog.New(handler)}
+	logger := &Logger{Logger: slog.New(handler)}
+
+	loggerMu.Lock()
+	defaultLogger = logger
+	loggerMu.Unlock()
+
 	return nil
 }
 
 // Get returns the global logger, initializing with defaults if needed.
 func Get() *Logger {
 	initOnce.Do(func() {
-		if defaultLogger == nil {
+		loggerMu.RLock()
+		initialized := defaultLogger != nil
+		loggerMu.RUnlock()
+		if !initialized {
 			if err := Init(&Config{AppName: "app", Stdout: true}); err != nil {
+				loggerMu.Lock()
 				defaultLogger = &Logger{Logger: slog.Default()}
+				loggerMu.Unlock()
 			}
 		}
 	})
+	loggerMu.RLock()
+	defer loggerMu.RUnlock()
 	return defaultLogger
 }
 

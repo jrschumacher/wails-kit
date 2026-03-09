@@ -26,10 +26,12 @@ func New(modelID string, config llm.ProviderConfig) *Provider {
 	if config.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(config.BaseURL))
 	}
+	// Explicit config always takes precedence over environment variables.
+	if config.APIKey != "" {
+		opts = append(opts, option.WithAPIKey(config.APIKey))
+	}
 	if cfAuth := os.Getenv("CF_AIG_AUTHORIZATION"); cfAuth != "" {
 		opts = append(opts, option.WithHeader("cf-aig-authorization", "Bearer "+cfAuth))
-	} else if config.APIKey != "" {
-		opts = append(opts, option.WithAPIKey(config.APIKey))
 	}
 	return &Provider{
 		client:  anthropicsdk.NewClient(opts...),

@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -141,6 +142,42 @@ func TestValidate_MinLenPass(t *testing.T) {
 	}
 }
 
+func TestValidate_MinLen_UTF8(t *testing.T) {
+	schema := makeSchema(Field{
+		Key:        "name",
+		Type:       FieldText,
+		Label:      "Name",
+		Validation: &Validation{MinLen: 3},
+	})
+
+	// "日本語" is 3 runes but 9 bytes — should pass MinLen=3
+	errs := Validate(schema, map[string]any{"name": "日本語"})
+	if errs != nil {
+		t.Fatalf("expected no errors for 3-rune string, got %v", errs)
+	}
+}
+
+func TestValidate_MaxLen_UTF8(t *testing.T) {
+	schema := makeSchema(Field{
+		Key:        "name",
+		Type:       FieldText,
+		Label:      "Name",
+		Validation: &Validation{MaxLen: 4},
+	})
+
+	// "日本語" is 3 runes — should pass MaxLen=4
+	errs := Validate(schema, map[string]any{"name": "日本語"})
+	if errs != nil {
+		t.Fatalf("expected no errors for 3-rune string with MaxLen=4, got %v", errs)
+	}
+
+	// "日本語五六" is 5 runes — should fail MaxLen=4
+	errs = Validate(schema, map[string]any{"name": "日本語五六"})
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for 5-rune string with MaxLen=4, got %d", len(errs))
+	}
+}
+
 func TestValidate_NumberMin(t *testing.T) {
 	schema := makeSchema(Field{
 		Key:        "age",
@@ -186,6 +223,74 @@ func TestValidate_NumberMinPass(t *testing.T) {
 	errs := Validate(schema, map[string]any{"age": float64(25)})
 	if errs != nil {
 		t.Fatalf("expected no errors, got %v", errs)
+	}
+}
+
+func TestValidate_NumberAsInt(t *testing.T) {
+	schema := makeSchema(Field{
+		Key:        "count",
+		Type:       FieldNumber,
+		Label:      "Count",
+		Validation: &Validation{Min: intPtr(1), Max: intPtr(10)},
+	})
+
+	// int type (not float64) should also be validated
+	errs := Validate(schema, map[string]any{"count": 5})
+	if errs != nil {
+		t.Fatalf("expected no errors for int value, got %v", errs)
+	}
+
+	errs = Validate(schema, map[string]any{"count": 0})
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for int below min, got %d", len(errs))
+	}
+}
+
+func TestValidate_NumberAsJSONNumber(t *testing.T) {
+	schema := makeSchema(Field{
+		Key:        "count",
+		Type:       FieldNumber,
+		Label:      "Count",
+		Validation: &Validation{Min: intPtr(1), Max: intPtr(10)},
+	})
+
+	errs := Validate(schema, map[string]any{"count": json.Number("5")})
+	if errs != nil {
+		t.Fatalf("expected no errors for json.Number, got %v", errs)
+	}
+
+	errs = Validate(schema, map[string]any{"count": json.Number("15")})
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for json.Number above max, got %d", len(errs))
+	}
+}
+
+func TestValidate_ToggleValidation(t *testing.T) {
+	schema := makeSchema(Field{
+		Key:   "enabled",
+		Type:  FieldToggle,
+		Label: "Enabled",
+	})
+
+	// Valid: bool value
+	errs := Validate(schema, map[string]any{"enabled": true})
+	if errs != nil {
+		t.Fatalf("expected no errors for bool toggle, got %v", errs)
+	}
+
+	// Valid: nil (not set)
+	errs = Validate(schema, map[string]any{})
+	if errs != nil {
+		t.Fatalf("expected no errors for unset toggle, got %v", errs)
+	}
+
+	// Invalid: string value
+	errs = Validate(schema, map[string]any{"enabled": "yes"})
+	if len(errs) != 1 {
+		t.Fatalf("expected 1 error for string toggle, got %d", len(errs))
+	}
+	if errs[0].Message != "Enabled must be true or false" {
+		t.Errorf("unexpected message: %s", errs[0].Message)
 	}
 }
 

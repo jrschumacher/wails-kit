@@ -1,8 +1,6 @@
 package llm
 
 import (
-	"strings"
-
 	"github.com/jrschumacher/wails-kit/settings"
 )
 
@@ -131,25 +129,5 @@ func LLMSettingsGroup() settings.Group {
 }
 
 func computeResolvedModelID(values map[string]any) any {
-	provider, _ := values["llm.provider"].(string)
-	model, _ := values["llm.model"].(string)
-	apiFormat, _ := values["llm.anthropic.apiFormat"].(string)
-
-	var customModel string
-	switch provider {
-	case "anthropic":
-		customModel, _ = values["llm.anthropic.customModel"].(string)
-	case "openai":
-		customModel, _ = values["llm.openai.customModel"].(string)
-	}
-	if customModel != "" {
-		return customModel
-	}
-
-	if provider == "anthropic" && apiFormat == "openai-compatible" {
-		if !strings.HasPrefix(model, "anthropic/") {
-			return "anthropic/" + model
-		}
-	}
-	return model
+	return ResolveModelID(values)
 }

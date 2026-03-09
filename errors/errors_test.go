@@ -40,6 +40,21 @@ func TestNewf(t *testing.T) {
 	}
 }
 
+func TestNewf_WithWrappedError(t *testing.T) {
+	cause := stderrors.New("disk full")
+	err := Newf(ErrStorageWrite, "save failed: %w", cause)
+
+	if err.Underlying == nil {
+		t.Fatal("expected Underlying to be set when using %w")
+	}
+	if !stderrors.Is(err, cause) {
+		t.Error("expected wrapped error to be unwrappable via Is")
+	}
+	if err.Message != "save failed: disk full" {
+		t.Errorf("unexpected message: %s", err.Message)
+	}
+}
+
 func TestWithField(t *testing.T) {
 	err := New(ErrProvider, "fail", nil).
 		WithField("provider", "openai").

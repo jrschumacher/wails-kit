@@ -11,6 +11,10 @@ import (
 	"strings"
 )
 
+// maxExtractSize is the maximum total bytes that can be extracted from an
+// archive. This protects against decompression bombs.
+const maxExtractSize = 1 << 30 // 1 GiB
+
 // Applier replaces the running binary with a new version.
 type Applier interface {
 	Apply(newPath, currentPath string) error
@@ -33,7 +37,7 @@ func (defaultApplier) Apply(newPath, currentPath string) error {
 		return fmt.Errorf("backup current binary: %w", err)
 	}
 
-	if err := os.Rename(newPath, currentPath); err != nil {
+	if err := moveFile(newPath, currentPath); err != nil {
 		// Try to restore the old binary
 		_ = os.Rename(oldPath, currentPath)
 		return fmt.Errorf("install new binary: %w", err)
@@ -43,6 +47,25 @@ func (defaultApplier) Apply(newPath, currentPath string) error {
 	_ = os.Remove(oldPath)
 
 	return nil
+}
+
+// moveFile attempts os.Rename first, falling back to copy+remove for
+// cross-filesystem moves (EXDEV).
+func moveFile(src, dst string) error {
+	err := os.Rename(src, dst)
+	if err == nil {
+		return nil
+	}
+	// If Rename failed for a reason other than cross-device, bail out.
+	if !isCrossDeviceError(err) {
+		return err
+	}
+
+	// Fall back to copy + remove.
+	if err := copyFile(src, dst); err != nil {
+		return err
+	}
+	return os.Remove(src)
 }
 
 // extractArchive extracts a downloaded archive to a temp directory.
@@ -75,6 +98,12 @@ func extractArchive(archivePath string) (string, error) {
 	return dir, nil
 }
 
+// sanitizeMode strips setuid, setgid, and sticky bits from archive-provided
+// file modes so extracted files cannot gain unexpected privileges.
+func sanitizeMode(mode os.FileMode) os.FileMode {
+	return mode & 0o777
+}
+
 func extractTarGz(src, dest string) error {
 	f, err := os.Open(src)
 	if err != nil {
@@ -89,6 +118,7 @@ func extractTarGz(src, dest string) error {
 	defer func() { _ = gz.Close() }()
 
 	tr := tar.NewReader(gz)
+	var totalBytes int64
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
@@ -113,17 +143,21 @@ func extractTarGz(src, dest string) error {
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 				return err
 			}
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, os.FileMode(header.Mode))
+			out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, sanitizeMode(os.FileMode(header.Mode)))
 			if err != nil {
 				return err
 			}
-			_, copyErr := io.Copy(out, tr)
+			written, copyErr := io.Copy(out, io.LimitReader(tr, maxExtractSize-totalBytes+1))
 			closeErr := out.Close()
 			if copyErr != nil {
 				return copyErr
 			}
 			if closeErr != nil {
 				return closeErr
+			}
+			totalBytes += written
+			if totalBytes > maxExtractSize {
+				return fmt.Errorf("archive exceeds maximum allowed size (%d bytes)", maxExtractSize)
 			}
 		}
 	}
@@ -138,6 +172,7 @@ func extractZip(src, dest string) error {
 	}
 	defer func() { _ = r.Close() }()
 
+	var totalBytes int64
 	for _, f := range r.File {
 		target := filepath.Join(dest, f.Name)
 		// Prevent path traversal
@@ -160,12 +195,12 @@ func extractZip(src, dest string) error {
 		if err != nil {
 			return err
 		}
-		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, f.Mode())
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, sanitizeMode(f.Mode()))
 		if err != nil {
 			_ = rc.Close()
 			return err
 		}
-		_, copyErr := io.Copy(out, rc)
+		written, copyErr := io.Copy(out, io.LimitReader(rc, maxExtractSize-totalBytes+1))
 		closeOutErr := out.Close()
 		closeRcErr := rc.Close()
 		if copyErr != nil {
@@ -176,6 +211,10 @@ func extractZip(src, dest string) error {
 		}
 		if closeRcErr != nil {
 			return closeRcErr
+		}
+		totalBytes += written
+		if totalBytes > maxExtractSize {
+			return fmt.Errorf("archive exceeds maximum allowed size (%d bytes)", maxExtractSize)
 		}
 	}
 
@@ -211,6 +250,12 @@ func copyFile(src, dest string) error {
 // Otherwise returns the first executable file found.
 func findBinary(dir, binaryName string) (string, error) {
 	if binaryName != "" {
+		// Reject path traversal in binaryName
+		if strings.Contains(binaryName, string(os.PathSeparator)) || strings.Contains(binaryName, "/") ||
+			binaryName == ".." || strings.Contains(binaryName, "../") {
+			return "", fmt.Errorf("binary name %q contains path separator or traversal", binaryName)
+		}
+
 		path := filepath.Join(dir, binaryName)
 		if _, err := os.Stat(path); err == nil {
 			return path, nil

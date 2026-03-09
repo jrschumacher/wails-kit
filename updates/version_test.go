@@ -40,6 +40,20 @@ func TestParseVersion(t *testing.T) {
 	}
 }
 
+func TestParseVersion_BuildMetadataWithPrerelease(t *testing.T) {
+	// "1.0.0-beta+build" should parse prerelease as "beta", not "beta+build"
+	v, err := ParseVersion("v1.0.0-beta+build")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v.Prerelease != "beta" {
+		t.Errorf("expected prerelease 'beta', got %q", v.Prerelease)
+	}
+	if v.Major != 1 || v.Minor != 0 || v.Patch != 0 {
+		t.Errorf("unexpected version: %+v", v)
+	}
+}
+
 func TestVersionCompare(t *testing.T) {
 	tests := []struct {
 		a, b string
