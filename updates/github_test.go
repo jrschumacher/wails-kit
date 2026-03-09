@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"testing"
 )
 
@@ -157,6 +158,29 @@ func TestFindAsset(t *testing.T) {
 	}
 	if asset == nil {
 		t.Fatal("expected to find an asset")
+	}
+}
+
+func TestFindAssetPrefersExactArchiveOverAdjacentArtifacts(t *testing.T) {
+	pattern := "app_{os}_{arch}"
+	candidate := buildCandidateNames(pattern, runtime.GOOS, runtime.GOARCH)[0]
+	release := &Release{
+		Assets: []Asset{
+			{Name: candidate + "_debug.tar.gz"},
+			{Name: candidate + ".tar.gz.sig"},
+			{Name: candidate + ".tar.gz"},
+		},
+	}
+
+	asset, err := FindAsset(release, pattern)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if asset == nil {
+		t.Fatal("expected to find an asset")
+	}
+	if asset.Name != candidate+".tar.gz" {
+		t.Fatalf("got %q, want exact archive match", asset.Name)
 	}
 }
 

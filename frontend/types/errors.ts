@@ -21,7 +21,8 @@ export type ErrorCode =
   // Update error codes (updates package)
   | "update_check"
   | "update_download"
-  | "update_apply";
+  | "update_apply"
+  | "update_verify";
 
 export interface UserError {
   code: ErrorCode;
