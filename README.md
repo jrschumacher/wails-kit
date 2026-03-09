@@ -4,6 +4,25 @@ Reusable Go module for Wails v3 apps. Provides a schema-driven settings framewor
 
 ## Packages
 
+### [`appdirs`](appdirs/README.md) — OS-Standard App Directories
+
+Unified OS-standard directory paths for config, data, cache, log, and temp. Replaces duplicated path logic across packages.
+
+```go
+import "github.com/jrschumacher/wails-kit/appdirs"
+
+dirs := appdirs.New("my-app")
+
+dirs.Config()  // ~/Library/Application Support/my-app/ (macOS)
+dirs.Data()    // persistent user data
+dirs.Cache()   // ~/Library/Caches/my-app/ (macOS)
+dirs.Log()     // ~/Library/Logs/my-app/ (macOS)
+dirs.Temp()    // temporary working files
+
+dirs.EnsureAll()  // create all dirs with 0700 permissions
+dirs.CleanTemp()  // remove stale temp files on startup
+```
+
 ### [`keyring`](keyring/README.md) — OS Keyring Credential Storage
 
 Generic OS keyring wrapper with environment variable fallback. Used internally by settings for password fields, and available directly for app-specific secrets.

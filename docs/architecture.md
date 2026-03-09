@@ -18,9 +18,13 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
                  ┌──────────┐     ┌──────────┐
                  │ events   │     │  errors  │
                  └──────────┘     └──────────┘
+
+                 ┌──────────┐
+                 │ appdirs  │  (leaf — no kit dependencies)
+                 └──────────┘
 ```
 
-- `errors` and `events` are leaf packages with no kit dependencies
+- `errors`, `events`, and `appdirs` are leaf packages with no kit dependencies
 - `keyring` is a leaf package
 - `settings` depends on `keyring` for password field storage
 - `llm` depends on `settings` for configuration
