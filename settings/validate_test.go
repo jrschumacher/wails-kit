@@ -33,6 +33,9 @@ func TestValidate_RequiredFieldMissing(t *testing.T) {
 	if errs[0].Message != "Name is required" {
 		t.Errorf("unexpected message: %s", errs[0].Message)
 	}
+	if errs[0].Code != CodeRequired {
+		t.Errorf("expected code=%s, got %s", CodeRequired, errs[0].Code)
+	}
 }
 
 func TestValidate_RequiredFieldEmptyString(t *testing.T) {
@@ -92,6 +95,9 @@ func TestValidate_PatternMismatch(t *testing.T) {
 	if errs[0].Message != "Email has invalid format" {
 		t.Errorf("unexpected message: %s", errs[0].Message)
 	}
+	if errs[0].Code != CodePattern {
+		t.Errorf("expected code=%s, got %s", CodePattern, errs[0].Code)
+	}
 }
 
 func TestValidate_MinLen(t *testing.T) {
@@ -109,6 +115,9 @@ func TestValidate_MinLen(t *testing.T) {
 	if errs[0].Message != "Password must be at least 8 characters" {
 		t.Errorf("unexpected message: %s", errs[0].Message)
 	}
+	if errs[0].Code != CodeMinLen {
+		t.Errorf("expected code=%s, got %s", CodeMinLen, errs[0].Code)
+	}
 }
 
 func TestValidate_MaxLen(t *testing.T) {
@@ -125,6 +134,9 @@ func TestValidate_MaxLen(t *testing.T) {
 	}
 	if errs[0].Message != "Code must be at most 4 characters" {
 		t.Errorf("unexpected message: %s", errs[0].Message)
+	}
+	if errs[0].Code != CodeMaxLen {
+		t.Errorf("expected code=%s, got %s", CodeMaxLen, errs[0].Code)
 	}
 }
 
@@ -193,6 +205,9 @@ func TestValidate_NumberMin(t *testing.T) {
 	if errs[0].Message != "Age must be at least 18" {
 		t.Errorf("unexpected message: %s", errs[0].Message)
 	}
+	if errs[0].Code != CodeMin {
+		t.Errorf("expected code=%s, got %s", CodeMin, errs[0].Code)
+	}
 }
 
 func TestValidate_NumberMax(t *testing.T) {
@@ -209,6 +224,9 @@ func TestValidate_NumberMax(t *testing.T) {
 	}
 	if errs[0].Message != "Count must be at most 100" {
 		t.Errorf("unexpected message: %s", errs[0].Message)
+	}
+	if errs[0].Code != CodeMax {
+		t.Errorf("expected code=%s, got %s", CodeMax, errs[0].Code)
 	}
 }
 
@@ -291,6 +309,9 @@ func TestValidate_ToggleValidation(t *testing.T) {
 	}
 	if errs[0].Message != "Enabled must be true or false" {
 		t.Errorf("unexpected message: %s", errs[0].Message)
+	}
+	if errs[0].Code != CodeInvalidType {
+		t.Errorf("expected code=%s, got %s", CodeInvalidType, errs[0].Code)
 	}
 }
 
