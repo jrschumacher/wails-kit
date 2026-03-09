@@ -6,10 +6,12 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/jrschumacher/wails-kit/events"
@@ -152,8 +154,8 @@ func TestDownloadVerifiesSignature(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(Release{
 				TagName: "v2.0.0",
 				Assets: []Asset{
-					{Name: "app_darwin_arm64.tar.gz", BrowserDownloadURL: "/download/app"},
-					{Name: "app_darwin_arm64.tar.gz.sig", BrowserDownloadURL: "/download/app.sig"},
+					{Name: fmt.Sprintf("app_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH), BrowserDownloadURL: "/download/app"},
+					{Name: fmt.Sprintf("app_%s_%s.tar.gz.sig", runtime.GOOS, runtime.GOARCH), BrowserDownloadURL: "/download/app.sig"},
 				},
 			})
 		case "/download/app":
@@ -217,8 +219,8 @@ func TestDownloadFailsOnBadSignature(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(Release{
 				TagName: "v2.0.0",
 				Assets: []Asset{
-					{Name: "app_darwin_arm64.tar.gz", BrowserDownloadURL: "/download/app"},
-					{Name: "app_darwin_arm64.tar.gz.sig", BrowserDownloadURL: "/download/app.sig"},
+					{Name: fmt.Sprintf("app_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH), BrowserDownloadURL: "/download/app"},
+					{Name: fmt.Sprintf("app_%s_%s.tar.gz.sig", runtime.GOOS, runtime.GOARCH), BrowserDownloadURL: "/download/app.sig"},
 				},
 			})
 		case "/download/app":
@@ -280,7 +282,7 @@ func TestDownloadFailsOnMissingSigAsset(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(Release{
 				TagName: "v2.0.0",
 				Assets: []Asset{
-					{Name: "app_darwin_arm64.tar.gz", BrowserDownloadURL: "/download/app"},
+					{Name: fmt.Sprintf("app_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH), BrowserDownloadURL: "/download/app"},
 					// No .sig asset
 				},
 			})
@@ -325,7 +327,7 @@ func TestDownloadSkipVerification(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(Release{
 				TagName: "v2.0.0",
 				Assets: []Asset{
-					{Name: "app_darwin_arm64.tar.gz", BrowserDownloadURL: "/download/app"},
+					{Name: fmt.Sprintf("app_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH), BrowserDownloadURL: "/download/app"},
 				},
 			})
 		case "/download/app":
@@ -370,7 +372,7 @@ func TestDownloadNoKeyNoVerification(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(Release{
 				TagName: "v2.0.0",
 				Assets: []Asset{
-					{Name: "app_darwin_arm64.tar.gz", BrowserDownloadURL: "/download/app"},
+					{Name: fmt.Sprintf("app_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH), BrowserDownloadURL: "/download/app"},
 				},
 			})
 		case "/download/app":
