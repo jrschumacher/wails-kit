@@ -8,6 +8,7 @@ wails-kit is a reusable Go module for Wails v3 desktop apps. It provides infrast
 
 Go module at `github.com/jrschumacher/wails-kit` with these packages:
 
+- `appdirs` — OS-standard application directory paths
 - `keyring` — OS keyring credential storage
 - `settings` — Schema-driven settings framework
 - `llm` — LLM provider management (with `llm/anthropic`, `llm/openai`, `llm/mock`)
@@ -43,13 +44,23 @@ type(scope): description
 
 **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
 
-**Scopes** (optional, use the package name): `keyring`, `settings`, `llm`, `errors`, `events`, `logging`, `updates`
+**Scopes** (optional, use the package name): `appdirs`, `keyring`, `settings`, `llm`, `errors`, `events`, `logging`, `updates`
 
 Examples:
 - `feat(updates): add GitHub Releases auto-update`
 - `fix(keyring): handle missing env prefix`
 - `docs: update root README`
 - `test(llm): add context builder edge cases`
+
+### Adding a new package
+
+1. Create the package directory with implementation and tests
+2. Follow the patterns: functional options, optional emitter/settings, error codes with `init()` registration
+3. Keep dependencies minimal: prefer stdlib, avoid adding external deps for <200 lines of logic
+4. Add a package `README.md` documenting usage, options, events, and error codes
+5. Update `README.md` (root) with a summary section linking to the package README
+6. Update `docs/architecture.md` with the new package's position in the dependency graph
+7. Add the package name as a scope in the **Scopes** list above
 
 ### Testing
 

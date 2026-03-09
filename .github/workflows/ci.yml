@@ -33,6 +33,7 @@ jobs:
             chore
             revert
           scopes: |
+            appdirs
             keyring
             settings
             llm
