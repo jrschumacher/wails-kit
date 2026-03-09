@@ -21,7 +21,7 @@ func TestExtractTarGz(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extractArchive: %v", err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 
 	// Check files exist
 	content, err := os.ReadFile(filepath.Join(dir, "bin", "myapp"))
@@ -51,7 +51,7 @@ func TestExtractZip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extractArchive: %v", err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 
 	content, err := os.ReadFile(filepath.Join(dir, "bin", "myapp"))
 	if err != nil {
@@ -72,7 +72,7 @@ func TestExtractArchive_PlainFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extractArchive: %v", err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 
 	content, err := os.ReadFile(filepath.Join(dir, "myapp"))
 	if err != nil {
@@ -90,7 +90,7 @@ func TestExtractTarGz_PathTraversal(t *testing.T) {
 
 	dir, err := extractArchive(archivePath)
 	if err == nil {
-		os.RemoveAll(dir)
+		_ = os.RemoveAll(dir)
 		t.Fatal("expected path traversal to be rejected")
 	}
 	if !strings.Contains(err.Error(), "escapes destination") {
@@ -105,7 +105,7 @@ func TestExtractZip_PathTraversal(t *testing.T) {
 
 	dir, err := extractArchive(archivePath)
 	if err == nil {
-		os.RemoveAll(dir)
+		_ = os.RemoveAll(dir)
 		t.Fatal("expected path traversal to be rejected")
 	}
 	if !strings.Contains(err.Error(), "escapes destination") {
@@ -126,7 +126,7 @@ func TestExtractTarGz_ModeStripping(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extractArchive: %v", err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 
 	info, err := os.Stat(filepath.Join(dir, "binary"))
 	if err != nil {
@@ -161,7 +161,9 @@ func TestFindBinary_ByName(t *testing.T) {
 func TestFindBinary_InSubdir(t *testing.T) {
 	dir := t.TempDir()
 	subdir := filepath.Join(dir, "release")
-	os.MkdirAll(subdir, 0o755)
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	binPath := filepath.Join(subdir, "myapp")
 	if err := os.WriteFile(binPath, []byte("bin"), 0o755); err != nil {
 		t.Fatal(err)
@@ -194,9 +196,13 @@ func TestFindBinary_FirstExecutable(t *testing.T) {
 
 	dir := t.TempDir()
 	// Non-executable file
-	os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("hi"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "readme.txt"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	// Executable file
-	os.WriteFile(filepath.Join(dir, "myapp"), []byte("bin"), 0o755)
+	if err := os.WriteFile(filepath.Join(dir, "myapp"), []byte("bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	found, err := findBinary(dir, "")
 	if err != nil {
@@ -341,7 +347,7 @@ func createTestTarGzWithHeaders(t *testing.T, entries []tarEntry) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gw := gzip.NewWriter(f)
 	tw := tar.NewWriter(gw)
@@ -367,8 +373,12 @@ func createTestTarGzWithHeaders(t *testing.T, entries []tarEntry) string {
 		}
 	}
 
-	tw.Close()
-	gw.Close()
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
 	return path
 }
 
@@ -393,7 +403,7 @@ func createTestZipWithNames(t *testing.T, entries []zipEntry) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	w := zip.NewWriter(f)
 	for _, e := range entries {
@@ -405,6 +415,8 @@ func createTestZipWithNames(t *testing.T, entries []zipEntry) string {
 			t.Fatal(err)
 		}
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
 	return path
 }
