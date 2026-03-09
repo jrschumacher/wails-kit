@@ -44,6 +44,7 @@ jobs:
             errors
             events
             logging
+            shortcuts
             updates
           requireScope: false
           subjectPattern: ^.+$
