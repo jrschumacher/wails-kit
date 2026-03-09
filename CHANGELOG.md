@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/jrschumacher/wails-kit/compare/v1.0.1...v1.1.0) (2026-03-09)
+
+
+### Features
+
+* **database:** add WithBaselineVersion for pre-existing schemas ([#67](https://github.com/jrschumacher/wails-kit/issues/67)) ([57f953b](https://github.com/jrschumacher/wails-kit/commit/57f953b1f2406d89ca45dc983ea883c1c50d78d2)), closes [#66](https://github.com/jrschumacher/wails-kit/issues/66)
+
 ## [1.0.1](https://github.com/jrschumacher/wails-kit/compare/v1.0.0...v1.0.1) (2026-03-09)
 
 
