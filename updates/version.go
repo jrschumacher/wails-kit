@@ -23,15 +23,17 @@ func ParseVersion(s string) (Version, error) {
 		return Version{}, fmt.Errorf("empty version string")
 	}
 
+	// Split off build metadata first (ignored per semver spec).
+	// This must happen before splitting prerelease so that
+	// "1.0.0-beta+build" does not leak "+build" into the prerelease.
+	if idx := strings.IndexByte(s, '+'); idx >= 0 {
+		s = s[:idx]
+	}
+
 	// Split off prerelease
 	var pre string
 	if idx := strings.IndexByte(s, '-'); idx >= 0 {
 		pre = s[idx+1:]
-		s = s[:idx]
-	}
-
-	// Split off build metadata (ignored per semver spec)
-	if idx := strings.IndexByte(s, '+'); idx >= 0 {
 		s = s[:idx]
 	}
 

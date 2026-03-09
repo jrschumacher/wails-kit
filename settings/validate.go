@@ -3,6 +3,7 @@ package settings
 import (
 	"fmt"
 	"regexp"
+	"unicode/utf8"
 )
 
 type ValidationError struct {
@@ -15,7 +16,7 @@ func Validate(schema Schema, values map[string]any) []ValidationError {
 
 	for _, group := range schema.Groups {
 		for _, field := range group.Fields {
-			if field.Validation == nil && field.Type != FieldSelect {
+			if field.Validation == nil && field.Type != FieldSelect && field.Type != FieldToggle {
 				continue
 			}
 
@@ -51,12 +52,20 @@ func validateField(field Field, val any, values map[string]any) []ValidationErro
 	v := field.Validation
 
 	str, isStr := val.(string)
-	num, isNum := val.(float64)
+	num := toFloat64(val)
+	isNum := num != nil
 
 	if v != nil && v.Required {
 		if val == nil || (isStr && str == "") {
 			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s is required", field.Label)})
 			return errs
+		}
+	}
+
+	// Toggle type validation: must be a bool if provided
+	if field.Type == FieldToggle && val != nil {
+		if _, ok := val.(bool); !ok {
+			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s must be true or false", field.Label)})
 		}
 	}
 
@@ -66,19 +75,20 @@ func validateField(field Field, val any, values map[string]any) []ValidationErro
 				errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s has invalid format", field.Label)})
 			}
 		}
-		if v.MinLen > 0 && len(str) < v.MinLen {
+		if v.MinLen > 0 && utf8.RuneCountInString(str) < v.MinLen {
 			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s must be at least %d characters", field.Label, v.MinLen)})
 		}
-		if v.MaxLen > 0 && len(str) > v.MaxLen {
+		if v.MaxLen > 0 && utf8.RuneCountInString(str) > v.MaxLen {
 			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s must be at most %d characters", field.Label, v.MaxLen)})
 		}
 	}
 
 	if isNum && v != nil {
-		if v.Min != nil && num < float64(*v.Min) {
+		n := *num
+		if v.Min != nil && n < float64(*v.Min) {
 			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s must be at least %d", field.Label, *v.Min)})
 		}
-		if v.Max != nil && num > float64(*v.Max) {
+		if v.Max != nil && n > float64(*v.Max) {
 			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s must be at most %d", field.Label, *v.Max)})
 		}
 	}
@@ -88,6 +98,32 @@ func validateField(field Field, val any, values map[string]any) []ValidationErro
 	}
 
 	return errs
+}
+
+// toFloat64 converts a numeric value (float64, int, json.Number) to *float64.
+// Returns nil if the value is not numeric.
+func toFloat64(val any) *float64 {
+	switch v := val.(type) {
+	case float64:
+		return &v
+	case int:
+		f := float64(v)
+		return &f
+	case int64:
+		f := float64(v)
+		return &f
+	default:
+		// Check for json.Number via its String/Float64 method
+		type jsonNumber interface {
+			Float64() (float64, error)
+		}
+		if jn, ok := val.(jsonNumber); ok {
+			if f, err := jn.Float64(); err == nil {
+				return &f
+			}
+		}
+		return nil
+	}
 }
 
 func hasSelectableOptions(field Field, values map[string]any) bool {

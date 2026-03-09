@@ -2,7 +2,6 @@ package logging
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 )
 
@@ -61,11 +60,16 @@ func (h *RedactingHandler) WithGroup(name string) slog.Handler {
 
 func (h *RedactingHandler) redactAttr(a slog.Attr) slog.Attr {
 	if h.sensitiveKeys[a.Key] {
-		val := a.Value.String()
-		if val == "" {
-			return a
+		// Resolve the value to get the actual underlying value, avoiding
+		// slog's quoting behavior on Value.String().
+		resolved := a.Value.Resolve()
+		if resolved.Kind() == slog.KindString {
+			if resolved.String() == "" {
+				return a
+			}
 		}
-		return slog.String(a.Key, fmt.Sprintf("[REDACTED:%d chars]", len(val)))
+		// Use a fixed redaction marker that does not leak secret length.
+		return slog.String(a.Key, "[REDACTED]")
 	}
 	return a
 }

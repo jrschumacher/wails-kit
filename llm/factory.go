@@ -28,7 +28,11 @@ func NewProvider(name, modelID string, config ProviderConfig) (Provider, error) 
 	if !ok {
 		return nil, fmt.Errorf("unknown provider: %s", name)
 	}
-	return factory(modelID, config), nil
+	p := factory(modelID, config)
+	if p == nil {
+		return nil, fmt.Errorf("provider factory %q returned nil", name)
+	}
+	return p, nil
 }
 
 // ConfigFromValues extracts provider name, resolved model ID, and ProviderConfig

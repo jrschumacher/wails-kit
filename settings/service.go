@@ -1,6 +1,8 @@
 package settings
 
 import (
+	"sync"
+
 	"github.com/jrschumacher/wails-kit/keyring"
 )
 
@@ -13,6 +15,7 @@ type Service struct {
 	store    *Store
 	secrets  keyring.Store
 	onChange []func(values map[string]any)
+	mu       sync.Mutex
 }
 
 type ServiceOption func(*Service)
@@ -127,7 +130,11 @@ func (s *Service) GetSecret(key string) (string, error) {
 
 // SetValues validates and saves settings. Password fields with the mask
 // sentinel are skipped (no change). Empty string clears a secret.
+// This method is safe for concurrent use.
 func (s *Service) SetValues(values map[string]any) ([]ValidationError, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if errs := Validate(s.schema, values); errs != nil {
 		return errs, nil
 	}

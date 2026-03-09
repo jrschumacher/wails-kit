@@ -102,6 +102,37 @@ func TestLoad_SavedValuesOverrideDefaults(t *testing.T) {
 	}
 }
 
+func TestSave_MergeSemantic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	s := NewStore("app", WithPath(path))
+
+	// Save initial values
+	if err := s.Save(map[string]any{"a": "1", "b": "2"}); err != nil {
+		t.Fatalf("save error: %v", err)
+	}
+
+	// Save partial update — should merge, not overwrite
+	if err := s.Save(map[string]any{"b": "updated", "c": "3"}); err != nil {
+		t.Fatalf("save error: %v", err)
+	}
+
+	values, err := s.Load()
+	if err != nil {
+		t.Fatalf("load error: %v", err)
+	}
+
+	if values["a"] != "1" {
+		t.Errorf("expected a=1 to be preserved, got %v", values["a"])
+	}
+	if values["b"] != "updated" {
+		t.Errorf("expected b=updated, got %v", values["b"])
+	}
+	if values["c"] != "3" {
+		t.Errorf("expected c=3, got %v", values["c"])
+	}
+}
+
 func TestSave_AtomicWrite(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")

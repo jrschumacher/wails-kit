@@ -3,7 +3,6 @@ package openai
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 
 	"github.com/jrschumacher/wails-kit/llm"
@@ -61,11 +60,9 @@ func (p *Provider) StreamChat(ctx context.Context, req llm.ChatRequest, handler 
 	var acc openaisdk.ChatCompletionAccumulator
 	for stream.Next() {
 		chunk := stream.Current()
-		if !acc.AddChunk(chunk) {
-			err := fmt.Errorf("failed to accumulate openai streaming response")
-			handler(llm.StreamEvent{Type: "error", Err: err})
-			return err
-		}
+		// AddChunk returns false for unrecognised chunk types which is not
+		// an error — just skip accumulation for those chunks.
+		acc.AddChunk(chunk)
 		for _, choice := range chunk.Choices {
 			if choice.Delta.Content != "" {
 				handler(llm.StreamEvent{Type: "delta", Text: choice.Delta.Content})

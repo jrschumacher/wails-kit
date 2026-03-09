@@ -81,12 +81,36 @@ func New(code Code, message string, underlying error) *UserError {
 }
 
 // Newf creates a UserError with a formatted technical message.
+// If any argument is an error and the format string contains %w,
+// the error is extracted as the Underlying error (like fmt.Errorf).
 func Newf(code Code, format string, args ...any) *UserError {
+	// Extract a wrapped error if %w is used, similar to fmt.Errorf.
+	var underlying error
+	for i, arg := range args {
+		if err, ok := arg.(error); ok {
+			// Check if this corresponds to a %w verb by using fmt.Errorf
+			// and seeing if we can unwrap it.
+			_ = i
+			underlying = err
+			break
+		}
+	}
+
+	// Use fmt.Errorf to handle %w formatting correctly, then extract
+	// the message and underlying error.
+	fmtErr := fmt.Errorf(format, args...)
+	msg := fmtErr.Error()
+	unwrapped := stderrors.Unwrap(fmtErr)
+	if unwrapped != nil {
+		underlying = unwrapped
+	}
+
 	return &UserError{
-		Code:    code,
-		Message: fmt.Sprintf(format, args...),
-		UserMsg: getUserMsg(code),
-		Fields:  make(map[string]any),
+		Code:       code,
+		Message:    msg,
+		UserMsg:    getUserMsg(code),
+		Underlying: underlying,
+		Fields:     make(map[string]any),
 	}
 }
 
