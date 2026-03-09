@@ -45,15 +45,19 @@ func TestWithDebounce_Handler_Called(t *testing.T) {
 	mem := NewMemoryEmitter()
 	emitter := NewEmitter(mem, WithDebounce("test", 30*time.Millisecond))
 
-	var received string
-	sub := On(emitter, "test", func(s string) { received = s })
+	ch := make(chan string, 1)
+	sub := On(emitter, "test", func(s string) { ch <- s })
 	defer sub.Cancel()
 
 	emitter.Emit("test", "hello")
-	time.Sleep(80 * time.Millisecond)
 
-	if received != "hello" {
-		t.Errorf("expected handler called with 'hello', got %q", received)
+	select {
+	case received := <-ch:
+		if received != "hello" {
+			t.Errorf("expected handler called with 'hello', got %q", received)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for debounced handler")
 	}
 }
 
