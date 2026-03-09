@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/jrschumacher/wails-kit/compare/v1.0.0...v1.0.1) (2026-03-09)
+
+
+### Bug Fixes
+
+* **release:** fix darwin build, entitlements, cask SHA, and local taskfile docs ([#64](https://github.com/jrschumacher/wails-kit/issues/64)) ([02f97a0](https://github.com/jrschumacher/wails-kit/commit/02f97a08e677b00e7c2997bf124dcf91e0201101))
+
 ## 1.0.0 (2026-03-09)
 
 
