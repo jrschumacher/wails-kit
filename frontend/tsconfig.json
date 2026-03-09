@@ -7,5 +7,5 @@
     "module": "esnext",
     "target": "esnext"
   },
-  "include": ["types/**/*.ts"]
+  "include": ["types/**/*.ts", "settings/**/*.ts"]
 }

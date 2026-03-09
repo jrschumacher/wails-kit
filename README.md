@@ -526,6 +526,13 @@ for each group in schema.groups:
     render input for field.type (text/password/select/toggle/number/computed)
 ```
 
+### TypeScript Packages
+
+| Package | Path | Description |
+|---------|------|-------------|
+| [`@wails-kit/types`](frontend/types/README.md) | `frontend/types` | TypeScript type definitions mirroring Go types |
+| [`@wails-kit/settings`](frontend/settings/README.md) | `frontend/settings` | Headless settings logic: validation, conditions, dynamic options |
+
 ## Required Tools
 
 | Tool | Install | Used by |
