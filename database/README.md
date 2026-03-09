@@ -69,6 +69,23 @@ Migrations run automatically on `New()`. Use `Version()` to check the current sc
 version, err := db.Version()
 ```
 
+### Baseline version (adopting wails-kit with existing tables)
+
+When integrating wails-kit into an app that already has SQLite tables, migrations will fail because goose tries to run all migrations from scratch. Use `WithBaselineVersion` to stamp existing migrations as applied:
+
+```go
+db, err := database.New(
+    database.WithPath(path),
+    database.WithMigrations(migrations),
+    database.WithBaselineVersion(2), // stamp versions 0-2 if no goose table exists
+)
+```
+
+**Behavior:**
+- If `goose_db_version` table already exists → no-op (goose is already tracking)
+- If the database has no user tables (fresh) → no-op (let goose run from scratch)
+- If the database has tables but no goose tracking → creates `goose_db_version` and stamps versions 0 through n, then runs any remaining migrations
+
 ### External database connection
 
 If you manage the `*sql.DB` yourself:
@@ -90,6 +107,7 @@ db, err := database.New(
 | `WithMigrations(fs)` | `fs.FS` containing goose SQL migration files |
 | `WithEmitter(e)` | Event emitter for lifecycle events |
 | `WithPragmas(map)` | Override or extend default SQLite pragmas |
+| `WithBaselineVersion(n)` | Stamp versions 0–n as applied for pre-existing databases |
 | `WithDB(db)` | Use an existing `*sql.DB` (caller retains ownership) |
 
 ## Default pragmas
@@ -126,3 +144,4 @@ database.WithPragmas(map[string]string{
 |------|-------------|
 | `database_open` | Unable to open the database. Please check file permissions and try again. |
 | `database_migrate` | Database migration failed. Please contact support. |
+| `database_baseline` | Database baseline failed. Please contact support. |

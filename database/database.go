@@ -20,14 +20,16 @@ import (
 
 // Error codes for the database package.
 const (
-	ErrDatabaseOpen    errors.Code = "database_open"
-	ErrDatabaseMigrate errors.Code = "database_migrate"
+	ErrDatabaseOpen     errors.Code = "database_open"
+	ErrDatabaseMigrate  errors.Code = "database_migrate"
+	ErrDatabaseBaseline errors.Code = "database_baseline"
 )
 
 func init() {
 	errors.RegisterMessages(map[errors.Code]string{
-		ErrDatabaseOpen:    "Unable to open the database. Please check file permissions and try again.",
-		ErrDatabaseMigrate: "Database migration failed. Please contact support.",
+		ErrDatabaseOpen:     "Unable to open the database. Please check file permissions and try again.",
+		ErrDatabaseMigrate:  "Database migration failed. Please contact support.",
+		ErrDatabaseBaseline: "Database baseline failed. Please contact support.",
 	})
 }
 
@@ -53,13 +55,14 @@ var defaultPragmas = map[string]string{
 
 // DB manages a SQLite database with schema migrations.
 type DB struct {
-	db         *sql.DB
-	emitter    *events.Emitter
-	path       string
-	owned      bool // true if we opened the *sql.DB and should close it
-	appName    string
-	migrations fs.FS
-	pragmas    map[string]string
+	db              *sql.DB
+	emitter         *events.Emitter
+	path            string
+	owned           bool // true if we opened the *sql.DB and should close it
+	appName         string
+	migrations      fs.FS
+	pragmas         map[string]string
+	baselineVersion int64
 }
 
 // Option configures a DB instance.
@@ -104,6 +107,19 @@ func WithPragmas(pragmas map[string]string) Option {
 		for k, v := range pragmas {
 			d.pragmas[k] = v
 		}
+	}
+}
+
+// WithBaselineVersion stamps migration versions 0 through n as applied when
+// the database has existing tables but no goose version tracking. This handles
+// the "baseline migration" problem when adopting wails-kit in an app that
+// already has a schema matching migration n.
+//
+// If the goose_db_version table already exists, this is a no-op.
+// If the database has no user tables (fresh database), this is a no-op.
+func WithBaselineVersion(n int64) Option {
+	return func(d *DB) {
+		d.baselineVersion = n
 	}
 }
 
@@ -160,6 +176,16 @@ func New(opts ...Option) (*DB, error) {
 			_ = d.db.Close()
 		}
 		return nil, err
+	}
+
+	// Apply baseline version if configured.
+	if d.baselineVersion > 0 {
+		if err := d.baseline(); err != nil {
+			if d.owned {
+				_ = d.db.Close()
+			}
+			return nil, err
+		}
 	}
 
 	// Run migrations if provided.
@@ -249,6 +275,54 @@ func (d *DB) migrate() error {
 			Version: version,
 			Applied: len(results),
 		})
+	}
+
+	return nil
+}
+
+func (d *DB) baseline() error {
+	// Check if goose_db_version table already exists.
+	var gooseTableExists bool
+	err := d.db.QueryRow(
+		"SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='goose_db_version'",
+	).Scan(&gooseTableExists)
+	if err != nil {
+		return errors.Wrap(ErrDatabaseBaseline, "check goose table", err)
+	}
+	if gooseTableExists {
+		return nil
+	}
+
+	// Check if the database has any user tables.
+	var hasUserTables bool
+	err = d.db.QueryRow(
+		"SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+	).Scan(&hasUserTables)
+	if err != nil {
+		return errors.Wrap(ErrDatabaseBaseline, "check user tables", err)
+	}
+	if !hasUserTables {
+		return nil
+	}
+
+	// Database has existing tables but no goose tracking — stamp baseline.
+	_, err = d.db.Exec(`CREATE TABLE goose_db_version (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		version_id INTEGER NOT NULL,
+		is_applied INTEGER NOT NULL,
+		tstamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	)`)
+	if err != nil {
+		return errors.Wrap(ErrDatabaseBaseline, "create goose table", err)
+	}
+
+	for v := int64(0); v <= d.baselineVersion; v++ {
+		_, err = d.db.Exec(
+			"INSERT INTO goose_db_version (version_id, is_applied) VALUES (?, ?)", v, 1,
+		)
+		if err != nil {
+			return errors.Wrap(ErrDatabaseBaseline, fmt.Sprintf("stamp version %d", v), err)
+		}
 	}
 
 	return nil
