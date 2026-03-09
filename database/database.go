@@ -10,6 +10,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/jrschumacher/wails-kit/appdirs"
 	"github.com/jrschumacher/wails-kit/errors"
@@ -20,16 +22,20 @@ import (
 
 // Error codes for the database package.
 const (
-	ErrDatabaseOpen     errors.Code = "database_open"
-	ErrDatabaseMigrate  errors.Code = "database_migrate"
-	ErrDatabaseBaseline errors.Code = "database_baseline"
+	ErrDatabaseOpen            errors.Code = "database_open"
+	ErrDatabaseMigrate         errors.Code = "database_migrate"
+	ErrDatabaseBaseline        errors.Code = "database_baseline"
+	ErrDatabaseVersionMismatch errors.Code = "database_version_mismatch"
+	ErrDatabaseBackup          errors.Code = "database_backup"
 )
 
 func init() {
 	errors.RegisterMessages(map[errors.Code]string{
-		ErrDatabaseOpen:     "Unable to open the database. Please check file permissions and try again.",
-		ErrDatabaseMigrate:  "Database migration failed. Please contact support.",
-		ErrDatabaseBaseline: "Database baseline failed. Please contact support.",
+		ErrDatabaseOpen:            "Unable to open the database. Please check file permissions and try again.",
+		ErrDatabaseMigrate:         "Database migration failed. Please contact support.",
+		ErrDatabaseBaseline:        "Database baseline failed. Please contact support.",
+		ErrDatabaseVersionMismatch: "The database was created by a newer version of this app. Please update the app.",
+		ErrDatabaseBackup:          "Failed to create a database backup before migration. Please check disk space and try again.",
 	})
 }
 
@@ -55,14 +61,16 @@ var defaultPragmas = map[string]string{
 
 // DB manages a SQLite database with schema migrations.
 type DB struct {
-	db              *sql.DB
-	emitter         *events.Emitter
-	path            string
-	owned           bool // true if we opened the *sql.DB and should close it
-	appName         string
-	migrations      fs.FS
-	pragmas         map[string]string
-	baselineVersion int64
+	db                    *sql.DB
+	emitter               *events.Emitter
+	path                  string
+	owned                 bool // true if we opened the *sql.DB and should close it
+	appName               string
+	migrations            fs.FS
+	pragmas               map[string]string
+	baselineVersion       int64
+	backupBeforeMigration bool
+	maxBackups            int
 }
 
 // Option configures a DB instance.
@@ -120,6 +128,27 @@ func WithPragmas(pragmas map[string]string) Option {
 func WithBaselineVersion(n int64) Option {
 	return func(d *DB) {
 		d.baselineVersion = n
+	}
+}
+
+// WithBackupBeforeMigration enables automatic database backup before running
+// pending migrations. When enabled, a copy of the database file is created
+// (e.g., data.db.backup-v2) before any new migrations are applied. Backups
+// are only created when there are pending migrations and the database file
+// exists (not on fresh installs). Old backups beyond the retention limit are
+// automatically cleaned up (default 3, configurable via WithMaxBackups).
+func WithBackupBeforeMigration(enabled bool) Option {
+	return func(d *DB) {
+		d.backupBeforeMigration = enabled
+	}
+}
+
+// WithMaxBackups sets the maximum number of pre-migration backups to retain.
+// Oldest backups are deleted when the limit is exceeded. Defaults to 3.
+// Only effective when WithBackupBeforeMigration is enabled.
+func WithMaxBackups(n int) Option {
+	return func(d *DB) {
+		d.maxBackups = n
 	}
 }
 
@@ -264,9 +293,50 @@ func (d *DB) migrate() error {
 		return errors.Wrap(ErrDatabaseMigrate, "create goose provider", err)
 	}
 
+	// Determine the max migration version from the migration sources.
+	sources := provider.ListSources()
+	var maxVersion int64
+	if len(sources) > 0 {
+		maxVersion = sources[len(sources)-1].Version
+	}
+
+	// Read current user_version for version guard and backup decisions.
+	var userVersion int64
+	if maxVersion > 0 {
+		if err := d.db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+			return errors.Wrap(ErrDatabaseMigrate, "read user_version", err)
+		}
+		// Schema version guard: reject if the DB was migrated by a newer app.
+		if userVersion > maxVersion {
+			return errors.New(ErrDatabaseVersionMismatch,
+				fmt.Sprintf("database schema version %d is newer than this app supports (max %d); please update the app", userVersion, maxVersion), nil)
+		}
+	}
+
+	// Pre-migration backup if enabled.
+	// Skip for fresh databases (user_version == 0 means no prior version stamp).
+	if d.backupBeforeMigration && d.path != "" && userVersion > 0 {
+		pending, err := provider.HasPending(context.Background())
+		if err != nil {
+			return errors.Wrap(ErrDatabaseMigrate, "check pending migrations", err)
+		}
+		if pending {
+			if err := d.createBackup(); err != nil {
+				return err
+			}
+		}
+	}
+
 	results, err := provider.Up(context.Background())
 	if err != nil {
 		return errors.Wrap(ErrDatabaseMigrate, "run migrations", err)
+	}
+
+	// Stamp PRAGMA user_version so future downgrades are detected.
+	if maxVersion > 0 {
+		if _, err := d.db.Exec(fmt.Sprintf("PRAGMA user_version = %d", maxVersion)); err != nil {
+			return errors.Wrap(ErrDatabaseMigrate, "set user_version", err)
+		}
 	}
 
 	if len(results) > 0 {
@@ -326,6 +396,53 @@ func (d *DB) baseline() error {
 	}
 
 	return nil
+}
+
+func (d *DB) createBackup() error {
+	// Read current version for the backup filename.
+	var currentVersion int64
+	_ = d.db.QueryRow("PRAGMA user_version").Scan(&currentVersion)
+
+	backupPath := fmt.Sprintf("%s.backup-v%d", d.path, currentVersion)
+
+	// Remove existing backup at this path (e.g., from a previous failed attempt).
+	_ = os.Remove(backupPath)
+
+	// Use VACUUM INTO for a consistent copy that handles WAL mode correctly.
+	escapedPath := strings.ReplaceAll(backupPath, "'", "''")
+	if _, err := d.db.Exec(fmt.Sprintf("VACUUM INTO '%s'", escapedPath)); err != nil {
+		return errors.Wrap(ErrDatabaseBackup, "create backup", err)
+	}
+
+	d.cleanOldBackups()
+	return nil
+}
+
+func (d *DB) cleanOldBackups() {
+	maxBackups := d.maxBackups
+	if maxBackups <= 0 {
+		maxBackups = 3
+	}
+
+	pattern := d.path + ".backup-v*"
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) <= maxBackups {
+		return
+	}
+
+	// Sort by modification time (oldest first).
+	sort.Slice(matches, func(i, j int) bool {
+		fi, errI := os.Stat(matches[i])
+		fj, errJ := os.Stat(matches[j])
+		if errI != nil || errJ != nil {
+			return false
+		}
+		return fi.ModTime().Before(fj.ModTime())
+	})
+
+	for _, m := range matches[:len(matches)-maxBackups] {
+		_ = os.Remove(m)
+	}
 }
 
 func (d *DB) emit(name string, data any) {
