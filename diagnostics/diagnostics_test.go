@@ -116,9 +116,9 @@ func TestCreateBundle(t *testing.T) {
 		outputDir := t.TempDir()
 
 		// Create some fake log files
-		os.WriteFile(filepath.Join(logDir, "app.log"), []byte("current log line\n"), 0600)
-		os.WriteFile(filepath.Join(logDir, "app-2026-03-07.log.gz"), []byte("compressed log"), 0600)
-		os.WriteFile(filepath.Join(logDir, "unrelated.txt"), []byte("not a log"), 0600)
+		_ = os.WriteFile(filepath.Join(logDir, "app.log"), []byte("current log line\n"), 0600)
+		_ = os.WriteFile(filepath.Join(logDir, "app-2026-03-07.log.gz"), []byte("compressed log"), 0600)
+		_ = os.WriteFile(filepath.Join(logDir, "unrelated.txt"), []byte("not a log"), 0600)
 
 		svc, err := NewService(
 			WithAppName("test-app"),
@@ -170,7 +170,7 @@ func TestCreateBundle(t *testing.T) {
 		)
 
 		// Set some values
-		settingsSvc.SetValues(map[string]any{
+		_, _ = settingsSvc.SetValues(map[string]any{
 			"general.name":    "My App",
 			"general.api_key": "sk-secret-123",
 		})
@@ -212,8 +212,8 @@ func TestCreateBundle(t *testing.T) {
 
 		// Create a log file larger than our cap
 		bigContent := strings.Repeat("x", 200)
-		os.WriteFile(filepath.Join(logDir, "big.log"), []byte(bigContent), 0600)
-		os.WriteFile(filepath.Join(logDir, "small.log"), []byte("small"), 0600)
+		_ = os.WriteFile(filepath.Join(logDir, "big.log"), []byte(bigContent), 0600)
+		_ = os.WriteFile(filepath.Join(logDir, "small.log"), []byte("small"), 0600)
 
 		svc, err := NewService(
 			WithAppName("test-app"),
@@ -359,7 +359,7 @@ func readZipFiles(t *testing.T, path string) map[string][]byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	files := make(map[string][]byte)
 	for _, f := range r.File {
@@ -368,7 +368,7 @@ func readZipFiles(t *testing.T, path string) map[string][]byte {
 			t.Fatal(err)
 		}
 		data, err := readAll(rc)
-		rc.Close()
+		_ = rc.Close()
 		if err != nil {
 			t.Fatal(err)
 		}
