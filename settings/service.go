@@ -27,8 +27,17 @@ func WithAppName(name string) ServiceOption {
 	}
 }
 
-// WithStorePath overrides the settings file path (useful for tests).
-func WithStorePath(path string) ServiceOption {
+// WithStoragePath overrides the default OS-standard settings file path.
+// Use this for workspace-local configs where settings live alongside
+// project files (e.g., git-tracked workspace directories).
+//
+// When set, this takes precedence over WithAppName. Password fields are
+// still stored in the OS keyring and never written to this path.
+//
+//	svc := settings.NewService(
+//	    settings.WithStoragePath(filepath.Join(workspaceDir, "config.json")),
+//	)
+func WithStoragePath(path string) ServiceOption {
 	return func(s *Service) {
 		if s.store == nil {
 			s.store = NewStore("app", WithPath(path))
@@ -36,6 +45,12 @@ func WithStorePath(path string) ServiceOption {
 			s.store.path = path
 		}
 	}
+}
+
+// WithStorePath overrides the settings file path.
+// Deprecated: Use WithStoragePath instead.
+func WithStorePath(path string) ServiceOption {
+	return WithStoragePath(path)
 }
 
 // WithKeyring sets the keyring store for secret/password fields.

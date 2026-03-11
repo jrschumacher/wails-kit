@@ -26,13 +26,33 @@ Register as a Wails service to expose `GetSchema`, `GetValues`, and `SetValues` 
 
 ## Storage paths
 
-Uses `os.UserConfigDir()` for OS-standard locations:
+By default, settings are stored in OS-standard locations using `os.UserConfigDir()`:
 
 | OS | Path |
 |----|------|
 | macOS | `~/Library/Application Support/{app}/settings.json` |
 | Linux | `$XDG_CONFIG_HOME/{app}/settings.json` |
 | Windows | `%AppData%/{app}/settings.json` |
+
+### Workspace-local storage
+
+For apps that need settings to live inside a workspace directory (e.g., git-tracked project configs), use `WithStoragePath`:
+
+```go
+svc := settings.NewService(
+    settings.WithStoragePath(filepath.Join(workspaceDir, "config.json")),
+    settings.WithKeyring(store),
+    settings.WithGroup(mySettingsGroup()),
+)
+```
+
+This overrides the default OS path. All the same behaviors apply: atomic writes, schema migration, file permissions. Password fields are always stored in the OS keyring — never written to the workspace file.
+
+**Git usage notes:**
+
+- Track the settings file if you want config to be portable across clones
+- Add it to `.gitignore` if settings are machine-specific
+- Password fields are safe either way — they never appear in the JSON file
 
 ## Defining groups and fields
 
