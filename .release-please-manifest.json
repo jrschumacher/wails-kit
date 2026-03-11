@@ -1,3 +1,17 @@
 {
-  ".": "1.2.0"
+  "appdirs": "0.0.0",
+  "database": "0.0.0",
+  "diagnostics": "0.0.0",
+  "errors": "0.0.0",
+  "events": "0.0.0",
+  "keyring": "0.0.0",
+  "lifecycle": "0.0.0",
+  "llm": "0.0.0",
+  "llm/anthropic": "0.0.0",
+  "llm/mock": "0.0.0",
+  "llm/openai": "0.0.0",
+  "logging": "0.0.0",
+  "settings": "0.0.0",
+  "shortcuts": "0.0.0",
+  "updates": "0.0.0"
 }

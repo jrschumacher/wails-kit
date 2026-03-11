@@ -52,22 +52,64 @@ jobs:
           subjectPatternError: "The subject must not be empty."
 
   test:
-    name: Test
+    name: Test (${{ matrix.module }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module:
+          - appdirs
+          - database
+          - diagnostics
+          - errors
+          - events
+          - frontend
+          - keyring
+          - lifecycle
+          - llm
+          - llm/anthropic
+          - llm/mock
+          - llm/openai
+          - logging
+          - settings
+          - shortcuts
+          - updates
     steps:
       - uses: actions/checkout@v4
-      - uses: jrschumacher/go-actions/ci@v3
+      - uses: actions/setup-go@v5
         with:
-          job: test
+          go-version-file: ${{ matrix.module }}/go.mod
+      - run: go test ./...
+        working-directory: ${{ matrix.module }}
 
   lint:
-    name: Lint
+    name: Lint (${{ matrix.module }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module:
+          - appdirs
+          - database
+          - diagnostics
+          - errors
+          - events
+          - frontend
+          - keyring
+          - lifecycle
+          - llm
+          - llm/anthropic
+          - llm/mock
+          - llm/openai
+          - logging
+          - settings
+          - shortcuts
+          - updates
     steps:
       - uses: actions/checkout@v4
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: lint
+          working-directory: ${{ matrix.module }}
+          go-version-file: ${{ matrix.module }}/go.mod
 
   typecheck:
     name: TypeScript
@@ -87,13 +129,34 @@ jobs:
         working-directory: frontend
 
   security:
-    name: Security
+    name: Security (${{ matrix.module }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module:
+          - appdirs
+          - database
+          - diagnostics
+          - errors
+          - events
+          - frontend
+          - keyring
+          - lifecycle
+          - llm
+          - llm/anthropic
+          - llm/mock
+          - llm/openai
+          - logging
+          - settings
+          - shortcuts
+          - updates
     steps:
       - uses: actions/checkout@v4
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: security
+          working-directory: ${{ matrix.module }}
+          go-version-file: ${{ matrix.module }}/go.mod
 
   ts-typecheck:
     name: TypeScript Typecheck

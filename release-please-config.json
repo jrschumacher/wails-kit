@@ -1,12 +1,125 @@
 {
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "packages": {
-    ".": {
+    "appdirs": {
       "release-type": "go",
+      "component": "appdirs",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "initial-version": "0.1.0"
+    },
+    "database": {
+      "release-type": "go",
+      "component": "database",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "initial-version": "0.1.0"
+    },
+    "diagnostics": {
+      "release-type": "go",
+      "component": "diagnostics",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "initial-version": "0.1.0"
+    },
+    "errors": {
+      "release-type": "go",
+      "component": "errors",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "initial-version": "0.1.0"
+    },
+    "events": {
+      "release-type": "go",
+      "component": "events",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "initial-version": "0.1.0"
+    },
+    "keyring": {
+      "release-type": "go",
+      "component": "keyring",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "initial-version": "0.1.0"
+    },
+    "lifecycle": {
+      "release-type": "go",
+      "component": "lifecycle",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "initial-version": "0.1.0"
+    },
+    "llm": {
+      "release-type": "go",
+      "component": "llm",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "initial-version": "0.1.0"
+    },
+    "llm/anthropic": {
+      "release-type": "go",
+      "component": "llm/anthropic",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "initial-version": "0.1.0"
+    },
+    "llm/mock": {
+      "release-type": "go",
+      "component": "llm/mock",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "initial-version": "0.1.0"
+    },
+    "llm/openai": {
+      "release-type": "go",
+      "component": "llm/openai",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "initial-version": "0.1.0"
+    },
+    "logging": {
+      "release-type": "go",
+      "component": "logging",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "initial-version": "0.1.0"
+    },
+    "settings": {
+      "release-type": "go",
+      "component": "settings",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "initial-version": "0.1.0"
+    },
+    "shortcuts": {
+      "release-type": "go",
+      "component": "shortcuts",
+      "changelog-path": "CHANGELOG.md",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "initial-version": "0.1.0"
+    },
+    "updates": {
+      "release-type": "go",
+      "component": "updates",
       "changelog-path": "CHANGELOG.md",
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": false,
       "initial-version": "0.1.0"
     }
-  },
-  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json"
+  }
 }

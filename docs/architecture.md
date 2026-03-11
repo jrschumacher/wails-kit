@@ -1,6 +1,6 @@
 # Architecture
 
-wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop apps. Each package is independently importable and follows consistent patterns.
+wails-kit is a multi-module Go repository providing reusable infrastructure for Wails v3 desktop apps. Each package is its own Go module with independent versioning, so consumers only import (and compile) the dependencies they actually need. A root `go.work` file enables local development across all modules.
 
 ## Package dependency graph
 

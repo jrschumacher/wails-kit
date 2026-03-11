@@ -1,6 +1,15 @@
 # wails-kit
 
-Reusable Go module for Wails v3 apps. Provides a schema-driven settings framework, LLM provider management, OS keyring integration, SQLite database management with migrations, structured logging, typed events, user-facing error types, GitHub-based auto-updates, native menu shortcuts, and diagnostics bundle creation.
+Reusable Go modules for Wails v3 apps. Each package is an independent Go module — import only what you need. Provides a schema-driven settings framework, LLM provider management, OS keyring integration, SQLite database management with migrations, structured logging, typed events, user-facing error types, GitHub-based auto-updates, native menu shortcuts, and diagnostics bundle creation.
+
+Install individual packages:
+
+```sh
+go get github.com/jrschumacher/wails-kit/appdirs@latest
+go get github.com/jrschumacher/wails-kit/settings@latest
+go get github.com/jrschumacher/wails-kit/database@latest
+# ... etc
+```
 
 ## Packages
 

@@ -2,11 +2,11 @@
 
 ## Project
 
-wails-kit is a reusable Go module for Wails v3 desktop apps. It provides infrastructure packages that apps import as a library.
+wails-kit is a multi-module Go repository for Wails v3 desktop apps. Each package is its own Go module with independent versioning, so consumers only import the dependencies they need. A root `go.work` file enables local development across all modules.
 
 ## Structure
 
-Go module at `github.com/jrschumacher/wails-kit` with these packages:
+Multi-module repo with these packages (each has its own `go.mod`):
 
 - `appdirs` — OS-standard application directory paths
 - `database` — SQLite database management with goose migrations
@@ -59,12 +59,15 @@ Examples:
 ### Adding a new package
 
 1. Create the package directory with implementation and tests
-2. Follow the patterns: functional options, optional emitter/settings, error codes with `init()` registration
-3. Keep dependencies minimal: prefer stdlib, avoid adding external deps for <200 lines of logic
-4. Add a package `README.md` documenting usage, options, events, and error codes
-5. Update `README.md` (root) with a summary section linking to the package README
-6. Update `docs/architecture.md` with the new package's position in the dependency graph
-7. Add the package name as a scope in the **Scopes** list above
+2. Add a `go.mod` declaring `module github.com/jrschumacher/wails-kit/<package>` with `replace` directives for inter-module deps
+3. Add the module to `go.work`
+4. Follow the patterns: functional options, optional emitter/settings, error codes with `init()` registration
+5. Keep dependencies minimal: prefer stdlib, avoid adding external deps for <200 lines of logic
+6. Add a package `README.md` documenting usage, options, events, and error codes
+7. Update `README.md` (root) with a summary section linking to the package README
+8. Update `docs/architecture.md` with the new package's position in the dependency graph
+9. Add the package to `release-please-config.json` and `.release-please-manifest.json`
+10. Add the package name as a scope in the **Scopes** list above
 
 ### Pre-commit checks
 
@@ -74,12 +77,12 @@ Before committing, always run lint and tests locally to catch issues before CI:
 task check
 ```
 
-This runs `golangci-lint run ./...` and `go test ./...`. Both must pass before committing and pushing.
+This runs lint and tests across all modules. Both must pass before committing and pushing.
 
 ### Testing
 
-Run all tests: `go test ./...` or `task test`
-Run a single package: `go test ./updates/`
+Run all tests: `task test`
+Run a single module: `cd updates && go test ./...`
 
 ### CI
 

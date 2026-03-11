@@ -9,14 +9,22 @@ tasks:
       - task: ts:check
 
   lint:
-    desc: Run golangci-lint
+    desc: Run golangci-lint across all modules
+    vars:
+      MODULES:
+        sh: go work edit -json | jq -r '.Use[].DiskPath'
     cmds:
-      - golangci-lint run ./...
+      - for: { var: MODULES }
+        cmd: golangci-lint run --path-prefix={{.ITEM}} {{.ITEM}}/...
 
   test:
-    desc: Run all Go tests
+    desc: Run all Go tests across all modules
+    vars:
+      MODULES:
+        sh: go work edit -json | jq -r '.Use[].DiskPath'
     cmds:
-      - go test ./...
+      - for: { var: MODULES }
+        cmd: cd {{.ITEM}} && go test ./...
 
   ts:check:
     desc: Run frontend TypeScript checks

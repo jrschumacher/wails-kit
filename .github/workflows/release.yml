@@ -17,3 +17,4 @@ jobs:
       - uses: jrschumacher/go-actions/release@v3
         with:
           release-token: ${{ secrets.RELEASE_PLEASE_PAT || github.token }}
+          go-version-file: appdirs/go.mod

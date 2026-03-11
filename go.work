@@ -1,0 +1,20 @@
+go 1.25.0
+
+use (
+	./appdirs
+	./database
+	./diagnostics
+	./errors
+	./events
+	./frontend
+	./keyring
+	./lifecycle
+	./llm
+	./llm/anthropic
+	./llm/mock
+	./llm/openai
+	./logging
+	./settings
+	./shortcuts
+	./updates
+)
