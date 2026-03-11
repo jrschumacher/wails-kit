@@ -347,6 +347,36 @@ err = mgr.Shutdown()     // stops in reverse order; collects all errors
 - Events: `lifecycle:started`, `lifecycle:stopped`, `lifecycle:error`, `lifecycle:rollback`
 - Error codes: `lifecycle_cyclic_dependency`, `lifecycle_missing_dependency`, `lifecycle_startup`, `lifecycle_shutdown`
 
+### [`state`](state/README.md) — Generic Typed State Persistence
+
+Lightweight typed state persistence to disk. Save/load any struct as JSON without schema, validation, or keyring integration.
+
+```go
+import "github.com/jrschumacher/wails-kit/state"
+
+type WindowState struct {
+    Width  int  `json:"width"`
+    Height int  `json:"height"`
+}
+
+store := state.New[WindowState](
+    state.WithAppName[WindowState]("my-app"),
+    state.WithName[WindowState]("window"),
+    state.WithDefaults[WindowState](WindowState{Width: 800, Height: 600}),
+)
+
+s, err := store.Load()   // returns defaults if no file
+err = store.Save(s)      // atomic write (tmp + rename)
+```
+
+**Key features:**
+- Generic type-safe `Store[T]` — no `map[string]any` casting
+- Atomic writes prevent corruption on crash
+- Optional event emitter (`state:loaded`, `state:saved`)
+- Stores in `appdirs.Data()` under `state/{name}.json`
+
+See [`state/README.md`](state/README.md) for full documentation.
+
 ### [`errors`](errors/README.md) — User-Facing Error Types
 
 Generic error types for Wails apps. Apps add their own domain-specific codes and messages.

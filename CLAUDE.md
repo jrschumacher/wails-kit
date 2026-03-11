@@ -48,7 +48,7 @@ type(scope): description
 
 **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
 
-**Scopes** (optional, use the package name): `appdirs`, `database`, `diagnostics`, `keyring`, `settings`, `llm`, `errors`, `events`, `lifecycle`, `logging`, `shortcuts`, `updates`
+**Scopes** (optional, use the package name): `appdirs`, `database`, `diagnostics`, `keyring`, `settings`, `state`, `llm`, `errors`, `events`, `lifecycle`, `logging`, `shortcuts`, `updates`
 
 Examples:
 - `feat(updates): add GitHub Releases auto-update`
