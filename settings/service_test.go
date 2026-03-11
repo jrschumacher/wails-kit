@@ -20,6 +20,94 @@ func TestNewService_WithAppName(t *testing.T) {
 	}
 }
 
+func TestNewService_WithStoragePath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "workspace", "config.json")
+
+	svc := NewService(
+		WithStoragePath(path),
+		WithGroup(Group{
+			Key:   "general",
+			Label: "General",
+			Fields: []Field{
+				{Key: "name", Type: FieldText, Label: "Name", Default: "default"},
+			},
+		}),
+	)
+
+	if svc.store.Path() != path {
+		t.Errorf("expected store path %q, got %q", path, svc.store.Path())
+	}
+
+	// Save and verify it writes to the custom path
+	_, err := svc.SetValues(map[string]any{"name": "workspace-value"})
+	if err != nil {
+		t.Fatalf("save error: %v", err)
+	}
+
+	values, err := svc.GetValues()
+	if err != nil {
+		t.Fatalf("load error: %v", err)
+	}
+	if values["name"] != "workspace-value" {
+		t.Errorf("expected name=workspace-value, got %v", values["name"])
+	}
+}
+
+func TestWithStoragePath_OverridesWithAppName(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "custom.json")
+
+	// WithStoragePath after WithAppName should override
+	svc := NewService(
+		WithAppName("myapp"),
+		WithStoragePath(path),
+	)
+
+	if svc.store.Path() != path {
+		t.Errorf("expected WithStoragePath to override WithAppName, got %q", svc.store.Path())
+	}
+}
+
+func TestWithStoragePath_PasswordNeverInFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	secrets := keyring.NewMemoryStore()
+
+	svc := NewService(
+		WithStoragePath(path),
+		WithKeyring(secrets),
+		WithGroup(Group{
+			Key:   "auth",
+			Label: "Auth",
+			Fields: []Field{
+				{Key: "token", Type: FieldPassword, Label: "Token"},
+				{Key: "host", Type: FieldText, Label: "Host"},
+			},
+		}),
+	)
+
+	_, err := svc.SetValues(map[string]any{"token": "secret-value", "host": "example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Token should be in keyring, not in the file
+	val, err := secrets.Get("token")
+	if err != nil || val != "secret-value" {
+		t.Fatalf("expected token in keyring, got %q, err=%v", val, err)
+	}
+
+	raw := NewStore("app", WithPath(path))
+	saved, _ := raw.Load()
+	if _, ok := saved["token"]; ok {
+		t.Error("password must never be written to workspace-local file")
+	}
+	if saved["host"] != "example.com" {
+		t.Errorf("expected host=example.com, got %v", saved["host"])
+	}
+}
+
 func TestNewService_RegistersDefaults(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
