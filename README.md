@@ -133,7 +133,7 @@ settings.Field{
 - `Field.Validation` — required, pattern, min/max length, min/max number
 - `Group.ComputeFuncs` — server-side computed readonly fields
 
-**CLI/headless mode** — see [`settings/cli`](settings/cli/README.md) for interactive configuration, non-interactive set/show, and `$EDITOR` editing without a GUI.
+**CLI/headless mode** — see [`settings/cli`](settings/cli/README.md) for non-interactive get/set/show without a GUI (CI/scripting).
 
 **Other behaviors:**
 - **Atomic writes** — writes to `.tmp` then renames, preventing corruption on crash

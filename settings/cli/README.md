@@ -1,6 +1,6 @@
 # settings/cli
 
-Headless/CLI adapter for the settings package. Uses the same schema that drives the Wails frontend to provide terminal-based settings management.
+Headless/CLI adapter for the settings package. Uses the same schema that drives the Wails frontend to provide non-interactive settings management for CI/scripting.
 
 ## Usage
 
@@ -16,13 +16,14 @@ svc := settings.NewService(
 )
 ```
 
-### Interactive configuration
-
-Walks through all schema fields with prompts. Conditions, dynamic options, and validation all apply. Press Enter to keep the current value.
+### Get a single value
 
 ```go
-settingscli.Configure(svc)
+val, err := settingscli.Get(svc, "llm.provider")
+// val = "anthropic (Anthropic)"
 ```
+
+Password fields are returned masked. Unknown keys return an error.
 
 ### Set a single value
 
@@ -30,9 +31,9 @@ settingscli.Configure(svc)
 settingscli.Set(svc, "llm.provider", "anthropic")
 ```
 
-Values are coerced to the field's type: `"true"`/`"false"` for toggles, numbers for number fields.
+Values are coerced to the field's type: `"true"`/`"false"` for toggles, numbers for number fields. All schema validation (required, pattern, min/max, allowed options) is enforced.
 
-### Show current values
+### Show all values
 
 Prints all settings grouped by section. Passwords are masked, conditional fields that don't apply are hidden.
 
@@ -51,34 +52,17 @@ Output:
   api_key = ••••••••
 ```
 
-### Edit in $EDITOR
-
-Opens settings as JSON in `$EDITOR` (falls back to `vi`). Computed and password fields are excluded from the editable file.
-
-```go
-settingscli.Edit(svc)
-```
-
-### List all keys
-
-```go
-keys := settingscli.Keys(svc)  // sorted alphabetically
-```
-
 ## Options
 
-All functions accept options for custom I/O:
+`Show` accepts an output option:
 
 ```go
-settingscli.Show(svc,
-    settingscli.WithInput(os.Stdin),
-    settingscli.WithOutput(os.Stdout),
-)
+settingscli.Show(svc, settingscli.WithOutput(os.Stderr))
 ```
 
 ## Validation
 
-All schema validation rules (required, pattern, min/max, allowed options) are enforced. Validation failures return a `*cli.ValidationErrors` error:
+Validation failures return a `*cli.ValidationErrors` error:
 
 ```go
 err := settingscli.Set(svc, "theme", "invalid")

@@ -2,8 +2,8 @@ package cli
 
 import (
 	"bytes"
-	"strings"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/jrschumacher/wails-kit/keyring"
@@ -70,7 +70,6 @@ func TestShow_PasswordMasked(t *testing.T) {
 		},
 	})
 
-	// Set a password
 	_, err := svc.SetValues(map[string]any{"api_key": "secret123"})
 	if err != nil {
 		t.Fatal(err)
@@ -111,6 +110,91 @@ func TestShow_ConditionalFieldHidden(t *testing.T) {
 
 	if strings.Contains(buf.String(), "anthropic_key") {
 		t.Error("conditional field should be hidden when condition not met")
+	}
+}
+
+func TestGet(t *testing.T) {
+	svc := testService(t, basicGroup())
+
+	val, err := Get(svc, "name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != "World" {
+		t.Errorf("expected World, got %s", val)
+	}
+}
+
+func TestGet_SelectWithLabel(t *testing.T) {
+	svc := testService(t, basicGroup())
+
+	val, err := Get(svc, "theme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != "dark (Dark)" {
+		t.Errorf("expected 'dark (Dark)', got %s", val)
+	}
+}
+
+func TestGet_Toggle(t *testing.T) {
+	svc := testService(t, basicGroup())
+
+	val, err := Get(svc, "notifications")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != "true" {
+		t.Errorf("expected true, got %s", val)
+	}
+}
+
+func TestGet_PasswordMasked(t *testing.T) {
+	svc := testService(t, settings.Group{
+		Key:   "auth",
+		Label: "Auth",
+		Fields: []settings.Field{
+			{Key: "api_key", Type: settings.FieldPassword, Label: "API Key"},
+		},
+	})
+
+	_, err := svc.SetValues(map[string]any{"api_key": "secret123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	val, err := Get(svc, "api_key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != settings.SecretMask {
+		t.Errorf("expected masked value, got %s", val)
+	}
+}
+
+func TestGet_UnknownKey(t *testing.T) {
+	svc := testService(t, basicGroup())
+	_, err := Get(svc, "nonexistent")
+	if err == nil || !strings.Contains(err.Error(), "unknown setting") {
+		t.Errorf("expected unknown setting error, got: %v", err)
+	}
+}
+
+func TestGet_UnsetValue(t *testing.T) {
+	svc := testService(t, settings.Group{
+		Key:   "test",
+		Label: "Test",
+		Fields: []settings.Field{
+			{Key: "optional", Type: settings.FieldText, Label: "Optional"},
+		},
+	})
+
+	val, err := Get(svc, "optional")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != "(not set)" {
+		t.Errorf("expected '(not set)', got %s", val)
 	}
 }
 
@@ -210,162 +294,43 @@ func TestSet_ValidationError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
-	var verr *ValidationErrors
-	if ve, ok := err.(*ValidationErrors); !ok {
+	ve, ok := err.(*ValidationErrors)
+	if !ok {
 		t.Errorf("expected *ValidationErrors, got %T: %v", err, err)
-	} else {
-		verr = ve
 	}
-	if verr != nil && len(verr.Errors) != 1 {
-		t.Errorf("expected 1 validation error, got %d", len(verr.Errors))
+	if ve != nil && len(ve.Errors) != 1 {
+		t.Errorf("expected 1 validation error, got %d", len(ve.Errors))
 	}
 }
 
-func TestConfigure_Interactive(t *testing.T) {
-	svc := testService(t, basicGroup())
-
-	// Provide input: name=Alice, theme=1 (dark), notifications=n
-	input := "Alice\n1\nn\n"
-	var buf bytes.Buffer
-	err := Configure(svc, WithInput(strings.NewReader(input)), WithOutput(&buf))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	values, err := svc.GetValues()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if values["name"] != "Alice" {
-		t.Errorf("expected Alice, got %v", values["name"])
-	}
-	if values["theme"] != "dark" {
-		t.Errorf("expected dark, got %v", values["theme"])
-	}
-	if values["notifications"] != false {
-		t.Errorf("expected false, got %v", values["notifications"])
-	}
-}
-
-func TestConfigure_KeepDefaults(t *testing.T) {
-	svc := testService(t, basicGroup())
-
-	// All empty lines = keep defaults
-	input := "\n\n\n"
-	var buf bytes.Buffer
-	err := Configure(svc, WithInput(strings.NewReader(input)), WithOutput(&buf))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	values, err := svc.GetValues()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if values["name"] != "World" {
-		t.Errorf("expected World (default), got %v", values["name"])
-	}
-}
-
-func TestConfigure_SkipsComputedFields(t *testing.T) {
-	svc := testService(t, settings.Group{
-		Key:   "info",
-		Label: "Info",
-		Fields: []settings.Field{
-			{Key: "first", Type: settings.FieldText, Label: "First Name"},
-			{Key: "display", Type: settings.FieldComputed, Label: "Display Name"},
-		},
-		ComputeFuncs: map[string]settings.ComputeFunc{
-			"display": func(values map[string]any) any {
-				return values["first"]
-			},
-		},
-	})
-
-	// Only one prompt expected (first), not two
-	input := "Alice\n"
-	var buf bytes.Buffer
-	err := Configure(svc, WithInput(strings.NewReader(input)), WithOutput(&buf))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if strings.Contains(buf.String(), "Display Name") {
-		t.Error("computed field should not be prompted")
-	}
-}
-
-func TestConfigure_SkipsConditionalFields(t *testing.T) {
+func TestSet_DynamicOptions(t *testing.T) {
 	svc := testService(t, settings.Group{
 		Key:   "llm",
 		Label: "LLM",
 		Fields: []settings.Field{
-			{Key: "provider", Type: settings.FieldSelect, Label: "Provider", Options: []settings.SelectOption{
-				{Label: "OpenAI", Value: "openai"},
+			{Key: "provider", Type: settings.FieldSelect, Label: "Provider", Default: "anthropic", Options: []settings.SelectOption{
 				{Label: "Anthropic", Value: "anthropic"},
+				{Label: "OpenAI", Value: "openai"},
 			}},
-			{Key: "anthropic_model", Type: settings.FieldText, Label: "Anthropic Model", Condition: &settings.Condition{
-				Field: "provider", Equals: []string{"anthropic"},
-			}},
-			{Key: "openai_model", Type: settings.FieldText, Label: "OpenAI Model", Condition: &settings.Condition{
-				Field: "provider", Equals: []string{"openai"},
+			{Key: "model", Type: settings.FieldSelect, Label: "Model", DynamicOptions: &settings.DynamicOptions{
+				DependsOn: "provider",
+				Options: map[string][]settings.SelectOption{
+					"anthropic": {{Label: "Claude", Value: "claude"}},
+					"openai":    {{Label: "GPT-4o", Value: "gpt-4o"}},
+				},
 			}},
 		},
 	})
 
-	// Select openai (option 1), then provide openai model
-	input := "1\ngpt-4\n"
-	var buf bytes.Buffer
-	err := Configure(svc, WithInput(strings.NewReader(input)), WithOutput(&buf))
-	if err != nil {
+	// Provider defaults to anthropic, so "claude" should be valid
+	if err := Set(svc, "model", "claude"); err != nil {
 		t.Fatal(err)
 	}
 
-	out := buf.String()
-	if strings.Contains(out, "Anthropic Model") {
-		t.Error("anthropic_model should be skipped when provider=openai")
-	}
-	if !strings.Contains(out, "OpenAI Model") {
-		t.Error("openai_model should be prompted when provider=openai")
-	}
-}
-
-func TestConfigure_Password(t *testing.T) {
-	svc := testService(t, settings.Group{
-		Key:   "auth",
-		Label: "Auth",
-		Fields: []settings.Field{
-			{Key: "api_key", Type: settings.FieldPassword, Label: "API Key"},
-		},
-	})
-
-	input := "sk-secret\n"
-	var buf bytes.Buffer
-	err := Configure(svc, WithInput(strings.NewReader(input)), WithOutput(&buf))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	secret, err := svc.GetSecret("api_key")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if secret != "sk-secret" {
-		t.Errorf("expected sk-secret, got %s", secret)
-	}
-}
-
-func TestKeys(t *testing.T) {
-	svc := testService(t, basicGroup())
-	keys := Keys(svc)
-	expected := []string{"name", "notifications", "theme"}
-	if len(keys) != len(expected) {
-		t.Fatalf("expected %d keys, got %d", len(expected), len(keys))
-	}
-	for i, k := range keys {
-		if k != expected[i] {
-			t.Errorf("expected key %s at position %d, got %s", expected[i], i, k)
-		}
+	// "gpt-4o" should be invalid for anthropic provider
+	err := Set(svc, "model", "gpt-4o")
+	if err == nil {
+		t.Fatal("expected validation error for wrong dynamic option")
 	}
 }
 
@@ -417,36 +382,5 @@ func TestCoerceValue(t *testing.T) {
 		if !tt.err && got != tt.want {
 			t.Errorf("coerceValue(%s, %q) = %v, want %v", tt.field.Type, tt.input, got, tt.want)
 		}
-	}
-}
-
-func TestSet_DynamicOptions(t *testing.T) {
-	svc := testService(t, settings.Group{
-		Key:   "llm",
-		Label: "LLM",
-		Fields: []settings.Field{
-			{Key: "provider", Type: settings.FieldSelect, Label: "Provider", Default: "anthropic", Options: []settings.SelectOption{
-				{Label: "Anthropic", Value: "anthropic"},
-				{Label: "OpenAI", Value: "openai"},
-			}},
-			{Key: "model", Type: settings.FieldSelect, Label: "Model", DynamicOptions: &settings.DynamicOptions{
-				DependsOn: "provider",
-				Options: map[string][]settings.SelectOption{
-					"anthropic": {{Label: "Claude", Value: "claude"}},
-					"openai":    {{Label: "GPT-4o", Value: "gpt-4o"}},
-				},
-			}},
-		},
-	})
-
-	// Provider defaults to anthropic, so "claude" should be valid
-	if err := Set(svc, "model", "claude"); err != nil {
-		t.Fatal(err)
-	}
-
-	// "gpt-4o" should be invalid for anthropic provider
-	err := Set(svc, "model", "gpt-4o")
-	if err == nil {
-		t.Fatal("expected validation error for wrong dynamic option")
 	}
 }
