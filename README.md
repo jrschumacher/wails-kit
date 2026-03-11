@@ -1,6 +1,18 @@
 # wails-kit
 
-Reusable Go module for Wails v3 apps. Provides a schema-driven settings framework, LLM provider management, OS keyring integration, SQLite database management with migrations, structured logging, typed events, user-facing error types, GitHub-based auto-updates, native menu shortcuts, and diagnostics bundle creation.
+Reusable Go module for Wails v3 apps. Provides a schema-driven settings framework, OS keyring integration, SQLite database management with migrations, structured logging, typed events, user-facing error types, GitHub-based auto-updates, native menu shortcuts, and diagnostics bundle creation.
+
+## Philosophy
+
+wails-kit provides **desktop app infrastructure** — the plumbing that every Wails app needs but shouldn't rewrite. Packages belong here when they:
+
+- Solve a problem **specific to desktop apps or Wails integration** (OS paths, keyring, window lifecycle)
+- Eliminate **real boilerplate** that multiple apps would otherwise copy-paste
+- Provide **infrastructure, not business logic** (storage, config, lifecycle — not domain models or UI)
+
+Generic Go libraries (AI SDKs, HTTP clients, data processing) belong in standalone repos, not in the kit.
+
+**LLM support:** For LLM provider integration, we recommend [any-llm-go](https://github.com/mozilla-ai/any-llm-go). wails-kit provides a settings template (`settings/templates/anyllm`) for wiring any-llm-go configuration into the schema-driven settings framework.
 
 ## Packages
 

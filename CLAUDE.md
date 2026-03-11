@@ -4,6 +4,16 @@
 
 wails-kit is a reusable Go module for Wails v3 desktop apps. It provides infrastructure packages that apps import as a library.
 
+## Philosophy
+
+wails-kit provides **desktop app infrastructure** — the plumbing that every Wails app needs but shouldn't rewrite. Each package must meet these criteria:
+
+1. **Wails-specific or desktop-specific** — solves a problem unique to desktop apps or Wails integration. Generic Go libraries (AI SDKs, HTTP clients, data processing) belong in standalone repos.
+2. **Reduces real boilerplate** — eliminates >50 lines of repeated setup that multiple apps would otherwise copy-paste. A 30-line convenience wrapper doesn't justify a kit package.
+3. **Infrastructure, not business logic** — provides foundational services (storage, config, lifecycle, OS integration), not application-level features (chat UI, domain models, workflows).
+
+**Ask before adding:** "Would a Wails app author write this themselves, and would it look roughly the same every time?" If yes, it belongs in the kit. If the implementation varies significantly per app, it belongs in the app.
+
 ## Structure
 
 Go module at `github.com/jrschumacher/wails-kit` with these packages:
@@ -13,7 +23,7 @@ Go module at `github.com/jrschumacher/wails-kit` with these packages:
 - `diagnostics` — Support bundle creation for crash reporting
 - `keyring` — OS keyring credential storage
 - `settings` — Schema-driven settings framework
-- `llm` — LLM provider management (with `llm/anthropic`, `llm/openai`, `llm/mock`)
+- `llm` — LLM provider management (deprecated — will be removed in favor of standalone library)
 - `errors` — User-facing error types
 - `events` — Typed event emission
 - `logging` — Structured logging with rotation
@@ -48,7 +58,7 @@ type(scope): description
 
 **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
 
-**Scopes** (optional, use the package name): `appdirs`, `database`, `diagnostics`, `keyring`, `settings`, `llm`, `errors`, `events`, `lifecycle`, `logging`, `shortcuts`, `updates`
+**Scopes** (optional, use the package name): `appdirs`, `database`, `diagnostics`, `keyring`, `settings`, `errors`, `events`, `lifecycle`, `logging`, `shortcuts`, `updates`
 
 Examples:
 - `feat(updates): add GitHub Releases auto-update`
