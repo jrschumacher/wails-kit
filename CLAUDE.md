@@ -58,7 +58,7 @@ type(scope): description
 
 **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
 
-**Scopes** (optional, use the package name): `appdirs`, `database`, `diagnostics`, `keyring`, `settings`, `errors`, `events`, `lifecycle`, `logging`, `shortcuts`, `updates`
+**Scopes** (optional, use the package name): `appdirs`, `database`, `diagnostics`, `keyring`, `settings`, `state`, `errors`, `events`, `lifecycle`, `logging`, `shortcuts`, `updates`
 
 Examples:
 - `feat(updates): add GitHub Releases auto-update`
@@ -71,8 +71,8 @@ Examples:
 1. Create the package directory with implementation and tests
 2. Follow the patterns: functional options, optional emitter/settings, error codes with `init()` registration
 3. Keep dependencies minimal: prefer stdlib, avoid adding external deps for <200 lines of logic
-4. Add a package `README.md` documenting usage, options, events, and error codes
-5. Update `README.md` (root) with a summary section linking to the package README
+4. Add a package `README.md` documenting usage, options, events, and error codes — this is the single source of truth for the package
+5. Update `README.md` (root) with a one-line summary linking to the package README (no code examples — keep the root README minimal to avoid merge conflicts)
 6. Update `docs/architecture.md` with the new package's position in the dependency graph
 7. Add the package name as a scope in the **Scopes** list above
 

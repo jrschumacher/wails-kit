@@ -361,6 +361,10 @@ err = mgr.Shutdown()     // stops in reverse order; collects all errors
 - Events: `lifecycle:started`, `lifecycle:stopped`, `lifecycle:error`, `lifecycle:rollback`
 - Error codes: `lifecycle_cyclic_dependency`, `lifecycle_missing_dependency`, `lifecycle_startup`, `lifecycle_shutdown`
 
+### [`state`](state/README.md) — Generic Typed State Persistence
+
+Lightweight typed state persistence to disk. Save/load any struct as JSON with atomic writes, without schema, validation, or keyring integration. See [`state/README.md`](state/README.md).
+
 ### [`errors`](errors/README.md) — User-Facing Error Types
 
 Generic error types for Wails apps. Apps add their own domain-specific codes and messages.
