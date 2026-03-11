@@ -2,6 +2,16 @@
 
 Reusable Go module for Wails v3 apps. Provides a schema-driven settings framework, LLM provider management, OS keyring integration, SQLite database management with migrations, structured logging, typed events, user-facing error types, GitHub-based auto-updates, native menu shortcuts, and diagnostics bundle creation.
 
+### Selective imports via vanity URL
+
+Each package is also published as an independent Go module so you only pull the dependencies you need:
+
+```sh
+go get abnl.dev/wails-kit/appdirs@latest    # zero external deps
+go get abnl.dev/wails-kit/database@latest   # only goose + sqlite
+go get abnl.dev/wails-kit/llm/openai@latest # only openai SDK
+```
+
 ## Packages
 
 ### [`appdirs`](appdirs/README.md) — OS-Standard App Directories
