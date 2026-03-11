@@ -3,8 +3,6 @@ module github.com/jrschumacher/wails-kit
 go 1.25.0
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.19.0
-	github.com/openai/openai-go/v2 v2.7.1
 	github.com/pressly/goose/v3 v3.27.0
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.64
 	github.com/zalando/go-keyring v0.2.6
@@ -52,10 +50,6 @@ require (
 	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/skeema/knownhosts v1.3.2 // indirect
-	github.com/tidwall/gjson v1.18.0 // indirect
-	github.com/tidwall/match v1.1.1 // indirect
-	github.com/tidwall/pretty v1.2.1 // indirect
-	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/wailsapp/go-webview2 v1.0.23 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	go.uber.org/multierr v1.11.0 // indirect

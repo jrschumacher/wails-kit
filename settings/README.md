@@ -113,13 +113,13 @@ Select options that change based on another field's value:
 
 ```go
 settings.Field{
-    Key:  "llm.model",
+    Key:  "appearance.font_size",
     Type: settings.FieldSelect,
     DynamicOptions: &settings.DynamicOptions{
-        DependsOn: "llm.provider",
+        DependsOn: "appearance.theme",
         Options: map[string][]settings.SelectOption{
-            "anthropic": {{Label: "Claude Sonnet", Value: "claude-sonnet-4-20250514"}},
-            "openai":    {{Label: "GPT-4o", Value: "gpt-4o"}},
+            "compact": {{Label: "Small", Value: "12"}, {Label: "Medium", Value: "14"}},
+            "default": {{Label: "Medium", Value: "14"}, {Label: "Large", Value: "16"}},
         },
     },
 }
@@ -131,8 +131,8 @@ Show/hide a field based on another field's value:
 
 ```go
 settings.Field{
-    Key:       "anthropic.api_key",
-    Condition: &settings.Condition{Field: "llm.provider", Equals: []string{"anthropic"}},
+    Key:       "proxy.url",
+    Condition: &settings.Condition{Field: "network.proxy_enabled", Equals: []string{"true"}},
 }
 ```
 
@@ -162,7 +162,7 @@ settings.Group{
     },
     ComputeFuncs: map[string]settings.ComputeFunc{
         "resolved_model": func(values map[string]any) any {
-            return values["llm.model"]
+            return values["appearance.font_size"]
         },
     },
 }

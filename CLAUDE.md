@@ -23,7 +23,6 @@ Go module at `github.com/jrschumacher/wails-kit` with these packages:
 - `diagnostics` — Support bundle creation for crash reporting
 - `keyring` — OS keyring credential storage
 - `settings` — Schema-driven settings framework
-- `llm` — LLM provider management (deprecated — will be removed in favor of standalone library)
 - `errors` — User-facing error types
 - `events` — Typed event emission
 - `logging` — Structured logging with rotation
@@ -64,7 +63,7 @@ Examples:
 - `feat(updates): add GitHub Releases auto-update`
 - `fix(keyring): handle missing env prefix`
 - `docs: update root README`
-- `test(llm): add context builder edge cases`
+- `test(settings): add validation edge cases`
 
 ### Adding a new package
 

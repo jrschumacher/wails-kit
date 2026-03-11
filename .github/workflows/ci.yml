@@ -42,7 +42,6 @@ jobs:
             lifecycle
             settings
             state
-            llm
             errors
             events
             logging
