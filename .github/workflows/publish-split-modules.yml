@@ -19,6 +19,6 @@ jobs:
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Publish split modules
-        run: ./scripts/publish-split-modules.sh "${{ steps.version.outputs.version }}"
+        run: ./.github/scripts/publish-split-modules.sh "${{ steps.version.outputs.version }}"
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_PAT || github.token }}

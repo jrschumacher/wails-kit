@@ -64,7 +64,7 @@ Examples:
 4. Add a package `README.md` documenting usage, options, events, and error codes
 5. Update `README.md` (root) with a summary section linking to the package README
 6. Update `docs/architecture.md` with the new package's position in the dependency graph
-7. Add the package to `scripts/split-modules.json` with its directory, external deps, and kit deps
+7. Add the package to `split-modules.json` with its directory, external deps, and kit deps
 8. Add the package name as a scope in the **Scopes** list above
 
 ### Pre-commit checks
@@ -88,4 +88,4 @@ GitHub Actions using `jrschumacher/go-actions@v3`:
 - PR titles validated against conventional commit format
 - Test, lint, and security checks on PRs and pushes to main
 - Releases via Release Please on main
-- On release, split modules published to `jrschumacher/wails-kit-pub` via `scripts/publish-split-modules.sh`
+- On release, split modules published to `jrschumacher/wails-kit-pub` via `.github/scripts/publish-split-modules.sh`

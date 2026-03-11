@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Publishes split Go modules from the monorepo to the pub repo.
 #
-# Usage: ./scripts/publish-split-modules.sh <version>
-#   e.g.: ./scripts/publish-split-modules.sh 1.2.0
+# Usage: ./.github/scripts/publish-split-modules.sh <version>
+#   e.g.: ./.github/scripts/publish-split-modules.sh 1.2.0
 #
 # Requires: jq, git
 # Environment: GH_TOKEN (for pushing to the pub repo)
@@ -11,8 +11,8 @@ set -euo pipefail
 
 VERSION="${1:?Usage: $0 <version>}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-CONFIG="$SCRIPT_DIR/split-modules.json"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+CONFIG="$REPO_ROOT/split-modules.json"
 
 GO_VERSION=$(grep '^go ' "$REPO_ROOT/go.mod" | awk '{print $2}')
 VANITY_DOMAIN=$(jq -r '.vanityDomain' "$CONFIG")
