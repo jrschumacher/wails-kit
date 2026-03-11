@@ -75,6 +75,10 @@ Examples:
 6. Update `docs/architecture.md` with the new package's position in the dependency graph
 7. Add the package name as a scope in the **Scopes** list above
 
+### Working with GitHub issues
+
+When working on a GitHub issue, always read the issue comments (`gh api repos/jrschumacher/wails-kit/issues/{number}/comments --jq '.[].body'`) before starting work. Comments often contain revised plans, additional context, or scope changes that supersede the original issue description.
+
 ### Pre-commit checks
 
 Before committing, always run lint and tests locally to catch issues before CI:
