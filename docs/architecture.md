@@ -57,6 +57,7 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 - `logging` depends on `appdirs` for log directory paths
 - `shortcuts` depends on `events` (optional) and `wails/v3` for native menu APIs
 - `state` depends on `appdirs` and `errors`; optionally depends on `events`
+- `settings/templates/anyllm` depends on `settings` and `any-llm-go` (external); provides LLM provider settings integration
 
 ### Frontend packages
 

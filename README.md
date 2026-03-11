@@ -152,6 +152,28 @@ settings.Field{
 - **Schema migration** — unknown keys in saved files are stripped on load
 - **File permissions** — directories 0700, settings file 0600
 
+#### Settings Templates
+
+Reusable settings group generators for common integrations:
+
+- [`settings/templates/anyllm`](settings/templates/anyllm/README.md) — LLM provider settings via [any-llm-go](https://github.com/mozilla-ai/any-llm-go). Generates provider/model/API key fields and builds a configured provider from settings.
+
+```go
+import "github.com/jrschumacher/wails-kit/settings/templates/anyllm"
+
+group, buildProvider := anyllm.New(
+    anyllm.WithProviders("anthropic", "openai", "mistral"),
+    anyllm.WithDefaultProvider("anthropic"),
+)
+
+svc := settings.NewService(
+    settings.WithAppName("my-app"),
+    settings.WithGroup(group),
+)
+
+provider, modelID, err := buildProvider(svc)
+```
+
 ### [`database`](database/README.md) — SQLite Database with Migrations
 
 SQLite database management with [goose](https://github.com/pressly/goose) migrations. Pure-Go SQLite driver (no CGO), OS-standard database paths, WAL mode and sensible pragmas out of the box.

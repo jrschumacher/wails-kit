@@ -114,3 +114,11 @@ for each group in schema.groups:
 | Package | Group key | Fields |
 |---------|-----------|--------|
 | `updates` | `updates` | check_frequency, auto_download, include_prereleases |
+
+## Settings templates
+
+The `settings/templates/` directory contains reusable settings group generators for common third-party integrations. Templates return a `settings.Group` and a builder function that constructs configured clients from settings values.
+
+| Template | Group key | External dependency | Description |
+|----------|-----------|-------------------|-------------|
+| [`anyllm`](../settings/templates/anyllm/README.md) | `llm` | [any-llm-go](https://github.com/mozilla-ai/any-llm-go) | LLM provider/model/API key settings |
