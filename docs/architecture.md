@@ -44,6 +44,7 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 
 - `errors`, `events`, and `appdirs` are leaf packages with no kit dependencies
 - `keyring` is a leaf package
+- `settings/cli` depends on `settings` (CLI adapter, no additional external deps)
 - `settings` depends on `keyring` for password field storage and `appdirs` for config paths
 - `llm` depends on `settings` for configuration
 - `updates` depends on `errors`, `events`, and `appdirs`; optionally depends on `settings`
