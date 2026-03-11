@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Publishes split Go modules from the monorepo to the pub repo.
 #
+# Packages and their dependencies are auto-detected from the source code
+# using `go list`. No manual config needed beyond vanity domain and pub repo.
+#
 # Usage: ./.github/scripts/publish-split-modules.sh <version>
 #   e.g.: ./.github/scripts/publish-split-modules.sh 1.2.0
 #
-# Requires: jq, git
+# Requires: go, jq, git
 # Environment: GH_TOKEN (for pushing to the pub repo)
 
 set -euo pipefail
@@ -15,15 +18,16 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CONFIG="$REPO_ROOT/split-modules.json"
 
 GO_VERSION=$(grep '^go ' "$REPO_ROOT/go.mod" | awk '{print $2}')
+MONOREPO_MODULE=$(grep '^module ' "$REPO_ROOT/go.mod" | awk '{print $2}')
 VANITY_DOMAIN=$(jq -r '.vanityDomain' "$CONFIG")
 PUB_REPO=$(jq -r '.pubRepo' "$CONFIG")
-MONOREPO_MODULE="github.com/jrschumacher/wails-kit"
 
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT
 
 echo "Publishing split modules v${VERSION}"
 echo "  Go version: ${GO_VERSION}"
+echo "  Monorepo module: ${MONOREPO_MODULE}"
 echo "  Vanity domain: ${VANITY_DOMAIN}"
 echo "  Pub repo: ${PUB_REPO}"
 
@@ -62,27 +66,98 @@ dep_version() {
   awk -v d="$dep" '$1 == d {print $2}' "$DEP_VERSIONS_FILE"
 }
 
+# Auto-discover packages: directories with non-test .go files, relative to repo root.
+# Only includes packages that have at least one non-test .go source file.
+echo "Discovering packages..."
+PACKAGES_FILE="$WORK_DIR/packages.txt"
+cd "$REPO_ROOT"
+go list -f '{{.ImportPath}} {{.GoFiles}}' ./... | while IFS= read -r line; do
+  imp="${line%% *}"
+  files="${line#* }"
+  # Skip packages with no non-test source files (GoFiles excludes test files)
+  if [ "$files" = "[]" ]; then
+    continue
+  fi
+  # Strip module prefix to get relative dir
+  dir="${imp#${MONOREPO_MODULE}/}"
+  # Skip root package (if any)
+  if [ "$dir" != "$imp" ]; then
+    echo "$dir"
+  fi
+done > "$PACKAGES_FILE"
+
+echo "  Found packages: $(paste -sd', ' "$PACKAGES_FILE")"
+
+# Auto-detect imports per package using go list
+IMPORTS_FILE="$WORK_DIR/imports.txt"
+go list -f '{{.ImportPath}} {{join .Imports ","}}' ./... | while IFS=' ' read -r imp imports; do
+  dir="${imp#${MONOREPO_MODULE}/}"
+  if [ "$dir" != "$imp" ]; then
+    echo "${dir}|${imports}"
+  fi
+done > "$IMPORTS_FILE"
+
 # Clear pub repo contents (full replace each release)
-find "$WORK_DIR/pub" -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+find "$WORK_DIR/pub" -mindepth 1 -maxdepth 1 -not -name '.git' -exec rm -rf {} +
 
 # Process each package
-for pkg in $(jq -r '.packages | keys[]' "$CONFIG"); do
-  dir=$(jq -r ".packages[\"$pkg\"].dir" "$CONFIG")
-
-  echo "Processing ${pkg} (dir: ${dir})..."
+while IFS= read -r dir; do
+  echo "Processing ${dir}..."
 
   # Create directory
   mkdir -p "$WORK_DIR/pub/$dir"
 
   # Copy non-test .go files (maxdepth 1 to avoid pulling subpackage files)
-  find "$REPO_ROOT/$dir" -maxdepth 1 -name '*.go' ! -name '*_test.go' -exec cp {} "$WORK_DIR/pub/$dir/" \;
+  find "$REPO_ROOT/$dir" -maxdepth 1 -name '*.go' -not -name '*_test.go' -exec cp {} "$WORK_DIR/pub/$dir/" \;
 
   # Copy README if present
   [ -f "$REPO_ROOT/$dir/README.md" ] && cp "$REPO_ROOT/$dir/README.md" "$WORK_DIR/pub/$dir/"
 
-  # Collect deps as newline-separated strings (avoids bash array issues with set -u)
-  ext_deps=$(jq -r ".packages[\"$pkg\"].externalDeps[]?" "$CONFIG")
-  kit_deps=$(jq -r ".packages[\"$pkg\"].kitDeps[]?" "$CONFIG")
+  # Parse imports for this package
+  imports=$(grep "^${dir}|" "$IMPORTS_FILE" | cut -d'|' -f2)
+
+  # Classify imports into kit deps and external deps
+  kit_deps=""
+  ext_deps=""
+  if [ -n "$imports" ]; then
+    IFS=',' read -ra imp_arr <<< "$imports"
+    for imp in "${imp_arr[@]}"; do
+      if [[ "$imp" == "${MONOREPO_MODULE}/"* ]]; then
+        # Kit dependency — extract the relative dir
+        kd="${imp#${MONOREPO_MODULE}/}"
+        if [ -z "$kit_deps" ]; then
+          kit_deps="$kd"
+        else
+          kit_deps="$kit_deps"$'\n'"$kd"
+        fi
+      elif [[ "$imp" != *"."* ]] || [[ "$imp" == "C" ]]; then
+        # stdlib (no dots in path) or cgo — skip
+        continue
+      else
+        # External dependency — find the module root from go.mod
+        # Match against known dependency module paths
+        matched=""
+        while IFS=' ' read -r mod_path mod_ver; do
+          if [[ "$imp" == "$mod_path" ]] || [[ "$imp" == "$mod_path/"* ]]; then
+            # Only add if not already present
+            if [ -z "$ext_deps" ]; then
+              ext_deps="$mod_path"
+              matched="1"
+            elif ! echo "$ext_deps" | grep -qx "$mod_path"; then
+              ext_deps="$ext_deps"$'\n'"$mod_path"
+              matched="1"
+            else
+              matched="1"
+            fi
+            break
+          fi
+        done < "$DEP_VERSIONS_FILE"
+        if [ -z "$matched" ]; then
+          echo "  WARNING: No go.mod entry for import: $imp (may be stdlib or transitive)" >&2
+        fi
+      fi
+    done
+  fi
 
   # Generate go.mod
   {
@@ -107,17 +182,16 @@ for pkg in $(jq -r '.packages | keys[]' "$CONFIG"); do
 
       if [ -n "$kit_deps" ]; then
         while IFS= read -r kd; do
-          kd_dir=$(jq -r ".packages[\"$kd\"].dir" "$CONFIG")
-          echo "	${VANITY_DOMAIN}/${kd_dir} v${VERSION}"
+          echo "	${VANITY_DOMAIN}/${kd} v${VERSION}"
         done <<< "$kit_deps"
       fi
 
       echo ")"
     fi
   } > "$WORK_DIR/pub/$dir/go.mod"
-done
+done < "$PACKAGES_FILE"
 
-# Rewrite import paths: github.com/jrschumacher/wails-kit/ -> abnl.dev/wails-kit/
+# Rewrite import paths: monorepo module -> vanity domain
 echo "Rewriting import paths..."
 find "$WORK_DIR/pub" -name '*.go' -print0 | while IFS= read -r -d '' file; do
   sed "s|\"${MONOREPO_MODULE}/|\"${VANITY_DOMAIN}/|g" "$file" > "$file.tmp" && mv "$file.tmp" "$file"
@@ -153,12 +227,11 @@ Source: https://github.com/jrschumacher/wails-kit/releases/tag/v${VERSION}"
 fi
 
 # Tag each package
-for pkg in $(jq -r '.packages | keys[]' "$CONFIG"); do
-  dir=$(jq -r ".packages[\"$pkg\"].dir" "$CONFIG")
+while IFS= read -r dir; do
   tag="${dir}/v${VERSION}"
   echo "Tagging ${tag}"
   git tag -f "$tag"
-done
+done < "$PACKAGES_FILE"
 
 # Push
 echo "Pushing to ${PUB_REPO}..."

@@ -64,8 +64,7 @@ Examples:
 4. Add a package `README.md` documenting usage, options, events, and error codes
 5. Update `README.md` (root) with a summary section linking to the package README
 6. Update `docs/architecture.md` with the new package's position in the dependency graph
-7. Add the package to `split-modules.json` with its directory, external deps, and kit deps
-8. Add the package name as a scope in the **Scopes** list above
+7. Add the package name as a scope in the **Scopes** list above
 
 ### Pre-commit checks
 

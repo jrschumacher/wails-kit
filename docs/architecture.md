@@ -163,7 +163,7 @@ import "abnl.dev/wails-kit/appdirs"    // only pulls appdirs — no SQLite, no S
 import "abnl.dev/wails-kit/database"   // pulls goose + sqlite, nothing else
 ```
 
-Each package gets its own `go.mod` with only its direct dependencies, tagged as `{pkg}/v{version}` (e.g., `appdirs/v1.2.0`). The publish pipeline is defined in `.github/scripts/publish-split-modules.sh` with package config in `split-modules.json`.
+Each package gets its own `go.mod` with only its direct dependencies, tagged as `{pkg}/v{version}` (e.g., `appdirs/v1.2.0`). The publish pipeline is defined in `.github/scripts/publish-split-modules.sh`. Packages and their dependencies are auto-detected from the source code at publish time — `split-modules.json` only contains the vanity domain and pub repo config.
 
 ## Adding a new package
 
@@ -176,4 +176,4 @@ When adding a new package to wails-kit:
 5. **Update the root README** with a summary section linking to the package README
 6. **Update this architecture doc** with the new package's position in the dependency graph
 7. **Add the package name as a conventional commit scope** in `.github/workflows/ci.yml` and `CLAUDE.md`
-8. **Add the package to `split-modules.json`** with its directory, external deps, and kit deps
+8. **No config needed for split modules** — packages and deps are auto-detected at publish time
