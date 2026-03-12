@@ -14,6 +14,16 @@ Generic Go libraries (AI SDKs, HTTP clients, data processing) belong in standalo
 
 **LLM support:** For LLM provider integration, we recommend [any-llm-go](https://github.com/mozilla-ai/any-llm-go). wails-kit provides a settings template (`settings/templates/anyllm`) for wiring any-llm-go configuration into the schema-driven settings framework.
 
+### Selective imports via vanity URL
+
+Each package is also published as an independent Go module so you only pull the dependencies you need:
+
+```sh
+go get abnl.dev/wails-kit/appdirs@latest    # zero external deps
+go get abnl.dev/wails-kit/database@latest   # only goose + sqlite
+go get abnl.dev/wails-kit/llm/openai@latest # only openai SDK
+```
+
 ## Packages
 
 ### [`appdirs`](appdirs/README.md) — OS-Standard App Directories

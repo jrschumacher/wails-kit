@@ -97,3 +97,4 @@ GitHub Actions using `jrschumacher/go-actions@v3`:
 - PR titles validated against conventional commit format
 - Test, lint, and security checks on PRs and pushes to main
 - Releases via Release Please on main
+- On release, split modules published to `jrschumacher/wails-kit-pub` via `.github/scripts/publish-split-modules.sh`
