@@ -21,6 +21,7 @@ const (
 	EventDownloading = "updates:downloading"
 	EventReady       = "updates:ready"
 	EventError       = "updates:error"
+	EventManaged     = "updates:managed"
 )
 
 // Error codes.
@@ -29,6 +30,7 @@ const (
 	ErrUpdateDownload errors.Code = "update_download"
 	ErrUpdateApply    errors.Code = "update_apply"
 	ErrUpdateVerify   errors.Code = "update_verify"
+	ErrUpdateManaged  errors.Code = "update_managed"
 )
 
 func init() {
@@ -37,6 +39,7 @@ func init() {
 		ErrUpdateDownload: "Failed to download the update. Please try again.",
 		ErrUpdateApply:    "Failed to install the update. Please try again.",
 		ErrUpdateVerify:   "Update signature verification failed. The download may be corrupted or tampered with.",
+		ErrUpdateManaged:  "This app is managed by a package manager. Please update through your package manager instead.",
 	})
 }
 
@@ -62,6 +65,11 @@ type (
 	ErrorPayload struct {
 		Message string      `json:"message"`
 		Code    errors.Code `json:"code"`
+	}
+
+	ManagedPayload struct {
+		Method       InstallMethod `json:"method"`
+		Instructions string        `json:"instructions"`
 	}
 )
 
@@ -326,7 +334,20 @@ func (s *Service) DownloadUpdate(ctx context.Context) (string, error) {
 }
 
 // ApplyUpdate applies a previously downloaded update to the running binary.
+// Returns an ErrUpdateManaged error if the app was installed via a package
+// manager (e.g., Homebrew Cask). In that case, an updates:managed event is
+// emitted with instructions for the user.
 func (s *Service) ApplyUpdate(ctx context.Context) error {
+	// Check for managed installs before attempting anything
+	if method := DetectInstallMethod(); method != InstallDirect {
+		instructions := method.UpdateInstructions(s.appName)
+		s.emit(EventManaged, ManagedPayload{
+			Method:       method,
+			Instructions: instructions,
+		})
+		return errors.Newf(ErrUpdateManaged, "%s", instructions)
+	}
+
 	s.mu.Lock()
 	downloadPath := s.downloadPath
 	s.mu.Unlock()
