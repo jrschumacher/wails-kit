@@ -40,9 +40,9 @@ jobs:
             frontend
             keyring
             lifecycle
+            llm
             settings
             state
-            llm
             errors
             events
             logging

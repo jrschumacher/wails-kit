@@ -23,7 +23,6 @@ Go module at `github.com/jrschumacher/wails-kit` with these packages:
 - `diagnostics` — Support bundle creation for crash reporting
 - `keyring` — OS keyring credential storage
 - `settings` — Schema-driven settings framework
-- `llm` — LLM provider management (deprecated — will be removed in favor of standalone library)
 - `errors` — User-facing error types
 - `events` — Typed event emission
 - `logging` — Structured logging with rotation
@@ -64,7 +63,7 @@ Examples:
 - `feat(updates): add GitHub Releases auto-update`
 - `fix(keyring): handle missing env prefix`
 - `docs: update root README`
-- `test(llm): add context builder edge cases`
+- `test(settings): add validation edge cases`
 
 ### Adding a new package
 
@@ -75,6 +74,10 @@ Examples:
 5. Update `README.md` (root) with a one-line summary linking to the package README (no code examples — keep the root README minimal to avoid merge conflicts)
 6. Update `docs/architecture.md` with the new package's position in the dependency graph
 7. Add the package name as a scope in the **Scopes** list above
+
+### Working with GitHub issues
+
+When working on a GitHub issue, always read the issue comments (`gh api repos/jrschumacher/wails-kit/issues/{number}/comments --jq '.[].body'`) before starting work. Comments often contain revised plans, additional context, or scope changes that supersede the original issue description.
 
 ### Pre-commit checks
 

@@ -7,13 +7,13 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 ```
 ┌──────────┐     ┌──────────┐     ┌──────────┐
 │ settings │────▶│ keyring  │     │ logging  │
-└────┬──┬──┘     └──────────┘     └────┬─────┘
-     │  │                              │
-     │  └──────────┐  ┌────────────────┘
-     ▼             ▼  ▼
-┌──────────┐     ┌──────────┐
-│   llm    │     │ appdirs  │  (leaf — no kit dependencies)
-└──────────┘     └──────────┘
+└────┬─────┘     └──────────┘     └────┬─────┘
+     │                                 │
+     └──────────────┐  ┌───────────────┘
+                    ▼  ▼
+                  ┌──────────┐
+                  │ appdirs  │  (leaf — no kit dependencies)
+                  └──────────┘
                        ▲
 ┌──────────┐     ┌─────┘
 │ updates  │────▶│
@@ -50,7 +50,6 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 - `keyring` is a leaf package
 - `settings/cli` depends on `settings` (CLI adapter, no additional external deps)
 - `settings` depends on `keyring` for password field storage and `appdirs` for config paths
-- `llm` depends on `settings` for configuration
 - `updates` depends on `errors`, `events`, and `appdirs`; optionally depends on `settings`
 - `database` depends on `appdirs`, `errors`, and `events`
 - `lifecycle` depends on `errors` and `events`; manages startup/shutdown ordering of any services
@@ -58,6 +57,7 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 - `logging` depends on `appdirs` for log directory paths
 - `shortcuts` depends on `events` (optional) and `wails/v3` for native menu APIs
 - `state` depends on `appdirs` and `errors`; optionally depends on `events`
+- `settings/templates/anyllm` depends on `settings` and `any-llm-go` (external); provides LLM provider settings integration
 
 ### Frontend packages
 
@@ -152,7 +152,6 @@ Packages that provide user-configurable behavior export a `SettingsGroup()` func
 ```go
 svc := settings.NewService(
     settings.WithAppName("my-app"),
-    settings.WithGroup(llm.LLMSettingsGroup()),
     settings.WithGroup(updates.SettingsGroup()),
     settings.WithGroup(myAppSettingsGroup()),
 )

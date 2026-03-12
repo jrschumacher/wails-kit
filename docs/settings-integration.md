@@ -53,10 +53,6 @@ Setting keys use `{package}.{field}` format:
 
 - `updates.check_frequency`
 - `updates.auto_download`
-- `llm.provider`
-- `llm.model`
-- `llm.anthropic.baseURL`
-
 This prevents collisions when multiple packages register groups.
 
 ## Consuming settings
@@ -98,8 +94,6 @@ Some settings are read by the library (e.g., `include_prereleases` affects which
 | `updates.include_prereleases` | Library | Changes API behavior |
 | `updates.check_frequency` | App | Library doesn't poll; app decides when to check |
 | `updates.auto_download` | App | Library doesn't auto-download; app decides |
-| `llm.provider` | Library | Determines which provider factory to use |
-
 The library provides the settings fields for all of these (so they appear in the UI), but only reads the ones it owns. The app reads the rest.
 
 ## Frontend rendering
@@ -119,5 +113,12 @@ for each group in schema.groups:
 
 | Package | Group key | Fields |
 |---------|-----------|--------|
-| `llm` | `llm` | provider, model, per-provider API config |
 | `updates` | `updates` | check_frequency, auto_download, include_prereleases |
+
+## Settings templates
+
+The `settings/templates/` directory contains reusable settings group generators for common third-party integrations. Templates return a `settings.Group` and a builder function that constructs configured clients from settings values.
+
+| Template | Group key | External dependency | Description |
+|----------|-----------|-------------------|-------------|
+| [`anyllm`](../settings/templates/anyllm/README.md) | `llm` | [any-llm-go](https://github.com/mozilla-ai/any-llm-go) | LLM provider/model/API key settings |

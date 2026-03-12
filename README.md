@@ -162,99 +162,26 @@ settings.Field{
 - **Schema migration** — unknown keys in saved files are stripped on load
 - **File permissions** — directories 0700, settings file 0600
 
-### [`llm`](llm/README.md) — LLM Provider Management
+#### Settings Templates
 
-Provider interface, factory pattern, and a built-in settings group for LLM configuration.
+Reusable settings group generators for common integrations:
+
+- [`settings/templates/anyllm`](settings/templates/anyllm/README.md) — LLM provider settings via [any-llm-go](https://github.com/mozilla-ai/any-llm-go). Generates provider/model/API key fields and builds a configured provider from settings.
 
 ```go
-import (
-    "github.com/jrschumacher/wails-kit/llm"
-    "github.com/jrschumacher/wails-kit/settings"
-    _ "github.com/jrschumacher/wails-kit/llm/anthropic"
-    _ "github.com/jrschumacher/wails-kit/llm/openai"
+import "github.com/jrschumacher/wails-kit/settings/templates/anyllm"
+
+group, buildProvider := anyllm.New(
+    anyllm.WithProviders("anthropic", "openai", "mistral"),
+    anyllm.WithDefaultProvider("anthropic"),
 )
 
 svc := settings.NewService(
     settings.WithAppName("my-app"),
-    settings.WithGroup(llm.LLMSettingsGroup()),  // adds provider/model/advanced fields
+    settings.WithGroup(group),
 )
 
-mgr := llm.NewProviderManager(svc)
-
-// Get the provider (lazy-initialized from settings)
-provider, err := mgr.Provider()
-
-// Stream a chat
-provider.StreamChat(ctx, llm.ChatRequest{
-    SystemPrompt: "You are helpful.",
-    Messages:     []llm.ChatMessage{{Role: "user", Content: "Hello"}},
-}, func(event llm.StreamEvent) {
-    switch event.Type {
-    case "delta":
-        fmt.Print(event.Text)
-    case "done":
-        fmt.Println()
-    }
-})
-
-// After settings change, reload the provider
-mgr.Reload()
-```
-
-**Built-in providers:**
-- `llm/anthropic` — Anthropic SDK with Cloudflare AI Gateway support
-- `llm/openai` — OpenAI SDK with Cloudflare AI Gateway support
-- `llm/mock` — Mock provider for testing
-
-Providers self-register via `init()`. Import with blank identifier to activate.
-
-**LLM settings group fields:**
-- Provider selection (Anthropic / OpenAI)
-- Model selection (dynamic by provider)
-- Per-provider advanced: base URL, API key, API format, custom model ID
-- Computed resolved model ID
-
-#### Context Window Builder
-
-Manages conversation history for LLM chat with bounded context windows.
-
-```go
-cb := llm.NewContextBuilder("You are a helpful assistant.")
-cb.WindowSize = 20  // keep last 20 messages (default)
-cb.MaxTokens = 4096 // default
-
-// Optionally add widget/page context to the system prompt
-cb.SetWidgetContext("User is viewing issue ABC-123")
-
-// Build a request from full conversation history
-req := cb.BuildRequest(allMessages)
-// req.SystemPrompt includes base prompt + widget context
-// req.Messages is windowed with older messages summarized
-// req.MaxTokens is set
-
-provider.StreamChat(ctx, req, handler)
-```
-
-**Behavior:**
-- Sliding window keeps the last N messages
-- Tool-use / tool-result pairs are kept atomic (never split across the window boundary)
-- Older messages beyond the window are summarized into a synthetic message
-- Summary caps at 8 topics with content truncated to 100 chars
-
-### [`llm/mock`](llm/README.md#mock-provider) — Test Helper
-
-```go
-import "github.com/jrschumacher/wails-kit/llm/mock"
-
-p := &mock.Provider{
-    Name:  "test",
-    Model: "test-model",
-    OnStreamChat: func(ctx context.Context, req llm.ChatRequest, handler func(llm.StreamEvent)) error {
-        handler(llm.StreamEvent{Type: "delta", Text: "test response"})
-        handler(llm.StreamEvent{Type: "done", StopReason: "end_turn"})
-        return nil
-    },
-}
+provider, modelID, err := buildProvider(svc)
 ```
 
 ### [`database`](database/README.md) — SQLite Database with Migrations
@@ -596,9 +523,6 @@ for each group in schema.groups:
 
 | Variable | Purpose |
 |----------|---------|
-| `ANTHROPIC_API_KEY` | Anthropic API key (used by SDK if no secret in settings) |
-| `OPENAI_API_KEY` | OpenAI API key (used by SDK if no secret in settings) |
-| `CF_AIG_AUTHORIZATION` | Cloudflare AI Gateway token |
 | `{APP_PREFIX}_{FIELD_KEY}` | Keyring env var fallback for any password field (headless/CI) |
 
 ## Documentation
