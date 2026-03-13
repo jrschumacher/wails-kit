@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.0.0](https://github.com/jrschumacher/wails-kit/compare/v1.2.0...v2.0.0) (2026-03-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* **llm:** consumers importing `wails-kit/llm` should migrate to `settings/templates/anyllm` with any-llm-go.
+
+### Features
+
+* add CI pipeline for publishing split Go modules ([#86](https://github.com/jrschumacher/wails-kit/issues/86)) ([5192cc1](https://github.com/jrschumacher/wails-kit/commit/5192cc138b7c032a163565fc892335c38b3afa14))
+* cross-platform builds and managed install detection ([#88](https://github.com/jrschumacher/wails-kit/issues/88)) ([e637910](https://github.com/jrschumacher/wails-kit/commit/e637910cad8e535632b8ed29a31532c69615076e))
+* **llm:** remove llm package ([#81](https://github.com/jrschumacher/wails-kit/issues/81)) ([0218119](https://github.com/jrschumacher/wails-kit/commit/0218119225e7425a06fdd2d8df6325f3a4ce44f3))
+* **settings:** add headless/CLI adapter ([#82](https://github.com/jrschumacher/wails-kit/issues/82)) ([525916d](https://github.com/jrschumacher/wails-kit/commit/525916df8611e152b1a7330f8a95f7a846ad041e))
+* **settings:** add WithStoragePath for workspace-local configs ([#84](https://github.com/jrschumacher/wails-kit/issues/84)) ([a0ab769](https://github.com/jrschumacher/wails-kit/commit/a0ab7692aef2353079c8f0a82ffd9689b8a080e9))
+* **state:** add generic typed state persistence package ([#85](https://github.com/jrschumacher/wails-kit/issues/85)) ([b1f8250](https://github.com/jrschumacher/wails-kit/commit/b1f825033bdc9e34b5d2f4d7458fb8a230dc9410))
+
 ## [1.2.0](https://github.com/jrschumacher/wails-kit/compare/v1.1.0...v1.2.0) (2026-03-09)
 
 
