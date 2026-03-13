@@ -89,6 +89,25 @@ All events are emitted through the `events.Emitter` if one is provided via `With
 | `updates:downloading` | `DownloadingPayload{Version, Progress, Downloaded, Total}` | Download progress (throttled to 250ms) |
 | `updates:ready` | `ReadyPayload{Version}` | Download complete, ready to apply |
 | `updates:error` | `ErrorPayload{Message, Code}` | Any update operation failed |
+| `updates:managed` | `ManagedPayload{Method, Instructions}` | App installed via package manager; self-update blocked |
+
+## Managed install detection
+
+`ApplyUpdate` detects when the app was installed via a package manager and returns an `ErrUpdateManaged` error instead of attempting to replace the binary. An `updates:managed` event is emitted with instructions for the user.
+
+Currently detected:
+- **Homebrew Cask** (macOS) — detects `/usr/local/Caskroom/` and `/opt/homebrew/Caskroom/` paths
+
+The frontend can listen for the `updates:managed` event to show appropriate UI (e.g., "Update via `brew upgrade --cask myapp`" instead of a self-update button).
+
+You can also call `DetectInstallMethod()` directly to check the install method before offering self-update UI at all:
+
+```go
+if method := updates.DetectInstallMethod(); method != updates.InstallDirect {
+    // Show "update via package manager" UI instead of self-update
+    fmt.Println(method.UpdateInstructions("myapp"))
+}
+```
 
 ## Error codes
 
@@ -98,6 +117,7 @@ All events are emitted through the `events.Emitter` if one is provided via `With
 | `update_download` | Failed to download the update. Please try again. |
 | `update_apply` | Failed to install the update. Please try again. |
 | `update_verify` | Update signature verification failed. The download may be corrupted or tampered with. |
+| `update_managed` | This app is managed by a package manager. Please update through your package manager instead. |
 
 ## Signature verification
 

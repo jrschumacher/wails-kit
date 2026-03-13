@@ -14,7 +14,7 @@
 #   - .wails-kit.yml in the project root (see .wails-kit.example.yml)
 #   - yq (https://github.com/mikefarah/yq)
 #   - gh (GitHub CLI)
-#   - Wails-generated platform Taskfiles included at root level as darwin:, linux:, etc.
+#   - Wails-generated platform Taskfiles included at root level as darwin:, linux:, windows:, etc.
 
 version: '3'
 
@@ -36,19 +36,22 @@ vars:
 
 tasks:
   default:
-    summary: Build, sign, and publish a release
+    summary: Build, sign, and publish a release for the current platform
     desc: |
       Builds a production binary, signs it (macOS: codesign + notarize),
       creates an archive, uploads to the Homebrew tap, and updates the cask.
 
       Defaults to the latest GitHub release tag. Override with VERSION=x.y.z.
+      Defaults to the host architecture. Override with TARGET_ARCH=arm64|amd64|universal.
 
       Usage:
         task release
         task release VERSION=0.3.0
+        task release TARGET_ARCH=universal
     vars:
       VERSION:
         sh: gh release view --json tagName -q '.tagName' -R "{{.KIT_GITHUB_REPO}}" 2>/dev/null | sed 's/^v//'
+      TARGET_ARCH: '{{.TARGET_ARCH | default ARCH}}'
     preconditions:
       - sh: test -f .wails-kit.yml
         msg: "Missing .wails-kit.yml — copy from .wails-kit.example.yml and fill in your values."
@@ -59,10 +62,45 @@ tasks:
       - sh: '[ -n "{{.VERSION}}" ]'
         msg: "Could not determine version. Pass it explicitly: task release VERSION=0.3.0"
     cmds:
-      - echo "Releasing {{.KIT_APP_NAME}} v{{.VERSION}} for {{OS}}/{{ARCH}}"
+      - echo "Releasing {{.KIT_APP_NAME}} v{{.VERSION}} for {{OS}}/{{.TARGET_ARCH}}"
       - task: 'release-{{OS}}'
         vars:
           VERSION: '{{.VERSION}}'
+          TARGET_ARCH: '{{.TARGET_ARCH}}'
+
+  all:
+    summary: Build and publish releases for all specified platforms
+    desc: |
+      Builds releases for multiple OS/architecture combinations.
+
+      Set TARGETS to a comma-separated list of os/arch pairs.
+      macOS supports "universal" arch to create a fat binary via lipo.
+
+      Usage:
+        task release:all VERSION=0.3.0 TARGETS=darwin/universal,linux/amd64,linux/arm64,windows/amd64
+    vars:
+      VERSION:
+        sh: gh release view --json tagName -q '.tagName' -R "{{.KIT_GITHUB_REPO}}" 2>/dev/null | sed 's/^v//'
+      TARGETS: 'darwin/universal,linux/amd64,linux/arm64,windows/amd64'
+    preconditions:
+      - sh: test -f .wails-kit.yml
+        msg: "Missing .wails-kit.yml — copy from .wails-kit.example.yml and fill in your values."
+      - sh: command -v yq
+        msg: "yq is required. Install: brew install yq"
+      - sh: command -v gh
+        msg: "GitHub CLI (gh) is required. Install: brew install gh"
+      - sh: '[ -n "{{.VERSION}}" ]'
+        msg: "Could not determine version. Pass it explicitly: task release:all VERSION=0.3.0"
+    cmds:
+      - |
+        IFS=',' read -ra PAIRS <<< "{{.TARGETS}}"
+        for pair in "${PAIRS[@]}"; do
+          os="${pair%%/*}"
+          arch="${pair##*/}"
+          echo ""
+          echo "=== Releasing {{.KIT_APP_NAME}} v{{.VERSION}} for ${os}/${arch} ==="
+          task release:release-${os} VERSION={{.VERSION}} TARGET_ARCH=${arch}
+        done
 
   release-darwin:
     summary: Build, sign, notarize, and publish macOS release
@@ -70,7 +108,22 @@ tasks:
     vars:
       APP_LOWER:
         sh: echo "{{.KIT_APP_NAME}}" | tr '[:upper:]' '[:lower:]'
-      ARCHIVE: '{{.APP_LOWER}}-{{.VERSION}}-darwin-{{ARCH}}.zip'
+      TARGET_ARCH: '{{.TARGET_ARCH | default ARCH}}'
+    cmds:
+      - task: '{{if eq .TARGET_ARCH "universal"}}darwin-universal{{else}}darwin-arch{{end}}'
+        vars:
+          VERSION: '{{.VERSION}}'
+          TARGET_ARCH: '{{.TARGET_ARCH}}'
+
+  darwin-arch:
+    summary: Build macOS release for a single architecture
+    internal: true
+    vars:
+      APP_LOWER:
+        sh: echo "{{.KIT_APP_NAME}}" | tr '[:upper:]' '[:lower:]'
+      ARCHIVE: '{{.APP_LOWER}}-{{.VERSION}}-darwin-{{.TARGET_ARCH}}.zip'
+    env:
+      GOARCH: '{{.TARGET_ARCH}}'
     cmds:
       - task: ':darwin:package'
       - task: sign
@@ -84,6 +137,43 @@ tasks:
         vars:
           VERSION: '{{.VERSION}}'
           ARCHIVE: '{{.ARCHIVE}}'
+          CASK_ARCH: '{{.TARGET_ARCH}}'
+
+  darwin-universal:
+    summary: Build macOS universal binary (arm64 + amd64)
+    internal: true
+    vars:
+      APP_LOWER:
+        sh: echo "{{.KIT_APP_NAME}}" | tr '[:upper:]' '[:lower:]'
+      ARCHIVE: '{{.APP_LOWER}}-{{.VERSION}}-darwin-universal.zip'
+    cmds:
+      # Build arm64
+      - mkdir -p "{{.BIN_DIR}}/arm64" "{{.BIN_DIR}}/amd64"
+      - GOARCH=arm64 task :darwin:package
+      - cp -R "{{.BIN_DIR}}/{{.KIT_APP_NAME}}.app" "{{.BIN_DIR}}/arm64/{{.KIT_APP_NAME}}.app"
+      # Build amd64
+      - GOARCH=amd64 task :darwin:package
+      - cp -R "{{.BIN_DIR}}/{{.KIT_APP_NAME}}.app" "{{.BIN_DIR}}/amd64/{{.KIT_APP_NAME}}.app"
+      # Merge with lipo
+      - |
+        BINARY="Contents/MacOS/{{.KIT_APP_NAME}}"
+        lipo -create \
+          "{{.BIN_DIR}}/arm64/{{.KIT_APP_NAME}}.app/${BINARY}" \
+          "{{.BIN_DIR}}/amd64/{{.KIT_APP_NAME}}.app/${BINARY}" \
+          -output "{{.BIN_DIR}}/{{.KIT_APP_NAME}}.app/${BINARY}"
+      - rm -rf "{{.BIN_DIR}}/arm64" "{{.BIN_DIR}}/amd64"
+      - task: sign
+      - task: notarize
+      - cd "{{.BIN_DIR}}" && zip -r "{{.ARCHIVE}}" "{{.KIT_APP_NAME}}.app"
+      - task: upload
+        vars:
+          VERSION: '{{.VERSION}}'
+          ARCHIVE: '{{.ARCHIVE}}'
+      - task: update-cask
+        vars:
+          VERSION: '{{.VERSION}}'
+          ARCHIVE: '{{.ARCHIVE}}'
+          CASK_ARCH: universal
 
   release-linux:
     summary: Build and publish Linux release
@@ -91,10 +181,31 @@ tasks:
     vars:
       APP_LOWER:
         sh: echo "{{.KIT_APP_NAME}}" | tr '[:upper:]' '[:lower:]'
-      ARCHIVE: '{{.APP_LOWER}}-{{.VERSION}}-linux-{{ARCH}}.tar.gz'
+      TARGET_ARCH: '{{.TARGET_ARCH | default ARCH}}'
+      ARCHIVE: '{{.APP_LOWER}}-{{.VERSION}}-linux-{{.TARGET_ARCH}}.tar.gz'
+    env:
+      GOARCH: '{{.TARGET_ARCH}}'
     cmds:
       - task: ':linux:build'
       - cd "{{.BIN_DIR}}" && tar czf "{{.ARCHIVE}}" "{{.KIT_APP_NAME}}"
+      - task: upload
+        vars:
+          VERSION: '{{.VERSION}}'
+          ARCHIVE: '{{.ARCHIVE}}'
+
+  release-windows:
+    summary: Build and publish Windows release
+    internal: true
+    vars:
+      APP_LOWER:
+        sh: echo "{{.KIT_APP_NAME}}" | tr '[:upper:]' '[:lower:]'
+      TARGET_ARCH: '{{.TARGET_ARCH | default ARCH}}'
+      ARCHIVE: '{{.APP_LOWER}}-{{.VERSION}}-windows-{{.TARGET_ARCH}}.zip'
+    env:
+      GOARCH: '{{.TARGET_ARCH}}'
+    cmds:
+      - task: ':windows:build'
+      - cd "{{.BIN_DIR}}" && zip -r "{{.ARCHIVE}}" "{{.KIT_APP_NAME}}.exe"
       - task: upload
         vars:
           VERSION: '{{.VERSION}}'
@@ -156,6 +267,7 @@ tasks:
         sh: shasum -a 256 "{{.BIN_DIR}}/{{.ARCHIVE}}" | awk '{print $1}'
       APP_LOWER:
         sh: echo "{{.KIT_APP_NAME}}" | tr '[:upper:]' '[:lower:]'
+      CASK_ARCH: '{{.CASK_ARCH | default ARCH}}'
     cmds:
       - |
         # Clone the tap repo, update the cask formula, push
@@ -176,7 +288,7 @@ tasks:
         # Update SHA — detect multi-arch vs single-arch cask
         if grep -q 'arch arm64\|on_arm\|hardware.arch' "$CASK_FILE" 2>/dev/null; then
           # Multi-arch cask: update SHA within the architecture-specific block
-          if [ "{{ARCH}}" = "arm64" ]; then
+          if [ "{{.CASK_ARCH}}" = "arm64" ]; then
             sed -i'' -e '/arm64/,/sha256/{s/sha256 "[^"]*"/sha256 "{{.SHA}}"/;}' "$CASK_FILE"
           else
             sed -i'' -e '/intel/,/sha256/{s/sha256 "[^"]*"/sha256 "{{.SHA}}"/;}' "$CASK_FILE"
@@ -188,7 +300,7 @@ tasks:
 
         cd "$TMPDIR/tap"
         git add -A
-        git commit -m "Update {{.APP_LOWER}} to v{{.VERSION}} ({{ARCH}})"
+        git commit -m "Update {{.APP_LOWER}} to v{{.VERSION}} ({{.CASK_ARCH}})"
         git push
 
         echo "Updated cask {{.APP_LOWER}} to v{{.VERSION}}"
