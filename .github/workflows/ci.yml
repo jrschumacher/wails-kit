@@ -46,6 +46,7 @@ jobs:
             errors
             events
             logging
+            taskfiles
             shortcuts
             updates
           requireScope: false
