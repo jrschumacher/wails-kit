@@ -46,6 +46,7 @@ jobs:
             errors
             events
             logging
+            release
             shortcuts
             updates
           requireScope: false
