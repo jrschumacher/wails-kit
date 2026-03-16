@@ -1,11 +1,7 @@
 # Changelog
 
-## [2.0.0](https://github.com/jrschumacher/wails-kit/compare/v1.2.0...v2.0.0) (2026-03-16)
+## [1.3.0](https://github.com/jrschumacher/wails-kit/compare/v1.2.0...v1.3.0) (2026-03-16)
 
-
-### ⚠ BREAKING CHANGES
-
-* **llm:** consumers importing `wails-kit/llm` should migrate to `settings/templates/anyllm` with any-llm-go.
 
 ### Features
 
