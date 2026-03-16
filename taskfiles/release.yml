@@ -283,19 +283,19 @@ tasks:
         fi
 
         # Update version
-        sed -i'' -e 's/version "[^"]*"/version "{{.VERSION}}"/' "$CASK_FILE"
+        sed -i '' -e 's/version "[^"]*"/version "{{.VERSION}}"/' "$CASK_FILE"
 
         # Update SHA — detect multi-arch vs single-arch cask
         if grep -q 'arch arm64\|on_arm\|hardware.arch' "$CASK_FILE" 2>/dev/null; then
           # Multi-arch cask: update SHA within the architecture-specific block
           if [ "{{.CASK_ARCH}}" = "arm64" ]; then
-            sed -i'' -e '/arm64/,/sha256/{s/sha256 "[^"]*"/sha256 "{{.SHA}}"/;}' "$CASK_FILE"
+            sed -i '' -e '/arm64/,/sha256/{s/sha256 "[^"]*"/sha256 "{{.SHA}}"/;}' "$CASK_FILE"
           else
-            sed -i'' -e '/intel/,/sha256/{s/sha256 "[^"]*"/sha256 "{{.SHA}}"/;}' "$CASK_FILE"
+            sed -i '' -e '/intel/,/sha256/{s/sha256 "[^"]*"/sha256 "{{.SHA}}"/;}' "$CASK_FILE"
           fi
         else
           # Single-arch cask: replace the only sha256 line
-          sed -i'' -e 's/sha256 "[^"]*"/sha256 "{{.SHA}}"/' "$CASK_FILE"
+          sed -i '' -e 's/sha256 "[^"]*"/sha256 "{{.SHA}}"/' "$CASK_FILE"
         fi
 
         cd "$TMPDIR/tap"
