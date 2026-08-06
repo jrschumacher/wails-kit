@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wails-kit starter</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 0; padding: 24px; max-width: 640px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; opacity: .6;
+       margin: 28px 0 8px; border-bottom: 1px solid currentColor; padding-bottom: 4px; }
+  label { display: block; margin: 12px 0; }
+  .lbl { display: block; font-weight: 600; margin-bottom: 2px; }
+  .desc { display: block; font-size: 12px; opacity: .65; margin-bottom: 4px; }
+  input[type=text], input[type=password], input[type=number], select {
+       width: 100%; padding: 6px 8px; font: inherit; box-sizing: border-box; }
+  .computed { opacity: .7; font-family: ui-monospace, monospace; }
+  .row { display: flex; gap: 8px; align-items: center; margin: 20px 0; }
+  button { font: inherit; padding: 6px 14px; }
+  .msg { padding: 8px 12px; margin: 12px 0; border-left: 3px solid currentColor; font-size: 13px; }
+  .err { color: #b3261e; }
+  .ok  { color: #1b6b2f; }
+  #status { font-size: 12px; opacity: .7; }
+</style>
+</head>
+<body>
+<h1>wails-kit starter</h1>
+<p id="status">loading…</p>
+
+<div id="notices"></div>
+<form id="settings"></form>
+
+<div class="row">
+  <button type="button" id="save">Save settings</button>
+  <button type="button" id="check">Check for updates</button>
+  <button type="button" id="llm">LLM status</button>
+</div>
+
+<script type="module">
+// The Wails runtime is served by the asset server; no npm install, no build
+// step. Generated bindings (`wails3 generate bindings`) give you typed wrappers
+// instead of these string FQNs — this file skips them to stay dependency-free.
+const { Call } = await import('/wails/runtime.js');
+
+// A bound method's name is "<package path>.<Type>.<Method>".
+const SETTINGS = 'github.com/jrschumacher/wails-kit/settings.Bindings';
+const APP = 'main.AppService';
+
+// The value GetValues substitutes for a stored secret, and the value SetValues
+// reads back as "leave the stored secret alone". Mirrors settings.SecretSentinel.
+const SECRET_SENTINEL = '__wails-kit:secret-unchanged:6f2a91c4d0e8__';
+
+const $form = document.getElementById('settings');
+const $notices = document.getElementById('notices');
+const $status = document.getElementById('status');
+
+let schema = null;
+let values = {};
+
+function notice(text, kind) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + (kind || '');
+  div.textContent = text;
+  $notices.appendChild(div);
+}
+
+// Mirrors settings.Condition: show the field only when the controlling field's
+// current value is one of `equals`. Comparison never crosses types.
+function visible(field) {
+  if (!field.condition) return true;
+  const actual = values[field.condition.field];
+  return (field.condition.equals || []).some((v) => v === actual);
+}
+
+function optionsFor(field) {
+  if (field.dynamicOptions) {
+    const key = values[field.dynamicOptions.dependsOn];
+    return field.dynamicOptions.options[key] || [];
+  }
+  return field.options || [];
+}
+
+function render() {
+  $form.replaceChildren();
+  for (const group of schema.groups) {
+    const h = document.createElement('h2');
+    h.textContent = group.label;
+    $form.appendChild(h);
+
+    for (const field of group.fields) {
+      if (!visible(field)) continue;
+
+      const label = document.createElement('label');
+      const name = document.createElement('span');
+      name.className = 'lbl';
+      name.textContent = field.label + (field.advanced ? ' (advanced)' : '');
+      label.appendChild(name);
+
+      if (field.description) {
+        const d = document.createElement('span');
+        d.className = 'desc';
+        d.textContent = field.description;
+        label.appendChild(d);
+      }
+
+      const current = values[field.key];
+      let input;
+
+      switch (field.type) {
+        case 'computed':
+          input = document.createElement('span');
+          input.className = 'computed';
+          input.textContent = current === undefined || current === null ? '—' : String(current);
+          break;
+        case 'toggle':
+          input = document.createElement('input');
+          input.type = 'checkbox';
+          input.checked = current === true;
+          break;
+        case 'select':
+          input = document.createElement('select');
+          for (const o of optionsFor(field)) {
+            const opt = document.createElement('option');
+            opt.value = o.value;
+            opt.textContent = o.label;
+            input.appendChild(opt);
+          }
+          input.value = current ?? '';
+          break;
+        case 'number':
+          input = document.createElement('input');
+          input.type = 'number';
+          input.value = current ?? '';
+          break;
+        case 'password':
+          // The real secret never reaches this page. An empty box means "no
+          // secret stored"; the sentinel means "one is stored, untouched".
+          input = document.createElement('input');
+          input.type = 'password';
+          input.value = current === SECRET_SENTINEL ? SECRET_SENTINEL : '';
+          input.placeholder = current === SECRET_SENTINEL ? 'stored — leave to keep' : 'not set';
+          break;
+        default:
+          input = document.createElement('input');
+          input.type = 'text';
+          input.value = current ?? '';
+          if (field.placeholder) input.placeholder = field.placeholder;
+      }
+
+      input.dataset.key = field.key;
+      input.dataset.ftype = field.type;
+      // Re-render on change so conditions and dynamic options track the new value.
+      if (field.type !== 'computed') {
+        input.addEventListener('change', () => {
+          values = collect();
+          render();
+        });
+      }
+      label.appendChild(input);
+      $form.appendChild(label);
+    }
+  }
+}
+
+// collect reads the form back into a values map. Computed fields are skipped:
+// SetValues accepts them but recomputes rather than trusting them, so there is
+// no reason to send them.
+function collect() {
+  const out = { ...values };
+  for (const el of $form.querySelectorAll('[data-key]')) {
+    const { key, ftype } = el.dataset;
+    if (ftype === 'computed') continue;
+    if (ftype === 'toggle') out[key] = el.checked;
+    else if (ftype === 'number') out[key] = el.value === '' ? 0 : Number(el.value);
+    else out[key] = el.value;
+  }
+  return out;
+}
+
+async function load() {
+  schema = await Call.ByName(SETTINGS + '.GetSchema');
+  values = await Call.ByName(SETTINGS + '.GetValues');
+
+  // Corruption() returns null in the normal case. Non-null means the user's
+  // settings file was unreadable and was reset — never swallow it.
+  const corrupt = await Call.ByName(SETTINGS + '.Corruption');
+  if (corrupt) {
+    notice('Your settings could not be read and were reset to defaults. '
+      + 'The previous file was saved as ' + corrupt.quarantinePath, 'err');
+  }
+
+  render();
+  $status.textContent = 'settings loaded from the Go service';
+}
+
+document.getElementById('save').addEventListener('click', async () => {
+  $notices.replaceChildren();
+  const payload = collect();
+  // Drop computed keys entirely — they are the only keys GetValues emits that
+  // the store never holds.
+  for (const g of schema.groups)
+    for (const f of g.fields)
+      if (f.type === 'computed') delete payload[f.key];
+
+  try {
+    // SetValues returns ([]ValidationError, error). A non-empty array means the
+    // user must fix something and NOTHING was written; a rejected promise means
+    // the save could not be attempted at all.
+    const errs = await Call.ByName(SETTINGS + '.SetValues', payload);
+    if (errs && errs.length) {
+      for (const e of errs) notice(e.field + ': ' + e.message, 'err');
+      return;
+    }
+    notice('Saved.', 'ok');
+    values = await Call.ByName(SETTINGS + '.GetValues');
+    render();
+  } catch (e) {
+    notice('Save failed: ' + e, 'err');
+  }
+});
+
+document.getElementById('check').addEventListener('click', async () => {
+  $notices.replaceChildren();
+  try {
+    // Drives the updater directly. The framework opens its own update window;
+    // this button exists because the settings schema has no button field type.
+    await Call.ByName(APP + '.CheckForUpdates');
+    values = await Call.ByName(SETTINGS + '.GetValues');
+    render();
+  } catch (e) {
+    notice('Update check failed: ' + e, 'err');
+  }
+});
+
+document.getElementById('llm').addEventListener('click', async () => {
+  $notices.replaceChildren();
+  try {
+    notice('Resolved provider: ' + await Call.ByName(APP + '.LLMStatus'), 'ok');
+  } catch (e) {
+    notice('No usable LLM provider: ' + e, 'err');
+  }
+});
+
+await load();
+</script>
+</body>
+</html>

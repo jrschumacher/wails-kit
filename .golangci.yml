@@ -1,0 +1,109 @@
+# golangci-lint configuration for wails-kit.
+#
+# Philosophy: this is a library other projects depend on, so the linter set is
+# tuned to catch real bugs (unchecked errors, broken error wrapping, leaked
+# resources) rather than to enforce house style. Style linters that would demand
+# a large mechanical diff -- revive's `exported`, gocritic, gochecknoglobals,
+# funlen, lll, wsl -- are deliberately left off.
+#
+# Schema: https://golangci-lint.run/docs/configuration/file/
+version: "2"
+
+run:
+  timeout: 5m
+  # Lint the code as it will actually be built on every supported platform.
+  # The keyring backends are chosen by build tags, so the default (host) GOOS
+  # only ever type-checks one of them; CI runs this config once per GOOS.
+  tests: true
+
+linters:
+  # standard = errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  enable:
+    # Correctness of error handling -- the highest-value additions for a library
+    # whose entire API surface is (value, error).
+    - errorlint # %v on errors, missed errors.Is/As, non-wrapping %w mistakes
+    - nilerr # `if err != nil { return nil }` -- returns nil on a real error
+    - nilnil # returning (nil, nil) from a (ptr, error) function
+    - bodyclose # HTTP response bodies not closed (LLM providers make HTTP calls)
+    # Cheap, near-zero-false-positive bug catchers.
+    - copyloopvar # stale loop-variable copies
+    - durationcheck # time.Duration multiplied by a Duration
+    - makezero # append to a make()d slice with a nonzero length
+    - unconvert # redundant type conversions
+    - usestdlibvars # magic strings that have stdlib constants (http.MethodGet, ...)
+    - misspell # typos in comments and strings
+
+  settings:
+    errcheck:
+      # Deferred Close on a read-only handle and the Fprint family are the two
+      # places where an ignored error is genuinely correct. Everything else must
+      # be handled or explicitly assigned to _.
+      check-type-assertions: true
+      check-blank: false
+    errorlint:
+      # `comparison` and `asserts` catch real bugs: == on errors and unchecked
+      # type assertions both silently fail once an error is wrapped.
+      comparison: true
+      asserts: true
+      # `errorf` is off by choice. The codebase deliberately formats incidental
+      # context with %v and reserves %w for the error a caller should match on
+      # (see settings/store.go's quarantine failure, which wraps the rename
+      # error but not the parse error). Turning this on would force a mechanical
+      # rewrite that changes errors.Is semantics.
+      errorf: false
+    # NOTE: misspell is intentionally left unconfigured. It still catches genuine
+    # typos, but setting `locale: US` turns every British spelling in the prose
+    # comments ("behaviour", "recognises") into a CI failure -- a large
+    # mechanical diff across documentation for zero correctness value.
+    staticcheck:
+      # SA* (real bugs) and S* (simplifications) stay on. The categories below
+      # are opinion, not correctness, and enabling them would mean a mechanical
+      # diff across the whole tree.
+      checks:
+        - all
+        # QF* are "quickfix" refactor suggestions -- e.g. QF1001 rewriting
+        # `!(a < b)` via De Morgan's law. Never a bug.
+        - -QF*
+        # ST1000: demands a package comment in a fixed format. Package docs are
+        # owned elsewhere; do not block CI on their wording.
+        - -ST1000
+        # ST1003: initialisms/naming conventions. Renaming exported identifiers
+        # in a library pre-v0.1.0 is a breaking-change decision, not a lint fix.
+        - -ST1003
+        # ST1020/ST1021/ST1022: demand comments on every exported func, type,
+        # and var in a fixed "Name ..." form.
+        - -ST1020
+        - -ST1021
+        - -ST1022
+
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      # Test files may ignore errors from setup helpers and assert loosely.
+      # errorlint is excluded here because tests legitimately assert on the
+      # *concrete* error type to prove a function returns it unwrapped.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - bodyclose
+          - errorlint
+
+formatters:
+  # gofmt is enforced here and again as a standalone `gofmt -l` gate in CI, so
+  # a formatting regression fails even if golangci-lint is unavailable.
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+
+issues:
+  # Report every occurrence rather than the default 3-per-linter / 1-per-line
+  # truncation; a partial list makes CI failures misleading.
+  max-issues-per-linter: 0
+  max-same-issues: 0

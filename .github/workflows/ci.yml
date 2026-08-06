@@ -1,0 +1,188 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same branch/PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Keep the module graph honest: fail rather than silently editing go.mod/go.sum
+  # during a CI build. This is what turns a missing go.sum entry into a red run
+  # instead of a mutation nobody sees.
+  GOFLAGS: -mod=readonly
+
+# Runners: GitHub-hosted by default, for portability and because the matrix
+# needs macOS and Windows. Self-hosted runners are available in this org (see
+# aboldnewlook/github-scaleset-orchestrator); to use them, swap `runs-on` for
+# your runner label on the Linux jobs. macOS/Windows jobs should stay hosted.
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Real test execution on every OS this library claims to support.
+  #
+  # This matrix exists specifically because settings.KeyringSecretStore selects
+  # a different backend per platform (macOS Keychain / Windows wincred / Linux
+  # Secret Service over D-Bus), so a darwin-only run proves almost nothing.
+  # ---------------------------------------------------------------------------
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            race: "-race"
+          - os: macos-latest
+            race: "-race"
+          # The race detector on Windows needs cgo plus a working mingw-w64
+          # toolchain. That is an avoidable flake for a library with no
+          # Windows-specific concurrency; the Linux and macOS legs already run
+          # every test under -race.
+          - os: windows-latest
+            race: ""
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          # Single source of truth: the version comes from go.mod, so bumping
+          # the module's Go directive is all it takes to move CI.
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Download dependencies
+        # Separated from `build` so a go.sum gap fails with an obvious message
+        # rather than being buried in compiler output.
+        run: go mod download
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        # NOTE ON THE KEYRING / D-BUS QUESTION:
+        # No dbus-run-session wrapper or gnome-keyring service is needed here,
+        # and this is verified rather than assumed. github.com/zalando/go-keyring
+        # only touches libsecret/D-Bus when a keyring call is actually made, and
+        # no test makes one:
+        #   * The test suites inject settings.MemorySecretStore via the
+        #     WithSecretStore option; settings.TestNoTestUsesTheRealKeyring is a
+        #     standing guard that fails the build if that ever regresses.
+        #   * The single reference to NewKeyringSecretStore in the tests
+        #     (settings/secrets_test.go) is a compile-time interface assertion
+        #     -- `var _ SecretStore = NewKeyringSecretStore(...)`. It constructs
+        #     a struct and never calls Get/Set/Delete, so no D-Bus connection is
+        #     opened.
+        # If a test ever needs to exercise the real Linux backend, do NOT drop
+        # this note -- wrap that package's run in
+        # `dbus-run-session -- go test ./settings/...` with gnome-keyring
+        # installed, and leave the rest of the suite unwrapped.
+        run: go test ${{ matrix.race }} -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.os }}
+          path: coverage.out
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Compile-only verification of every platform/arch pair we claim to support.
+  #
+  # This is not redundant with the `test` matrix: it is fast, it covers the
+  # arm64 targets that have no hosted runner here, and it type-checks the
+  # build-tagged keyring backends. A go.sum gap in the keyring dependency chain
+  # (wincred on Windows, godbus on Linux) surfaces here first -- that class of
+  # break was already hit once in this repo before CI existed.
+  # ---------------------------------------------------------------------------
+  cross-build:
+    name: cross-build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet (type-checks _test.go files for this platform too)
+        # `go build` skips test files entirely. Running vet under the same
+        # GOOS/GOARCH is what proves the tests still compile on Windows/Linux,
+        # which plain cross-compilation would miss.
+        run: go vet ./...
+
+  # ---------------------------------------------------------------------------
+  # Static analysis and hygiene. Linux-only on purpose: these checks are
+  # platform-independent and running them three times only buys noise.
+  # ---------------------------------------------------------------------------
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: gofmt
+        # gofmt -l prints unformatted files and still exits 0, so the exit code
+        # has to be derived from the output.
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::These files are not gofmt-formatted:"
+            echo "$unformatted"
+            echo "Run: gofmt -w ."
+            exit 1
+          fi
+          echo "All files are gofmt-clean."
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go mod tidy is clean
+        # Catches the exact failure mode this repo already hit: a go.mod/go.sum
+        # that works on the author's machine but is missing entries needed for
+        # a clean checkout on another platform.
+        run: go mod tidy -diff
+
+      - name: go mod verify
+        run: go mod verify
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.10.1
+          # The action validates .golangci.yml against its JSON schema first.
+          verify: true

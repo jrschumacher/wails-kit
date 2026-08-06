@@ -1,0 +1,33 @@
+# Build output
+/bin/
+# Compiled example binary (Go names the output after its directory)
+/examples/starter/starter
+/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test and coverage artifacts
+# Deliberately not `*.out` -- that would silently swallow testdata golden files.
+*.test
+coverage.out
+coverage.html
+*.prof
+
+# Go workspace files (machine-local, must not be committed in a library)
+go.work
+go.work.sum
+
+# macOS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local environment
+.env
+.env.local

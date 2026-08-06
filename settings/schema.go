@@ -24,10 +24,30 @@ type DynamicOptions struct {
 	Options   map[string][]SelectOption `json:"options"`
 }
 
-// Condition: show this field only when the controlling field's value is in Equals.
+// Condition shows this field only when the controlling field's value equals one
+// of the values in Equals.
+//
+// Equals is []any so that a field can be gated on a toggle or a number, not
+// only on a select. It serializes as a plain JSON array of literals
+// (`{"field":"proxy.enabled","equals":[true]}`), which is what a frontend
+// renderer evaluating conditions itself should expect.
+//
+// Comparison semantics — see conditionMet for the implementation:
+//
+//   - Numbers compare numerically across every Go numeric type. A schema
+//     written as Equals: []any{3} matches a value of 3, int64(3) or float64(3),
+//     so it behaves identically whether the value came from Go or across the
+//     JSON bridge (where all numbers arrive as float64).
+//   - Bools compare to bools, strings to strings.
+//   - nil matches only nil. A field key that is absent from the value map is
+//     nil, so Equals: []any{nil} means "while this field is unset".
+//   - Comparison never crosses kinds: "true" does not match true, and "1" does
+//     not match 1. Coercing across kinds would make a schema's behaviour depend
+//     on which side of the bridge the value happened to come from.
+//   - An empty or nil Equals never matches, so the field is always hidden.
 type Condition struct {
-	Field  string   `json:"field"`
-	Equals []string `json:"equals"`
+	Field  string `json:"field"`
+	Equals []any  `json:"equals"`
 }
 
 type Validation struct {

@@ -1,0 +1,69 @@
+name: Release
+
+# release-please watches main for conventional commits, keeps a rolling
+# "chore: release X.Y.Z" pull request up to date with the computed next version
+# and the generated CHANGELOG.md, and — when that PR is merged — creates the
+# git tag and the GitHub Release.
+#
+# For a Go library the tag is the entire release artifact: `go get` resolves
+# versions from tags, so there is nothing to upload, build, or publish. That is
+# why this workflow has no goreleaser step (goreleaser builds and uploads
+# binaries, which this module does not produce) and no svu step (svu computes a
+# version but writes no changelog and would still need to be driven by hand).
+
+on:
+  push:
+    branches: [main]
+  # Lets you force a run without pushing a commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      # Create tags, releases, and the release branch.
+      contents: write
+      # Open and update the release pull request.
+      pull-requests: write
+    steps:
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          # NOTE: with the default GITHUB_TOKEN, the release PR that this action
+          # opens will NOT trigger ci.yml — GitHub suppresses workflow runs for
+          # events raised by GITHUB_TOKEN to prevent recursion. The release PR
+          # only touches CHANGELOG.md and .release-please-manifest.json, so that
+          # is usually fine. If you want CI to run on it, create a fine-grained
+          # PAT with contents:write + pull-requests:write and pass it here as
+          # `token: ${{ secrets.RELEASE_PLEASE_TOKEN }}`.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Go modules are consumed straight from the git tag via the module proxy,
+      # so "publishing" is just asking proxy.golang.org to fetch the new version.
+      # Without this the first `go get` after a release pays the cold-fetch cost
+      # and, more importantly, a broken tag is not discovered until a user hits
+      # it.
+      - name: Warm the Go module proxy
+        if: ${{ steps.release.outputs.release_created }}
+        run: |
+          MODULE="github.com/jrschumacher/wails-kit"
+          VERSION="${{ steps.release.outputs.tag_name }}"
+          echo "Requesting ${MODULE}@${VERSION} from proxy.golang.org"
+          for i in 1 2 3 4 5; do
+            if curl -fsSL "https://proxy.golang.org/${MODULE}/@v/${VERSION}.info"; then
+              echo "Module is live on the proxy."
+              exit 0
+            fi
+            echo "Not indexed yet (attempt ${i}); waiting 30s..."
+            sleep 30
+          done
+          echo "::warning::Proxy did not index ${VERSION} in time. This is not fatal; it will resolve on first fetch."
