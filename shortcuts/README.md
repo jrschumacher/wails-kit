@@ -6,8 +6,8 @@ Package `shortcuts` builds native application menus with standard keyboard short
 
 ```go
 import (
-    "github.com/jrschumacher/wails-kit/events"
-    "github.com/jrschumacher/wails-kit/shortcuts"
+    "github.com/jrschumacher/wails-kit/v2/events"
+    "github.com/jrschumacher/wails-kit/v2/shortcuts"
     "github.com/wailsapp/wails/v3/pkg/application"
 )
 

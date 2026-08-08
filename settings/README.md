@@ -6,8 +6,8 @@ Schema-driven settings framework for Wails v3 apps. The backend defines a settin
 
 ```go
 import (
-    "github.com/jrschumacher/wails-kit/settings"
-    "github.com/jrschumacher/wails-kit/keyring"
+    "github.com/jrschumacher/wails-kit/v2/settings"
+    "github.com/jrschumacher/wails-kit/v2/keyring"
 )
 
 store := keyring.NewOSStore("my-app", keyring.WithEnvPrefix("MYAPP"))

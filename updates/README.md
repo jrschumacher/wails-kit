@@ -5,7 +5,7 @@ GitHub Releases-based auto-update mechanism for Wails v3 desktop apps. Zero exte
 ## Usage
 
 ```go
-import "github.com/jrschumacher/wails-kit/updates"
+import "github.com/jrschumacher/wails-kit/v2/updates"
 
 svc, err := updates.NewService(
     updates.WithCurrentVersion("v1.0.0"),      // required
@@ -51,7 +51,7 @@ The updates service can optionally integrate with the settings package. When a s
 The `check_frequency` and `auto_download` settings are for the **app's** use — the library doesn't poll or auto-download. Your app reads those values and decides when to call `CheckForUpdate` and `DownloadUpdate`.
 
 ```go
-import "github.com/jrschumacher/wails-kit/settings"
+import "github.com/jrschumacher/wails-kit/v2/settings"
 
 settingsSvc := settings.NewService(
     settings.WithAppName("my-app"),

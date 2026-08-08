@@ -3,7 +3,7 @@ package anyllm
 import (
 	"testing"
 
-	"github.com/jrschumacher/wails-kit/settings"
+	"github.com/jrschumacher/wails-kit/v2/settings"
 )
 
 func TestNew_DefaultConfig(t *testing.T) {

@@ -5,7 +5,7 @@ Collects application state, logs, and system info into a shareable zip bundle fo
 ## Usage
 
 ```go
-import "github.com/jrschumacher/wails-kit/diagnostics"
+import "github.com/jrschumacher/wails-kit/v2/diagnostics"
 
 svc, err := diagnostics.NewService(
     diagnostics.WithAppName("my-app"),          // required

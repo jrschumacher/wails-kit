@@ -3,7 +3,7 @@ package settings
 import (
 	"sync"
 
-	"github.com/jrschumacher/wails-kit/keyring"
+	"github.com/jrschumacher/wails-kit/v2/keyring"
 )
 
 // SecretMask is the sentinel value returned for password fields that have a value.

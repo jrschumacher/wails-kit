@@ -5,7 +5,7 @@ Ordered startup and shutdown of services with dependency tracking.
 ## Usage
 
 ```go
-import "github.com/jrschumacher/wails-kit/lifecycle"
+import "github.com/jrschumacher/wails-kit/v2/lifecycle"
 
 // Services implement the lifecycle.Service interface.
 type DatabaseService struct{ /* ... */ }

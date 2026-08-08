@@ -14,7 +14,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/jrschumacher/wails-kit/events"
+	"github.com/jrschumacher/wails-kit/v2/events"
 )
 
 func generateTestKeys(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {

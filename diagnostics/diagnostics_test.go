@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jrschumacher/wails-kit/events"
-	"github.com/jrschumacher/wails-kit/keyring"
-	"github.com/jrschumacher/wails-kit/settings"
+	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/keyring"
+	"github.com/jrschumacher/wails-kit/v2/settings"
 )
 
 func TestNewService(t *testing.T) {

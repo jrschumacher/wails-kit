@@ -5,7 +5,7 @@ User-facing error types for Wails apps. Provides structured errors with both tec
 ## Usage
 
 ```go
-import "github.com/jrschumacher/wails-kit/errors"
+import "github.com/jrschumacher/wails-kit/v2/errors"
 
 // Create errors with codes
 err := errors.New(errors.ErrAuthExpired, "token expired at 2pm", nil)

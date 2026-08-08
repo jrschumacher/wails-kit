@@ -4,25 +4,28 @@ Reusable Go module for Wails v3 apps. Provides a schema-driven settings framewor
 
 ## Philosophy
 
-wails-kit provides **desktop app infrastructure** — the plumbing that every Wails app needs but shouldn't rewrite. Packages belong here when they:
+wails-kit provides **desktop app infrastructure** — the plumbing that every Wails app
+needs but shouldn't rewrite. Each package must meet these criteria:
 
-- Solve a problem **specific to desktop apps or Wails integration** (OS paths, keyring, window lifecycle)
-- Eliminate **real boilerplate** that multiple apps would otherwise copy-paste
-- Provide **infrastructure, not business logic** (storage, config, lifecycle — not domain models or UI)
+1. **Desktop-specific or Wails-specific** — solves a problem unique to desktop apps or
+   Wails integration. Generic Go libraries (HTTP clients, data processing) belong in
+   standalone repos.
+2. **Reduces real boilerplate** — eliminates >50 lines of repeated setup that multiple
+   apps would otherwise copy-paste.
+3. **Infrastructure, not business logic** — foundational services (storage, config,
+   lifecycle, OS integration), not application features (chat UI, domain models).
 
-Generic Go libraries (AI SDKs, HTTP clients, data processing) belong in standalone repos, not in the kit.
+**The honest carve-out:** `settings/templates/anyllm` is the one deliberate exception
+to rule 1. LLM provider configuration is not desktop-specific, but wiring provider /
+model / API-key fields into the settings schema is boilerplate every LLM-enabled app of
+ours repeats identically, and the secret-handling half of it *is* desktop-specific
+(OS keyring). It lives in the repo as a **nested Go module** so its SDK dependency
+(`any-llm-go`) is never paid by apps that don't import it. We name the exception rather
+than pretending the criteria have no exceptions. Any future carve-out must be argued
+the same way: named, justified, isolated in its own module.
 
-**LLM support:** For LLM provider integration, we recommend [any-llm-go](https://github.com/mozilla-ai/any-llm-go). wails-kit provides a settings template (`settings/templates/anyllm`) for wiring any-llm-go configuration into the schema-driven settings framework.
-
-### Selective imports via vanity URL
-
-Each package is also published as an independent Go module so you only pull the dependencies you need:
-
-```sh
-go get abnl.dev/wails-kit/appdirs@latest    # zero external deps
-go get abnl.dev/wails-kit/database@latest   # only goose + sqlite
-go get abnl.dev/wails-kit/llm/openai@latest # only openai SDK
-```
+**Ask before adding:** "Would a Wails app author write this themselves, and would it
+look roughly the same every time?" If yes, it belongs in the kit.
 
 ## Packages
 
@@ -31,7 +34,7 @@ go get abnl.dev/wails-kit/llm/openai@latest # only openai SDK
 Unified OS-standard directory paths for config, data, cache, log, and temp. Replaces duplicated path logic across packages.
 
 ```go
-import "github.com/jrschumacher/wails-kit/appdirs"
+import "github.com/jrschumacher/wails-kit/v2/appdirs"
 
 dirs := appdirs.New("my-app")
 
@@ -50,7 +53,7 @@ dirs.CleanTemp()  // remove stale temp files on startup
 Generic OS keyring wrapper with environment variable fallback. Used internally by settings for password fields, and available directly for app-specific secrets.
 
 ```go
-import "github.com/jrschumacher/wails-kit/keyring"
+import "github.com/jrschumacher/wails-kit/v2/keyring"
 
 // OS keyring with env var fallback (e.g. MYAPP_API_KEY)
 store := keyring.NewOSStore("my-app", keyring.WithEnvPrefix("MYAPP"))
@@ -81,8 +84,8 @@ The backend defines a settings schema (fields, types, options, visibility condit
 
 ```go
 import (
-    "github.com/jrschumacher/wails-kit/settings"
-    "github.com/jrschumacher/wails-kit/keyring"
+    "github.com/jrschumacher/wails-kit/v2/settings"
+    "github.com/jrschumacher/wails-kit/v2/keyring"
 )
 
 store := keyring.NewOSStore("my-app", keyring.WithEnvPrefix("MYAPP"))
@@ -169,7 +172,7 @@ Reusable settings group generators for common integrations:
 - [`settings/templates/anyllm`](settings/templates/anyllm/README.md) — LLM provider settings via [any-llm-go](https://github.com/mozilla-ai/any-llm-go). Generates provider/model/API key fields and builds a configured provider from settings.
 
 ```go
-import "github.com/jrschumacher/wails-kit/settings/templates/anyllm"
+import "github.com/jrschumacher/wails-kit/v2/settings/templates/anyllm"
 
 group, buildProvider := anyllm.New(
     anyllm.WithProviders("anthropic", "openai", "mistral"),
@@ -191,7 +194,7 @@ SQLite database management with [goose](https://github.com/pressly/goose) migrat
 ```go
 import (
     "embed"
-    "github.com/jrschumacher/wails-kit/database"
+    "github.com/jrschumacher/wails-kit/v2/database"
 )
 
 //go:embed migrations/*.sql
@@ -227,7 +230,7 @@ See [`database/README.md`](database/README.md) for full documentation.
 Collects application state, logs, and system info into a shareable zip bundle for crash reporting and user support. Integrates with `appdirs`, `settings`, and `logging`.
 
 ```go
-import "github.com/jrschumacher/wails-kit/diagnostics"
+import "github.com/jrschumacher/wails-kit/v2/diagnostics"
 
 svc, err := diagnostics.NewService(
     diagnostics.WithAppName("my-app"),
@@ -254,7 +257,7 @@ info := svc.GetSystemInfo()
 Standard keyboard shortcuts and native menu bar for Wails v3 apps. Handles platform differences automatically and emits events via the kit event system.
 
 ```go
-import "github.com/jrschumacher/wails-kit/shortcuts"
+import "github.com/jrschumacher/wails-kit/v2/shortcuts"
 
 mgr := shortcuts.New(
     shortcuts.WithDefaults(),   // App, File, Edit, View, Window menus
@@ -278,7 +281,7 @@ See [`shortcuts/README.md`](shortcuts/README.md) for full documentation.
 Ordered startup and shutdown of services with dependency tracking and partial failure rollback.
 
 ```go
-import "github.com/jrschumacher/wails-kit/lifecycle"
+import "github.com/jrschumacher/wails-kit/v2/lifecycle"
 
 mgr, err := lifecycle.NewManager(
     lifecycle.WithService("database", dbService),
@@ -307,7 +310,7 @@ Lightweight typed state persistence to disk. Save/load any struct as JSON with a
 Generic error types for Wails apps. Apps add their own domain-specific codes and messages.
 
 ```go
-import "github.com/jrschumacher/wails-kit/errors"
+import "github.com/jrschumacher/wails-kit/v2/errors"
 
 // Create errors with codes
 err := errors.New(errors.ErrAuthExpired, "token expired at 2pm", nil)
@@ -337,7 +340,7 @@ Each code has a default user-facing message. Apps override or extend via `Regist
 OS-aware structured logging with file rotation and sensitive field redaction. Built on `slog` with JSON output.
 
 ```go
-import "github.com/jrschumacher/wails-kit/logging"
+import "github.com/jrschumacher/wails-kit/v2/logging"
 
 err := logging.Init(&logging.Config{
     AppName:       "my-app",
@@ -377,7 +380,7 @@ logger.Info("sync started")
 Type-safe wrapper for Wails v3 event emission. Keeps the kit Wails-version-agnostic via a `Backend` interface.
 
 ```go
-import "github.com/jrschumacher/wails-kit/events"
+import "github.com/jrschumacher/wails-kit/v2/events"
 
 // In your app setup, wrap the Wails app
 emitter := events.New(events.BackendFunc(func(name string, data any) {
@@ -420,7 +423,7 @@ export interface EventMap {
 Self-update mechanism for desktop apps using GitHub Releases. Zero external dependencies — built on `net/http`, `encoding/json`, and an inline semver parser.
 
 ```go
-import "github.com/jrschumacher/wails-kit/updates"
+import "github.com/jrschumacher/wails-kit/v2/updates"
 
 svc, err := updates.NewService(
     updates.WithCurrentVersion("v1.0.0"),

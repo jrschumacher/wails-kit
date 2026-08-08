@@ -5,7 +5,7 @@ Type-safe event emission wrapper for Wails v3 apps. Keeps the kit Wails-version-
 ## Usage
 
 ```go
-import "github.com/jrschumacher/wails-kit/events"
+import "github.com/jrschumacher/wails-kit/v2/events"
 
 // In your app setup, wrap the Wails app
 emitter := events.NewEmitter(events.BackendFunc(func(name string, data any) {

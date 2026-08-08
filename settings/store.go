@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/jrschumacher/wails-kit/appdirs"
+	"github.com/jrschumacher/wails-kit/v2/appdirs"
 )
 
 type Store struct {

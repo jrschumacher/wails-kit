@@ -7,7 +7,7 @@ SQLite database management with schema migrations for Wails desktop apps. Uses [
 ```go
 import (
     "embed"
-    "github.com/jrschumacher/wails-kit/database"
+    "github.com/jrschumacher/wails-kit/v2/database"
 )
 
 //go:embed migrations/*.sql

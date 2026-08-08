@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jrschumacher/wails-kit/events"
-	"github.com/jrschumacher/wails-kit/settings"
+	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/settings"
 )
 
 func TestNewServiceRequiresRepo(t *testing.T) {

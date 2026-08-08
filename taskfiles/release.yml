@@ -8,7 +8,7 @@
 #
 # To install, copy from the module cache:
 #   mkdir -p taskfiles
-#   cp "$(go env GOMODCACHE)/github.com/jrschumacher/wails-kit@<version>/taskfiles/release.yml" taskfiles/release.yml
+#   cp "$(go env GOMODCACHE)/github.com/jrschumacher/wails-kit/v2@<version>/taskfiles/release.yml" taskfiles/release.yml
 #
 # Requires:
 #   - .wails-kit.yml in the project root (see .wails-kit.example.yml)

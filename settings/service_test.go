@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jrschumacher/wails-kit/keyring"
+	"github.com/jrschumacher/wails-kit/v2/keyring"
 )
 
 func TestNewService_WithAppName(t *testing.T) {

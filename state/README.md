@@ -5,7 +5,7 @@ Lightweight typed state persistence to disk. Fills the gap between no persistenc
 ## Usage
 
 ```go
-import "github.com/jrschumacher/wails-kit/state"
+import "github.com/jrschumacher/wails-kit/v2/state"
 
 type WindowState struct {
     Width     int  `json:"width"`

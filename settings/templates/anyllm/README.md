@@ -8,8 +8,8 @@ Generates a settings group (provider dropdown, model selection, API key, advance
 
 ```go
 import (
-    "github.com/jrschumacher/wails-kit/settings"
-    "github.com/jrschumacher/wails-kit/settings/templates/anyllm"
+    "github.com/jrschumacher/wails-kit/v2/settings"
+    "github.com/jrschumacher/wails-kit/v2/settings/templates/anyllm"
 )
 
 group, buildProvider := anyllm.New(

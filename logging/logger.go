@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jrschumacher/wails-kit/appdirs"
+	"github.com/jrschumacher/wails-kit/v2/appdirs"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 

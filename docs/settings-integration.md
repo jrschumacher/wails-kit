@@ -16,7 +16,7 @@ Each package that needs user configuration exports a `SettingsGroup()`:
 ```go
 package updates
 
-import "github.com/jrschumacher/wails-kit/settings"
+import "github.com/jrschumacher/wails-kit/v2/settings"
 
 const (
     SettingCheckFrequency     = "updates.check_frequency"

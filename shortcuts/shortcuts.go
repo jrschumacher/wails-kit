@@ -8,7 +8,7 @@
 package shortcuts
 
 import (
-	"github.com/jrschumacher/wails-kit/events"
+	"github.com/jrschumacher/wails-kit/v2/events"
 )
 
 // Event names emitted by the shortcuts manager.

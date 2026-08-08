@@ -6,17 +6,32 @@ wails-kit is a reusable Go module for Wails v3 desktop apps. It provides infrast
 
 ## Philosophy
 
-wails-kit provides **desktop app infrastructure** — the plumbing that every Wails app needs but shouldn't rewrite. Each package must meet these criteria:
+wails-kit provides **desktop app infrastructure** — the plumbing that every Wails app
+needs but shouldn't rewrite. Each package must meet these criteria:
 
-1. **Wails-specific or desktop-specific** — solves a problem unique to desktop apps or Wails integration. Generic Go libraries (AI SDKs, HTTP clients, data processing) belong in standalone repos.
-2. **Reduces real boilerplate** — eliminates >50 lines of repeated setup that multiple apps would otherwise copy-paste. A 30-line convenience wrapper doesn't justify a kit package.
-3. **Infrastructure, not business logic** — provides foundational services (storage, config, lifecycle, OS integration), not application-level features (chat UI, domain models, workflows).
+1. **Desktop-specific or Wails-specific** — solves a problem unique to desktop apps or
+   Wails integration. Generic Go libraries (HTTP clients, data processing) belong in
+   standalone repos.
+2. **Reduces real boilerplate** — eliminates >50 lines of repeated setup that multiple
+   apps would otherwise copy-paste.
+3. **Infrastructure, not business logic** — foundational services (storage, config,
+   lifecycle, OS integration), not application features (chat UI, domain models).
 
-**Ask before adding:** "Would a Wails app author write this themselves, and would it look roughly the same every time?" If yes, it belongs in the kit. If the implementation varies significantly per app, it belongs in the app.
+**The honest carve-out:** `settings/templates/anyllm` is the one deliberate exception
+to rule 1. LLM provider configuration is not desktop-specific, but wiring provider /
+model / API-key fields into the settings schema is boilerplate every LLM-enabled app of
+ours repeats identically, and the secret-handling half of it *is* desktop-specific
+(OS keyring). It lives in the repo as a **nested Go module** so its SDK dependency
+(`any-llm-go`) is never paid by apps that don't import it. We name the exception rather
+than pretending the criteria have no exceptions. Any future carve-out must be argued
+the same way: named, justified, isolated in its own module.
+
+**Ask before adding:** "Would a Wails app author write this themselves, and would it
+look roughly the same every time?" If yes, it belongs in the kit.
 
 ## Structure
 
-Go module at `github.com/jrschumacher/wails-kit` with these packages:
+Go module at `github.com/jrschumacher/wails-kit/v2` with these packages:
 
 - `appdirs` — OS-standard application directory paths
 - `database` — SQLite database management with goose migrations
@@ -57,7 +72,7 @@ type(scope): description
 
 **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
 
-**Scopes** (optional, use the package name): `appdirs`, `database`, `diagnostics`, `keyring`, `taskfiles`, `settings`, `state`, `errors`, `events`, `lifecycle`, `logging`, `shortcuts`, `updates`
+**Scopes** (optional, use the package name): `appdirs`, `appearance`, `ci`, `database`, `diagnostics`, `errors`, `events`, `firstrun`, `frontend`, `health`, `i18n`, `keyring`, `kit`, `lifecycle`, `llm`, `llmconfig`, `logging`, `permissions`, `runner`, `semver`, `settings`, `shortcuts`, `state`, `taskfiles`, `template`, `updates`, `windowstate`
 
 Examples:
 - `feat(updates): add GitHub Releases auto-update`
@@ -100,4 +115,4 @@ GitHub Actions using `jrschumacher/go-actions@v3`:
 - PR titles validated against conventional commit format
 - Test, lint, and security checks on PRs and pushes to main
 - Releases via Release Please on main
-- On release, split modules published to `jrschumacher/wails-kit-pub` via `.github/scripts/publish-split-modules.sh`
+- Wails-import policy enforced: only `shortcuts`, `windowstate`, `permissions`, and `kit/wailsbridge` may import `github.com/wailsapp/wails/v3`

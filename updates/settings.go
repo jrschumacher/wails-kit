@@ -1,6 +1,6 @@
 package updates
 
-import "github.com/jrschumacher/wails-kit/settings"
+import "github.com/jrschumacher/wails-kit/v2/settings"
 
 // Settings keys.
 const (

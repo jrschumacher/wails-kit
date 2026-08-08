@@ -6,8 +6,8 @@ Headless/CLI adapter for the settings package. Uses the same schema that drives 
 
 ```go
 import (
-    "github.com/jrschumacher/wails-kit/settings"
-    settingscli "github.com/jrschumacher/wails-kit/settings/cli"
+    "github.com/jrschumacher/wails-kit/v2/settings"
+    settingscli "github.com/jrschumacher/wails-kit/v2/settings/cli"
 )
 
 svc := settings.NewService(

@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jrschumacher/wails-kit/errors"
-	"github.com/jrschumacher/wails-kit/events"
-	"github.com/jrschumacher/wails-kit/settings"
-	"github.com/jrschumacher/wails-kit/updates"
+	"github.com/jrschumacher/wails-kit/v2/errors"
+	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/settings"
+	"github.com/jrschumacher/wails-kit/v2/updates"
 )
 
 // TestSettingsTypeParity checks that the TypeScript settings types match Go structs.

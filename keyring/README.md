@@ -5,7 +5,7 @@ OS keyring credential storage with environment variable fallback. Wraps the syst
 ## Usage
 
 ```go
-import "github.com/jrschumacher/wails-kit/keyring"
+import "github.com/jrschumacher/wails-kit/v2/keyring"
 
 // OS keyring with env var fallback
 store := keyring.NewOSStore("my-app", keyring.WithEnvPrefix("MYAPP"))

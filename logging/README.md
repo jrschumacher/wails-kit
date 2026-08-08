@@ -5,7 +5,7 @@ OS-aware structured logging with file rotation and sensitive field redaction. Bu
 ## Usage
 
 ```go
-import "github.com/jrschumacher/wails-kit/logging"
+import "github.com/jrschumacher/wails-kit/v2/logging"
 
 err := logging.Init(&logging.Config{
     AppName:       "my-app",

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/jrschumacher/wails-kit/events"
+	"github.com/jrschumacher/wails-kit/v2/events"
 )
 
 type testState struct {

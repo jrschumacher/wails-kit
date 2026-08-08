@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jrschumacher/wails-kit/keyring"
-	"github.com/jrschumacher/wails-kit/settings"
+	"github.com/jrschumacher/wails-kit/v2/keyring"
+	"github.com/jrschumacher/wails-kit/v2/settings"
 )
 
 func testService(t *testing.T, groups ...settings.Group) *settings.Service {

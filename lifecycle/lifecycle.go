@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jrschumacher/wails-kit/errors"
-	"github.com/jrschumacher/wails-kit/events"
+	"github.com/jrschumacher/wails-kit/v2/errors"
+	"github.com/jrschumacher/wails-kit/v2/events"
 )
 
 // Error codes for lifecycle operations.

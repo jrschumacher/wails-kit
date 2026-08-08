@@ -34,21 +34,32 @@ jobs:
             revert
           scopes: |
             appdirs
+            appearance
             ci
             database
             diagnostics
-            frontend
-            keyring
-            lifecycle
-            llm
-            settings
-            state
             errors
             events
+            firstrun
+            frontend
+            health
+            i18n
+            keyring
+            kit
+            lifecycle
+            llm
+            llmconfig
             logging
-            taskfiles
+            permissions
+            runner
+            semver
+            settings
             shortcuts
+            state
+            taskfiles
+            template
             updates
+            windowstate
           requireScope: false
           subjectPattern: ^.+$
           subjectPatternError: "The subject must not be empty."
@@ -70,6 +81,17 @@ jobs:
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: lint
+
+  wails-imports:
+    name: Wails Import Policy (AD-4)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: ./.github/scripts/check-wails-imports.sh
 
   typecheck:
     name: TypeScript

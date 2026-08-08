@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jrschumacher/wails-kit/settings"
+	"github.com/jrschumacher/wails-kit/v2/settings"
 )
 
 // SettingsProvider is the subset of *settings.Service that the CLI adapter needs.

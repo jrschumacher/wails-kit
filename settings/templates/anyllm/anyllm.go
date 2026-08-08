@@ -16,7 +16,7 @@ import (
 	"github.com/mozilla-ai/any-llm-go/providers/ollama"
 	"github.com/mozilla-ai/any-llm-go/providers/openai"
 
-	"github.com/jrschumacher/wails-kit/settings"
+	"github.com/jrschumacher/wails-kit/v2/settings"
 )
 
 // providerDef holds display info and default models for a provider.

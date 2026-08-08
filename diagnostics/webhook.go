@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/jrschumacher/wails-kit/errors"
+	"github.com/jrschumacher/wails-kit/v2/errors"
 )
 
 const (

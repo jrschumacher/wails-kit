@@ -3,7 +3,7 @@ package shortcuts
 import (
 	"testing"
 
-	"github.com/jrschumacher/wails-kit/events"
+	"github.com/jrschumacher/wails-kit/v2/events"
 )
 
 func TestNew(t *testing.T) {
