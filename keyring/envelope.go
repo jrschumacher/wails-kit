@@ -162,6 +162,10 @@ type EnvelopeStore struct {
 // compile-time assertion that EnvelopeStore is a drop-in keyring Store.
 var _ Store = (*EnvelopeStore)(nil)
 
+// compile-time assertion that EnvelopeStore also implements the optional
+// KeyLister extension (see keyring.go).
+var _ KeyLister = (*EnvelopeStore)(nil)
+
 // EnvelopeStoreOption configures an EnvelopeStore.
 type EnvelopeStoreOption func(*EnvelopeStore)
 
@@ -304,8 +308,9 @@ func (s *EnvelopeStore) Has(key string) bool {
 	return ok
 }
 
-// Keys returns the entry names present in the secrets file, sorted. It does not
-// decrypt anything.
+// Keys returns the entry names present in the secrets file, sorted. It does
+// not decrypt anything. This is the method that satisfies the optional
+// KeyLister interface (see keyring.go); Store itself has no Keys method.
 func (s *EnvelopeStore) Keys() ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -808,3 +808,31 @@ func TestEnvelopeIsStore(t *testing.T) {
 		t.Fatalf("round-trip mismatch: %+v", out)
 	}
 }
+
+// TestEnvelopeKeyListerTypeAssertion exercises the documented extension
+// pattern: a caller holding a plain Store type-asserts to KeyLister to get
+// enumeration, and MemoryStore (which does not implement it) is correctly
+// rejected by the same assertion.
+func TestEnvelopeKeyListerTypeAssertion(t *testing.T) {
+	s, _, _ := newTestEnvelope(t)
+	mustSet(t, s, "a", "1")
+	mustSet(t, s, "b", "2")
+
+	var store Store = s
+	lister, ok := store.(KeyLister)
+	if !ok {
+		t.Fatal("EnvelopeStore does not implement KeyLister")
+	}
+	keys, err := lister.Keys()
+	if err != nil {
+		t.Fatalf("Keys: %v", err)
+	}
+	if len(keys) != 2 || keys[0] != "a" || keys[1] != "b" {
+		t.Fatalf("Keys() = %v, want [a b]", keys)
+	}
+
+	var plain Store = NewMemoryStore()
+	if _, ok := plain.(KeyLister); ok {
+		t.Fatal("MemoryStore unexpectedly implements KeyLister")
+	}
+}

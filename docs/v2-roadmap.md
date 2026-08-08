@@ -180,7 +180,11 @@ Verified migration cost — low. Every API surface the kit touches exists in bet
   `application_linux_dbus.go`, new since alpha.64), `ApplicationEventContext.IsDarkMode()`,
   `EnvironmentManager.IsDarkMode()` — needed by `appearance`.
 - `pkg/services/notifications` with `CheckNotificationAuthorization` /
-  `RequestNotificationAuthorization` (darwin: `notifications_darwin.go:90,108`) — needed
+  `RequestNotificationAuthorization` — **corrected during WP-01 execution**: the
+  bindable surface is on the exported `*notifications.NotificationService` at
+  `pkg/services/notifications/notifications.go:263,267`. The previously cited
+  `notifications_darwin.go:90,108` are methods on the *unexported* `darwinNotifier`
+  and are not reachable by a consumer. WP-21 must target the exported service. — needed
   by `permissions`.
 - `SingleInstanceOptions` and `events.Common.ApplicationOpenedWithFile` — deep-link /
   open-with plumbing for the template.
@@ -471,6 +475,40 @@ Conventions for every WP below:
   relevant Wails source under
   `/Users/ryan/go/pkg/mod/github.com/wailsapp/wails/v3@v3.0.0-beta.4/` — nothing else is
   assumed.
+
+**Errata — corrections found while executing WP-01. Trust these over the text above.**
+
+- **`./...` is not just kit packages.** `frontend/{settings,types}/node_modules/flatted/golang/pkg/flatted`
+  are real Go packages inside the module. Harmless for build/test, but any WP that
+  *walks the repo* — notably WP-10's catalog-extraction lint helper — must exclude
+  `node_modules` or it will scan vendored JS-adjacent Go source.
+- **Import-existence greps must be anchored to the import path, not the bare string.**
+  `grep -rn "wails-kit\""` matches the string literal `appName = "wails-kit"` at
+  `updates/service.go:286` and yields a false positive on a correct tree. Use
+  `grep -rn '"github.com/jrschumacher/wails-kit' --include="*.go" . | grep -v '/v2'`.
+  Do **not** filter out `_test.go` — test files are the ones most likely to be missed.
+- **Any `go list`-based Wails-import check must pass `-tags wails`** while
+  `shortcuts/apply.go` remains behind its build tag. Without the tag, `go list -deps ./...`
+  reports zero Wails importers repo-wide and the check passes while proving nothing.
+  The shipped `.github/scripts/check-wails-imports.sh` does this and was verified in
+  both directions against a planted violation. Allowlist matching is exact full-path
+  equality, not an unanchored suffix — a suffix pattern would silently exempt a future
+  `.../foo/shortcuts`.
+- **WP-01 owned the import-path rewrite across `**/*.md` as well as `**/*.go`.** 13
+  package READMEs carried import examples. Package WPs inherit corrected READMEs and
+  should not re-fix them.
+- **Wails `webview_window.go` line numbers in AD-2 are mis-paired** (cosmetic; all
+  symbols exist). Actual: `SetSize:413, IsMinimised:714, IsMaximised:730, Size:738,
+  IsFullscreen:758, Position:1046, SetPosition:1058`.
+- **Release versioning — DECIDED.** `.release-please-manifest.json` still reads
+  `{".": "1.3.0"}` and would compute a 1.x tag that contradicts the `/v2` import path.
+  Release automation only runs on `main`, and v2 development happens on the `v2`
+  branch against a local `replace` directive (OQ-1), so nothing fires during the
+  phases. **Before merging `v2` to `main`:** tag `v2.0.0` manually and seed the
+  manifest to `2.0.0` so subsequent automation computes 2.0.x/2.1.0. This is a
+  cross-cutting release task, not a package WP — see §Cross-cutting.
+- **`go.work.sum` is gitignored** (regenerates on build; committing it means a
+  permanently dirty `git status`). `go.work` itself is committed.
 
 ### Phase 0 — Foundations (serialize WP-01; then WP-02…WP-07 in parallel)
 
