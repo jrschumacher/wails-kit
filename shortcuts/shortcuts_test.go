@@ -72,8 +72,8 @@ func TestEmitWithEmitter(t *testing.T) {
 
 func TestIndividualOptions(t *testing.T) {
 	tests := []struct {
-		name string
-		opt  Option
+		name  string
+		opt   Option
 		check func(*Manager) bool
 	}{
 		{"AppMenu", WithAppMenu(), func(m *Manager) bool { return m.appMenu }},

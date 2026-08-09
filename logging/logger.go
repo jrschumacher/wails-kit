@@ -12,8 +12,20 @@ import (
 	"time"
 
 	"github.com/jrschumacher/wails-kit/v2/appdirs"
+	"github.com/jrschumacher/wails-kit/v2/errors"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
+
+// Error codes for the logging package.
+const (
+	ErrLoggingInit errors.Code = "logging_init"
+)
+
+func init() {
+	errors.RegisterMessages(map[errors.Code]string{
+		ErrLoggingInit: "Failed to initialize logging.",
+	})
+}
 
 // Config defines logger configuration.
 type Config struct {
@@ -26,7 +38,69 @@ type Config struct {
 	Compress      *bool    // Compress rotated files (default: true); use pointer to distinguish unset from false
 	AddSource     bool     // Add source file:line to logs
 	SensitiveKeys []string // Field names to redact
-	Stdout        bool     // Also write to stdout (default: true)
+	// Stdout also writes logs to stdout in addition to the log file
+	// (default: true). Use a pointer to distinguish unset from an
+	// explicit false, mirroring Compress.
+	Stdout *bool
+}
+
+// resolvedConfig holds Config after defaults have been applied. Kept
+// separate from directory/writer construction so the defaulting logic can
+// be unit tested without touching the filesystem or os.Stdout.
+type resolvedConfig struct {
+	appName    string
+	level      string
+	maxSize    int
+	maxAge     int
+	maxBackups int
+	compress   bool
+	stdout     bool
+}
+
+// resolveDefaults applies Config defaults. nil is treated the same as an
+// empty Config.
+func resolveDefaults(config *Config) resolvedConfig {
+	if config == nil {
+		config = &Config{}
+	}
+
+	appName := config.AppName
+	if appName == "" {
+		appName = "app"
+	}
+
+	maxSize := config.MaxSize
+	if maxSize <= 0 {
+		maxSize = 100
+	}
+	maxAge := config.MaxAge
+	if maxAge <= 0 {
+		maxAge = 7
+	}
+	maxBackups := config.MaxBackups
+	if maxBackups <= 0 {
+		maxBackups = 10
+	}
+
+	compress := true
+	if config.Compress != nil {
+		compress = *config.Compress
+	}
+
+	stdout := true
+	if config.Stdout != nil {
+		stdout = *config.Stdout
+	}
+
+	return resolvedConfig{
+		appName:    appName,
+		level:      config.Level,
+		maxSize:    maxSize,
+		maxAge:     maxAge,
+		maxBackups: maxBackups,
+		compress:   compress,
+		stdout:     stdout,
+	}
 }
 
 // Logger wraps slog.Logger.
@@ -43,54 +117,39 @@ var (
 // Init initializes the global logger. It is safe to call multiple times;
 // each call replaces the previous logger.
 func Init(config *Config) error {
+	resolved := resolveDefaults(config)
 	if config == nil {
-		config = &Config{AppName: "app"}
-	}
-	if config.AppName == "" {
-		config.AppName = "app"
+		config = &Config{}
 	}
 
 	dir := config.LogDir
 	if dir == "" {
-		dirs := appdirs.New(config.AppName)
+		dirs := appdirs.New(resolved.appName)
 		dir = dirs.Log()
 	}
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("logging: create dir: %w", err)
-	}
-
-	maxSize := config.MaxSize
-	if maxSize <= 0 {
-		maxSize = 100
-	}
-	maxAge := config.MaxAge
-	if maxAge <= 0 {
-		maxAge = 7
-	}
-	maxBackups := config.MaxBackups
-	if maxBackups <= 0 {
-		maxBackups = 10
-	}
-	compress := true
-	if config.Compress != nil {
-		compress = *config.Compress
+	// 0700: log files are user content (they can carry request payloads,
+	// prompt traffic, etc. depending on what the app logs), so the
+	// directory follows the same permission convention as appdirs and the
+	// rest of the kit rather than the world-readable 0755 default.
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return errors.Wrap(ErrLoggingInit, "failed to create log directory", err)
 	}
 
 	logFile := &lumberjack.Logger{
 		Filename:   filepath.Join(dir, "app.log"),
-		MaxSize:    maxSize,
-		MaxAge:     maxAge,
-		MaxBackups: maxBackups,
-		Compress:   compress,
+		MaxSize:    resolved.maxSize,
+		MaxAge:     resolved.maxAge,
+		MaxBackups: resolved.maxBackups,
+		Compress:   resolved.compress,
 		LocalTime:  true,
 	}
 
 	var writer io.Writer = logFile
-	if config.Stdout {
+	if resolved.stdout {
 		writer = io.MultiWriter(os.Stdout, logFile)
 	}
 
-	level := parseLevel(config.Level)
+	level := parseLevel(resolved.level)
 
 	handlerOpts := &slog.HandlerOptions{
 		Level:     level,
@@ -129,7 +188,7 @@ func Get() *Logger {
 		initialized := defaultLogger != nil
 		loggerMu.RUnlock()
 		if !initialized {
-			if err := Init(&Config{AppName: "app", Stdout: true}); err != nil {
+			if err := Init(&Config{AppName: "app"}); err != nil {
 				loggerMu.Lock()
 				defaultLogger = &Logger{Logger: slog.Default()}
 				loggerMu.Unlock()

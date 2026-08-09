@@ -196,10 +196,126 @@ func TestWithFields(t *testing.T) {
 }
 
 func TestCompressDefaultTrue(t *testing.T) {
-	// When Compress is nil (zero value), it should default to true.
-	config := &Config{AppName: "test"}
-	if config.Compress != nil {
-		t.Error("expected nil Compress in zero-value Config")
+	// When Compress is nil (zero value), it must resolve to true. The
+	// README documents this as the default, so the resolved value (not
+	// just the unset pointer) must be verified or the docs and code can
+	// silently drift apart again.
+	resolved := resolveDefaults(&Config{AppName: "test"})
+	if !resolved.compress {
+		t.Error("expected Compress to default to true")
+	}
+}
+
+func TestCompressExplicitFalse(t *testing.T) {
+	f := false
+	resolved := resolveDefaults(&Config{AppName: "test", Compress: &f})
+	if resolved.compress {
+		t.Error("expected explicit Compress=false to be honored")
+	}
+}
+
+func TestStdoutDefaultTrue(t *testing.T) {
+	// logger.go historically commented Stdout as "default: true" while the
+	// zero value (false) silently won because Init never applied a
+	// default. Config{AppName: "x"} must log to both stdout and the file,
+	// matching the README's documented default.
+	resolved := resolveDefaults(&Config{AppName: "test"})
+	if !resolved.stdout {
+		t.Error("expected Stdout to default to true")
+	}
+}
+
+func TestStdoutExplicitFalse(t *testing.T) {
+	f := false
+	resolved := resolveDefaults(&Config{AppName: "test", Stdout: &f})
+	if resolved.stdout {
+		t.Error("expected explicit Stdout=false to be honored")
+	}
+}
+
+func TestInit_LogDirIs0700(t *testing.T) {
+	// Log files can carry user content (e.g. request/response payloads),
+	// so the directory should follow the kit's 0700 convention rather than
+	// the world-readable 0755 default.
+	dir := filepath.Join(t.TempDir(), "logs")
+
+	if err := Init(&Config{AppName: "test", LogDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0700 {
+		t.Errorf("expected log dir mode 0700, got %#o", perm)
+	}
+
+	loggerMu.Lock()
+	defaultLogger = nil
+	loggerMu.Unlock()
+	initOnce = syncOnce()
+}
+
+func TestRedactGroupRecursion(t *testing.T) {
+	var buf bytes.Buffer
+	inner := slog.NewJSONHandler(&buf, nil)
+	handler := NewRedactingHandler(inner, []string{"token", "password"})
+	logger := slog.New(handler)
+
+	logger.Info("session started",
+		slog.Group("session",
+			"token", "super-secret-token",
+			"user", "alice",
+		),
+	)
+
+	var entry map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+		t.Fatalf("failed to parse log entry: %v", err)
+	}
+
+	session, ok := entry["session"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected session group in output, got %v", entry["session"])
+	}
+	if session["token"] != "[REDACTED]" {
+		t.Errorf("expected grouped token to be [REDACTED], got %v", session["token"])
+	}
+	if session["user"] != "alice" {
+		t.Errorf("expected grouped user to be preserved, got %v", session["user"])
+	}
+}
+
+func TestRedactGroupRecursion_Nested(t *testing.T) {
+	var buf bytes.Buffer
+	inner := slog.NewJSONHandler(&buf, nil)
+	handler := NewRedactingHandler(inner, []string{"api_key"})
+	logger := slog.New(handler)
+
+	logger.Info("request",
+		slog.Group("request",
+			slog.Group("auth",
+				"api_key", "sk-abc123",
+			),
+		),
+	)
+
+	var entry map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &entry); err != nil {
+		t.Fatalf("failed to parse log entry: %v", err)
+	}
+
+	request, ok := entry["request"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected request group in output, got %v", entry["request"])
+	}
+	auth, ok := request["auth"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected nested auth group in output, got %v", request["auth"])
+	}
+	if auth["api_key"] != "[REDACTED]" {
+		t.Errorf("expected nested api_key to be [REDACTED], got %v", auth["api_key"])
 	}
 }
 

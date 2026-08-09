@@ -1,5 +1,3 @@
-//go:build (darwin || linux || windows) && wails
-
 package shortcuts
 
 import (

@@ -14,7 +14,8 @@ err := logging.Init(&logging.Config{
     MaxSize:       100,            // MB per file
     MaxAge:        7,              // days
     MaxBackups:    10,
-    Compress:      true,
+    // Compress and Stdout default to true; leave them nil unless you need
+    // to turn one off (e.g. Stdout: ptr(false) for a headless service).
     SensitiveKeys: []string{"password", "token", "api_key"},
 })
 
@@ -43,18 +44,26 @@ OS-standard locations:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `AppName` | string | required | App name for log directory |
+| `AppName` | string | `"app"` | App name for log directory |
 | `Level` | string | `"info"` | Minimum log level: debug, info, warn, error |
 | `AddSource` | bool | `false` | Include source file/line in log entries |
 | `MaxSize` | int | `100` | Max size in MB before rotation |
 | `MaxAge` | int | `7` | Max age in days before cleanup |
 | `MaxBackups` | int | `10` | Max number of old log files to keep |
-| `Compress` | bool | `false` | Compress rotated log files |
+| `Compress` | `*bool` | `true` | Compress rotated log files. Pointer so `false` can be set explicitly; `nil` (the zero value) resolves to `true`. |
 | `SensitiveKeys` | []string | `nil` | Field names to redact in output |
+| `Stdout` | `*bool` | `true` | Also write logs to stdout in addition to the log file. Pointer so `false` can be set explicitly; `nil` resolves to `true`. |
+
+An empty `Config{AppName: "x"}` therefore logs to **both** stdout and the
+rotating file, with compression on. Set `Stdout: ptr(false)` for a
+file-only logger (e.g. a background service with no attached terminal).
 
 ## Sensitive field redaction
 
-Configured field names are replaced with `[REDACTED:N chars]` in log output:
+Configured field names are replaced with the fixed marker `[REDACTED]` in
+log output — deliberately **not** `[REDACTED:N chars]` or any other form
+that reveals the secret's length, since length alone can narrow a brute
+force search:
 
 ```go
 logging.Init(&logging.Config{
@@ -62,16 +71,31 @@ logging.Init(&logging.Config{
 })
 
 logging.Info("auth", "password", "secret123")
-// Output: {"msg":"auth","password":"[REDACTED:9 chars]"}
+// Output: {"msg":"auth","password":"[REDACTED]"}
 ```
+
+Redaction recurses into `slog.Group`, so grouped attrs are covered too:
+
+```go
+logging.Info("session started",
+    slog.Group("session", "token", tok, "user", "alice"),
+)
+// Output: {"msg":"session started","session":{"token":"[REDACTED]","user":"alice"}}
+```
+
+Redaction matches on attribute key at any nesting depth — it does not
+inspect group names, so a key like `token` is redacted whether it appears
+top-level or inside any number of nested groups.
 
 ## Multi-writer output
 
-Logs are written to both stdout and the log file simultaneously.
+By default (`Stdout` unset or explicitly `true`), logs are written to both
+stdout and the log file simultaneously. Set `Stdout` to `false` to write to
+the file only.
 
 ## File rotation
 
-Powered by [lumberjack](https://github.com/natefinsh/lumberjack.v2):
+Powered by [lumberjack](https://github.com/natefinch/lumberjack.v2):
 
 - Rotates when file exceeds `MaxSize` MB
 - Removes files older than `MaxAge` days

@@ -58,6 +58,14 @@ mgr.Apply(app)
 |---|---|---|
 | `settings:open` | Settings shortcut activated | `nil` |
 
+## Localization
+
+Menu item labels (`"Settings…"`, `"Edit"`, etc.) are currently hardcoded
+English strings. Localizing them via the kit's `i18n` package is planned
+(`WithLocalizer`, tracked as a follow-up work package) but not implemented
+yet — don't rely on the labels used for lookups (e.g. `FindByLabel`) to be
+stable across a future localization pass.
+
 ## Pairing with settings
 
 If the app uses `settings.Service`, listen for the event to open the settings UI:

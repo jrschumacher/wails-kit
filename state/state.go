@@ -20,14 +20,16 @@ import (
 
 // Error codes for the state package.
 const (
-	ErrStateLoad errors.Code = "state_load"
-	ErrStateSave errors.Code = "state_save"
+	ErrStateLoad   errors.Code = "state_load"
+	ErrStateSave   errors.Code = "state_save"
+	ErrStateConfig errors.Code = "state_config"
 )
 
 func init() {
 	errors.RegisterMessages(map[errors.Code]string{
-		ErrStateLoad: "Failed to load application state. Please try again.",
-		ErrStateSave: "Failed to save application state. Please try again.",
+		ErrStateLoad:   "Failed to load application state. Please try again.",
+		ErrStateSave:   "Failed to save application state. Please try again.",
+		ErrStateConfig: "State store is misconfigured. Please contact support.",
 	})
 }
 
@@ -68,8 +70,9 @@ func WithAppName[T any](appName string) Option[T] {
 	}
 }
 
-// WithName sets the state file name (without extension).
-// Must be called before WithAppName for the name to take effect in the path.
+// WithName sets the state file name (without extension). It may be called
+// before or after WithAppName / WithStoragePath — the path is re-derived
+// from whichever name is current, so either order produces the same result.
 func WithName[T any](name string) Option[T] {
 	return func(s *Store[T]) {
 		s.name = name
@@ -105,69 +108,95 @@ func WithDefaults[T any](defaults T) Option[T] {
 // New creates a Store for the given type. Options are applied in order.
 //
 // At minimum, either WithAppName or WithStoragePath must be provided so
-// the store knows where to persist state.
-func New[T any](opts ...Option[T]) *Store[T] {
+// the store knows where to persist state; New returns ErrStateConfig if
+// neither is set. Without this check, a misconfigured Store silently
+// succeeds at Load (returning defaults, since the empty path "doesn't
+// exist") while Save fails later with a confusing os.Rename error — by
+// the time that surfaces, it is disconnected from the missing option.
+func New[T any](opts ...Option[T]) (*Store[T], error) {
 	s := &Store[T]{
 		name: "state",
 	}
 	for _, opt := range opts {
 		opt(s)
 	}
-	return s
+	if s.path == "" {
+		return nil, errors.New(ErrStateConfig, "state.New requires WithAppName or WithStoragePath", nil)
+	}
+	return s, nil
 }
 
 // Load reads the state from disk. If the file does not exist, the defaults
 // value is returned (or the zero value of T if no defaults were set).
 func (s *Store[T]) Load() (T, error) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	path := s.path
+	name := s.name
 
 	var zero T
-
-	data, err := os.ReadFile(s.path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			result := s.defaultValue()
-			s.emit(StateLoaded, StateLoadedPayload{Name: s.name})
+			s.mu.RUnlock()
+			// Emit after releasing the lock: emitter handlers run
+			// synchronously by default, so a handler that calls back into
+			// Load/Save on this store would otherwise deadlock on RLock
+			// held by this goroutine (Go's sync.RWMutex is not
+			// re-entrant).
+			s.emit(StateLoaded, StateLoadedPayload{Name: name})
 			return result, nil
 		}
+		s.mu.RUnlock()
 		return zero, errors.Wrap(ErrStateLoad, "failed to read state file", err)
 	}
 
 	var result T
 	if err := json.Unmarshal(data, &result); err != nil {
+		s.mu.RUnlock()
 		return zero, errors.Wrap(ErrStateLoad, "failed to parse state file", err)
 	}
+	s.mu.RUnlock()
 
-	s.emit(StateLoaded, StateLoadedPayload{Name: s.name})
+	s.emit(StateLoaded, StateLoadedPayload{Name: name})
 	return result, nil
 }
 
 // Save writes the state to disk atomically (write-to-tmp + rename).
 func (s *Store[T]) Save(value T) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	dir := filepath.Dir(s.path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
+		s.mu.Unlock()
 		return errors.Wrap(ErrStateSave, "failed to create state directory", err)
 	}
 
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
+		s.mu.Unlock()
 		return errors.Wrap(ErrStateSave, "failed to marshal state", err)
 	}
 
 	// Atomic write: write to temp file, then rename
 	tmpPath := s.path + ".tmp"
 	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		s.mu.Unlock()
 		return errors.Wrap(ErrStateSave, "failed to write temp state file", err)
 	}
 	if err := os.Rename(tmpPath, s.path); err != nil {
+		s.mu.Unlock()
 		return errors.Wrap(ErrStateSave, "failed to rename temp state file", err)
 	}
 
-	s.emit(StateSaved, StateSavedPayload{Name: s.name})
+	name := s.name
+	s.mu.Unlock()
+
+	// Emit after releasing the lock (see Load for why): a handler that
+	// calls store.Load() or store.Save() synchronously in response to
+	// state:saved must not deadlock against the write lock this goroutine
+	// still held a moment ago.
+	s.emit(StateSaved, StateSavedPayload{Name: name})
 	return nil
 }
 
