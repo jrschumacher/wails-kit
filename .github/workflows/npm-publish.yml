@@ -1,0 +1,138 @@
+name: npm Publish
+
+# Publishes @wails-kit/types, @wails-kit/settings, and @wails-kit/i18n to npm.
+#
+# STATUS (WP-33): prepared, NOT wired to actually publish anything yet.
+#
+#   - The npm scope is undecided (docs/v2-roadmap.md OQ-2: "@wails-kit" may
+#     not be registrable; fallbacks are "@aboldnewlook/*" or
+#     "@jrschumacher/*"). The scope lives in exactly one place — the
+#     NPM_SCOPE repository variable below — so choosing it later is a
+#     one-line change (Settings -> Secrets and variables -> Actions ->
+#     Variables -> New repository variable). Every package.json in git
+#     keeps its @wails-kit/* name; this workflow rewrites the name (and the
+#     inter-package dependency ranges) to the real scope immediately before
+#     `npm publish`, in the ephemeral CI checkout only. Nothing
+#     scope-specific is ever committed.
+#   - No NPM_TOKEN secret exists yet, and this workflow does not add one.
+#     Add it as a secret on the `npm-publish` GitHub Environment (Settings
+#     -> Environments -> New environment -> "npm-publish") once the scope
+#     is decided, and give that environment "required reviewers" so a
+#     human always approves the actual publish — this is why the publish
+#     job below declares `environment: npm-publish` even on the automatic
+#     `release` trigger. Note: simply declaring `environment:` in this
+#     file does not by itself create the protection rule — GitHub
+#     auto-creates the environment with NO protection on first use, so the
+#     required-reviewers rule must be configured by hand in repo settings
+#     before this is a real gate.
+#   - Until both of the above are set up, this workflow runs (on a
+#     published GitHub Release) but fails at the `npm publish` step for
+#     lack of credentials — the intended state until a human turns it on.
+#
+# Manual runs (workflow_dispatch, dry_run: true by default) build,
+# typecheck, lint, and test every package and print what the scope-rewritten
+# package.json would look like, without ever calling `npm publish` — safe
+# to run anytime, including before OQ-2 is resolved.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and verify only — never calls npm publish"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write # required for `npm publish --provenance`
+
+env:
+  NPM_SCOPE: ${{ vars.NPM_SCOPE || 'wails-kit' }}
+
+jobs:
+  publish:
+    name: Build, verify, and publish
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      # Dependency order: settings and i18n depend on types (via a `file:`
+      # reference for local monorepo dev — see "Rewrite" step below), so
+      # types is installed/verified/built first, purely for readability;
+      # nothing here actually re-resolves settings/i18n's dependency from
+      # the registry mid-workflow, so there is no publish-propagation race.
+      - name: Install and verify — types
+        working-directory: frontend/types
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test
+          npm run build
+
+      - name: Install and verify — settings
+        working-directory: frontend/settings
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test
+          npm run build
+
+      - name: Install and verify — i18n
+        working-directory: frontend/i18n
+        run: |
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm run test
+          npm run build
+
+      - name: Rewrite scope and inter-package dependency ranges
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          TYPES_VERSION=$(node -p "require('./types/package.json').version")
+          echo "Target scope: @${NPM_SCOPE}  (types version ${TYPES_VERSION})"
+
+          for pkg in types settings i18n; do
+            (cd "$pkg" && npm pkg set name="@${NPM_SCOPE}/${pkg}")
+          done
+
+          # settings and i18n depend on @wails-kit/types via `file:../types`
+          # for local monorepo development (see each package's README) —
+          # never a valid dependency for a published artifact. Rewrite it
+          # to a real semver range against the scope-rewritten name, right
+          # before publish.
+          (cd settings && npm pkg set "dependencies.@${NPM_SCOPE}/types=^${TYPES_VERSION}")
+          (cd i18n && npm pkg set "dependencies.@${NPM_SCOPE}/types=^${TYPES_VERSION}")
+
+      - name: Publish
+        if: github.event_name == 'release' || inputs.dry_run == false
+        working-directory: frontend
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          for pkg in types settings i18n; do
+            (cd "$pkg" && npm publish --access public --provenance)
+          done
+
+      - name: Dry-run summary (no publish attempted)
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run == true
+        working-directory: frontend
+        run: |
+          echo "Dry run: built, typechecked, linted, and tested types, settings, and i18n."
+          echo "No 'npm publish' was attempted. Scope-rewritten package.json for each:"
+          for pkg in types settings i18n; do
+            echo "--- $pkg/package.json ---"
+            cat "$pkg/package.json"
+          done

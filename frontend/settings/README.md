@@ -64,7 +64,7 @@ Each `ValidationError` has:
 | `max_length`     | String longer than maximum (rune count)  |
 | `min`            | Number below minimum                     |
 | `max`            | Number above maximum                     |
-| `invalid_type`   | Wrong type (e.g. non-boolean toggle)     |
+| `invalid_type`   | Wrong type (non-boolean toggle, non-string password) |
 | `invalid_option` | Select value not in allowed options      |
 
 ## Design

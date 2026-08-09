@@ -1,9 +1,38 @@
 {
   "name": "@wails-kit/types",
-  "private": true,
+  "version": "2.0.0",
+  "description": "TypeScript types for wails-kit's Wails v3 bridge: settings schema, health snapshot, appearance, i18n catalog, permissions, firstrun, window state, diagnostics, and update events.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./index.ts",
+  "exports": {
+    ".": {
+      "types": "./index.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "*.ts",
+    "!*.test.ts"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jrschumacher/wails-kit.git",
+    "directory": "frontend/types"
+  },
+  "homepage": "https://github.com/jrschumacher/wails-kit/tree/main/frontend/types#readme",
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "echo '@wails-kit/types has no unit tests of its own; wire-shape parity against Go is enforced by frontend/types_test.go' && exit 0"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

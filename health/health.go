@@ -117,13 +117,13 @@ type Check struct {
 
 // CheckStatus is one check's last-known, resolved state.
 type CheckStatus struct {
-	Name      string
-	Class     Class
-	State     State
-	Critical  bool
-	Err       string
-	CheckedAt time.Time
-	Latency   time.Duration
+	Name      string        `json:"name"`
+	Class     Class         `json:"class"`
+	State     State         `json:"state"`
+	Critical  bool          `json:"critical"`
+	Err       string        `json:"err,omitempty"`
+	CheckedAt time.Time     `json:"checkedAt"`
+	Latency   time.Duration `json:"latency"`
 }
 
 // Snapshot is the registry's resolved, point-in-time view — what a status
@@ -133,9 +133,9 @@ type Snapshot struct {
 	// offline-suppression rule below. A registry with no critical checks
 	// (including one with none registered at all) reports StateUnknown —
 	// never StateHealthy for "nothing has been checked".
-	Overall State
+	Overall State `json:"overall"`
 	// Offline is true when any ClassConnectivity check is StateDown.
-	Offline bool
+	Offline bool `json:"offline"`
 	// Checks is every registered check's status, in registration order.
 	// When Offline is true, every non-connectivity check's State is
 	// reported as StateUnknown here (not StateDown) — "your API is down"
@@ -144,7 +144,7 @@ type Snapshot struct {
 	// still drove the health:changed event when it transitioned, and the
 	// next successful probe after connectivity returns will report it
 	// again normally.
-	Checks []CheckStatus
+	Checks []CheckStatus `json:"checks"`
 }
 
 // Event names and payloads.

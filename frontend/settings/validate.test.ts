@@ -195,6 +195,32 @@ describe("validate", () => {
     expect(errs[0].code).toBe(CodeInvalidType);
   });
 
+  it("returns error for password with non-string value", () => {
+    // Mirrors settings/validate.go's defect fix (WP-03 #3): a non-string
+    // value must be rejected here, never silently coerced to "" (which the
+    // backend treats as "clear the secret").
+    const schema = makeSchema({
+      key: "api_key",
+      type: "password",
+      label: "API Key",
+    });
+    const errs = validate(schema, { api_key: 42 });
+    expect(errs).toHaveLength(1);
+    expect(errs[0].field).toBe("api_key");
+    expect(errs[0].message).toBe("API Key must be a string");
+    expect(errs[0].code).toBe(CodeInvalidType);
+  });
+
+  it("passes password field with string value and no validation block", () => {
+    const schema = makeSchema({
+      key: "api_key",
+      type: "password",
+      label: "API Key",
+    });
+    expect(validate(schema, { api_key: "sk-123" })).toHaveLength(0);
+    expect(validate(schema, {})).toHaveLength(0);
+  });
+
   it("skips validation when condition is not met", () => {
     const schema = makeSchema(
       { key: "provider", type: "select", label: "Provider" },

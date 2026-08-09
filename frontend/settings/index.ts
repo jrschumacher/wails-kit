@@ -1,5 +1,5 @@
-export { conditionMet } from "./conditions";
-export { resolveOptions } from "./options";
+export { conditionMet } from "./conditions.js";
+export { resolveOptions } from "./options.js";
 export {
   validate,
   CodeRequired,
@@ -10,5 +10,5 @@ export {
   CodeMax,
   CodeInvalidType,
   CodeInvalidOption,
-} from "./validate";
-export type { ValidationError, ValidationCode } from "./validate";
+} from "./validate.js";
+export type { ValidationError, ValidationCode } from "./validate.js";

@@ -1,7 +1,7 @@
 {
-  "name": "@wails-kit/settings",
+  "name": "@wails-kit/i18n",
   "version": "2.0.0",
-  "description": "Headless TypeScript logic for wails-kit's settings schema: condition evaluation, dynamic option resolution, and client-side validation mirroring settings/validate.go.",
+  "description": "Headless TypeScript client for wails-kit's i18n bridge: catalog consumption, CLDR plural resolution via Intl.PluralRules, and an i18n:changed refetch helper.",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -25,9 +25,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jrschumacher/wails-kit.git",
-    "directory": "frontend/settings"
+    "directory": "frontend/i18n"
   },
-  "homepage": "https://github.com/jrschumacher/wails-kit/tree/main/frontend/settings#readme",
+  "homepage": "https://github.com/jrschumacher/wails-kit/tree/main/frontend/i18n#readme",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
