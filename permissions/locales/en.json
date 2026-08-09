@@ -1,0 +1,13 @@
+{
+  "wailskit.permissions.notifications.rationale": "Allow notifications to get alerted about important updates.",
+  "wailskit.permissions.notifications.denied": "Notifications are turned off. Enable them in System Settings to get alerted about important updates.",
+  "wailskit.permissions.accessibility.rationale": "Accessibility access lets this app control other applications on your behalf.",
+  "wailskit.permissions.accessibility.denied": "Accessibility access is off. Turn it on in System Settings, then relaunch the app.",
+  "wailskit.permissions.full_disk_access.rationale": "Full Disk Access lets this app read files outside its sandbox, such as other apps' data.",
+  "wailskit.permissions.full_disk_access.denied": "Full Disk Access is off. Turn it on in System Settings, then relaunch the app.",
+  "wailskit.permissions.unsupported": "This permission isn't available on your operating system.",
+  "wailskit.permissions.errors.config": "Permissions is misconfigured. Please contact support.",
+  "wailskit.permissions.errors.request": "Failed to request permission. Please try again.",
+  "wailskit.permissions.errors.open_settings": "Failed to open System Settings. Please open it manually.",
+  "wailskit.permissions.errors.unsupported": "This permission isn't available on your operating system."
+}
