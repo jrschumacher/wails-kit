@@ -23,3 +23,15 @@ type Source interface {
 	// for a static source, not an error condition.
 	Subscribe(fn func(dark bool)) (cancel func())
 }
+
+// NewOSSource returns the platform's no-Wails theme Source, or nil where
+// none exists (everywhere except darwin today).
+//
+// NewService already uses this automatically when WithSource is not given,
+// so an app constructing appearance directly never needs it. It is exported
+// for composition layers that must supply the Source themselves: kit wires
+// appearance through an indirection so kit/wailsbridge can swap in a live
+// Wails-backed source after the App exists, and without this it would have
+// nothing to seed that indirection with — leaving macOS CLI and TUI
+// consumers reporting light regardless of the actual OS theme.
+func NewOSSource() Source { return newDefaultSource() }

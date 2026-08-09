@@ -1,0 +1,4 @@
+{
+  "wailskit.kit.errors.component_init": "The application failed to start because one of its components could not be initialized.",
+  "wailskit.kit.errors.config": "The application is misconfigured."
+}
