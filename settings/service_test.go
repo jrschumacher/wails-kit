@@ -1,9 +1,14 @@
 package settings
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jrschumacher/wails-kit/v2/keyring"
 )
@@ -602,5 +607,298 @@ func TestGetSecret_ReturnsActualValue(t *testing.T) {
 	}
 	if val != "real-secret" {
 		t.Errorf("expected real-secret, got %s", val)
+	}
+}
+
+// --- Defect regression tests (WP-03) ---
+
+// TestValidateEffectiveState pins defect #2: validation must run against
+// effective state (defaults + persisted + submission), not the raw
+// submitted payload. Before the fix, omitting a condition's controlling
+// field from a partial update made conditionMet see "" and treat the
+// dependent field as hidden, skipping its validation even though the
+// field's real (persisted) controlling value would have required it.
+func TestValidateEffectiveState(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	secrets := keyring.NewMemoryStore()
+
+	svc := NewService(
+		WithStoragePath(path),
+		WithKeyring(secrets),
+		WithGroup(Group{
+			Key:   "llm",
+			Label: "LLM",
+			Fields: []Field{
+				{
+					Key:   "provider",
+					Type:  FieldSelect,
+					Label: "Provider",
+					Options: []SelectOption{
+						{Label: "OpenAI", Value: "openai"},
+						{Label: "Local", Value: "local"},
+					},
+				},
+				{
+					Key:        "api_key",
+					Type:       FieldPassword,
+					Label:      "API Key",
+					Validation: &Validation{Required: true},
+					Condition:  &Condition{Field: "provider", Equals: []string{"openai"}},
+				},
+			},
+		}),
+	)
+
+	// Establish persisted state: provider=openai with a real api_key.
+	if _, err := svc.SetValues(map[string]any{"provider": "openai", "api_key": "sk-real"}); err != nil {
+		t.Fatalf("setup save error: %v", err)
+	}
+
+	// Submit an update that only touches api_key and omits "provider"
+	// entirely. Before the fix, Validate ran on this partial payload alone:
+	// values["provider"] is absent, conditionMet sees "" != "openai",
+	// treats api_key as hidden, skips Required entirely, and the empty
+	// value is accepted — silently deleting a secret that's still required
+	// under the persisted provider=openai.
+	errs, err := svc.SetValues(map[string]any{"api_key": ""})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(errs) != 1 || errs[0].Field != "api_key" {
+		t.Fatalf("expected a required-field error for api_key using the persisted provider=openai, got %v", errs)
+	}
+	if errs[0].Code != CodeRequired {
+		t.Errorf("expected code=%s, got %s", CodeRequired, errs[0].Code)
+	}
+
+	// The secret must remain untouched — the rejected submission must not
+	// have reached the keyring-deletion branch.
+	val, err := secrets.Get("api_key")
+	if err != nil || val != "sk-real" {
+		t.Fatalf("expected api_key to remain sk-real, got %q, err=%v", val, err)
+	}
+}
+
+// TestValidateEffectiveState_DynamicSelectUsesPersistedParent covers the
+// "same class of bug" the WP-03 review called out: a dynamic-select field
+// accepting an arbitrary value when its parent (DependsOn) field isn't part
+// of the submission.
+func TestValidateEffectiveState_DynamicSelectUsesPersistedParent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	svc := NewService(
+		WithStoragePath(path),
+		WithGroup(Group{
+			Key:   "llm",
+			Label: "LLM",
+			Fields: []Field{
+				{
+					Key:   "provider",
+					Type:  FieldSelect,
+					Label: "Provider",
+					Options: []SelectOption{
+						{Label: "Anthropic", Value: "anthropic"},
+						{Label: "OpenAI", Value: "openai"},
+					},
+				},
+				{
+					Key:   "model",
+					Type:  FieldSelect,
+					Label: "Model",
+					DynamicOptions: &DynamicOptions{
+						DependsOn: "provider",
+						Options: map[string][]SelectOption{
+							"anthropic": {{Label: "Claude", Value: "claude"}},
+							"openai":    {{Label: "GPT-4o", Value: "gpt-4o"}},
+						},
+					},
+				},
+			},
+		}),
+	)
+
+	// Establish persisted state: provider=anthropic.
+	if _, err := svc.SetValues(map[string]any{"provider": "anthropic", "model": "claude"}); err != nil {
+		t.Fatalf("setup save error: %v", err)
+	}
+
+	// Submit a model value that is only valid for "openai", without
+	// resubmitting "provider". Before the fix, Validate saw only
+	// {"model": "gpt-4o"}: DependsOn lookup on the submitted payload found
+	// no "provider" key, hasSelectableOptions returned false for the
+	// missing dependency, and the value was accepted outright — an
+	// unvalidated write of an option that doesn't belong to the persisted
+	// provider.
+	errs, err := svc.SetValues(map[string]any{"model": "gpt-4o"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(errs) != 1 || errs[0].Field != "model" {
+		t.Fatalf("expected invalid-option error for model using persisted provider=anthropic, got %v", errs)
+	}
+}
+
+// TestPasswordNonString pins defect #3: a non-string value submitted for a
+// password field must be rejected as a validation error, never coerced to
+// "" via a failed type assertion and used to delete the stored secret.
+func TestPasswordNonString(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	secrets := keyring.NewMemoryStore()
+	if err := secrets.Set("api_key", "original-secret"); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewService(
+		WithStoragePath(path),
+		WithKeyring(secrets),
+		WithGroup(Group{
+			Key:   "auth",
+			Label: "Auth",
+			Fields: []Field{
+				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+			},
+		}),
+	)
+
+	errs, err := svc.SetValues(map[string]any{"api_key": 42})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(errs) != 1 || errs[0].Field != "api_key" {
+		t.Fatalf("expected 1 validation error for non-string password, got %v", errs)
+	}
+	if errs[0].Code != CodeInvalidType {
+		t.Errorf("expected code=%s, got %s", CodeInvalidType, errs[0].Code)
+	}
+
+	val, err := secrets.Get("api_key")
+	if err != nil || val != "original-secret" {
+		t.Fatalf("expected secret to remain untouched, got %q, err=%v", val, err)
+	}
+}
+
+// TestOnChangeNoLock pins defect #4: onChange callbacks must run after the
+// Service's internal mutex is released. A callback that calls back into the
+// Service (a very natural thing to do — e.g. re-reading values, or writing
+// a derived setting) must not deadlock. This test fails by timeout rather
+// than hanging the suite if the bug regresses.
+func TestOnChangeNoLock(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	var svc *Service
+	var reentering atomic.Bool
+	reentered := make(chan struct{})
+
+	svc = NewService(
+		WithStoragePath(path),
+		WithGroup(Group{
+			Key:   "config",
+			Label: "Config",
+			Fields: []Field{
+				{Key: "key", Type: FieldText, Label: "Key"},
+				{Key: "other", Type: FieldText, Label: "Other"},
+			},
+		}),
+		WithOnChange(func(values map[string]any) {
+			// Re-entrant call into the service from inside the callback.
+			// Guarded with an atomic CAS (not sync.Once — Once.Do is not
+			// reentrant and deadlocks if called again from within its own
+			// function) because this same callback fires again for the
+			// reentrant SetValues call below; without the guard it would
+			// recurse forever instead of deadlocking, which would defeat
+			// the test.
+			if reentering.CompareAndSwap(false, true) {
+				if _, err := svc.SetValues(map[string]any{"other": "reentrant"}); err != nil {
+					t.Errorf("reentrant SetValues failed: %v", err)
+				}
+				close(reentered)
+			}
+		}),
+	)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := svc.SetValues(map[string]any{"key": "value"}); err != nil {
+			t.Errorf("SetValues error: %v", err)
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("deadlock: SetValues did not return — onChange callback likely still held s.mu while calling back into the service")
+	}
+
+	select {
+	case <-reentered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("deadlock: reentrant SetValues from within the onChange callback never completed")
+	}
+
+	values, err := svc.GetValues()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if values["key"] != "value" || values["other"] != "reentrant" {
+		t.Errorf("expected key=value, other=reentrant, got %v", values)
+	}
+}
+
+// TestNewService_MemoryKeyringDefaultWarns pins the "loud, not silent"
+// fix for the memory-keyring default: forgetting WithKeyring must not
+// silently lose API keys on restart without at least a visible warning.
+func TestNewService_MemoryKeyringDefaultWarns(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	_ = NewService(WithGroup(Group{
+		Key:    "auth",
+		Label:  "Auth",
+		Fields: []Field{{Key: "api_key", Type: FieldPassword, Label: "API Key"}},
+	}))
+
+	if !strings.Contains(buf.String(), "keyring") {
+		t.Errorf("expected a warning about the default in-memory keyring, got: %q", buf.String())
+	}
+}
+
+// TestNewService_ExplicitKeyringNoWarning is the counterpart to the above:
+// an explicitly configured keyring must not trigger the warning.
+func TestNewService_ExplicitKeyringNoWarning(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	_ = NewService(WithKeyring(keyring.NewMemoryStore()))
+
+	if buf.Len() != 0 {
+		t.Errorf("expected no warning when a keyring is explicitly configured, got: %q", buf.String())
+	}
+}
+
+// TestServiceOptions_StoragePathSurvivesAppNameAfter pins the
+// option-ordering fix: WithStoragePath must win over WithAppName
+// regardless of which is passed first. Before the fix, WithAppName
+// unconditionally reconstructed s.store, discarding a storage path set by
+// an earlier WithStoragePath call.
+func TestServiceOptions_StoragePathSurvivesAppNameAfter(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "custom.json")
+
+	svc := NewService(
+		WithStoragePath(path),
+		WithAppName("myapp"),
+	)
+
+	if svc.store.Path() != path {
+		t.Errorf("expected WithStoragePath to survive a later WithAppName, got %q", svc.store.Path())
 	}
 }

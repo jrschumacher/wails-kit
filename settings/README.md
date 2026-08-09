@@ -22,7 +22,29 @@ svc := settings.NewService(
 )
 ```
 
-Register as a Wails service to expose `GetSchema`, `GetValues`, and `SetValues` as frontend bindings.
+## Registering with Wails — use `Binding()`, never the `Service`
+
+Wails v3 binds **every exported method** of a registered service. `*settings.Service`
+exports `GetSecret`, which returns the raw, unmasked value of a password field —
+registering `svc` directly publishes every stored API key to frontend JS and defeats
+`SecretMask` entirely.
+
+Register `svc.Binding()` instead. `*settings.Binding` exposes exactly `GetSchema`,
+`GetValues`, and `SetValues` — the frontend-safe surface — and nothing else:
+
+```go
+// Correct — the frontend only ever sees GetSchema/GetValues/SetValues.
+app.RegisterService(application.NewService(svc.Binding()))
+
+// WRONG — do not do this. Every exported *Service method becomes callable
+// from the webview, including GetSecret.
+app.RegisterService(application.NewService(svc))
+```
+
+`Service.GetSecret` remains available for backend Go code (e.g. constructing an API
+client with the real key). It is not, and must never become, part of `Binding`'s method
+set — a reflection test (`TestBindingSurface`) pins that surface so a future change that
+widens `Binding` fails a test instead of shipping a leak.
 
 ## Storage paths
 
@@ -46,7 +68,21 @@ svc := settings.NewService(
 )
 ```
 
-This overrides the default OS path. All the same behaviors apply: atomic writes, schema migration, file permissions. Password fields are always stored in the OS keyring — never written to the workspace file.
+This overrides the default OS path. All the same behaviors apply: durable atomic writes, schema migration, file permissions. Password fields are always stored in the OS keyring — never written to the workspace file.
+
+`WithAppName` and `WithStoragePath` compose regardless of call order — `WithStoragePath`
+always wins if both are given, whether it comes first or last. Only the storage *path*
+resolution is order-independent this way; other options (`WithGroup`, `WithOnChange`)
+are simply additive.
+
+### The default keyring is in-memory — configure one explicitly
+
+If `WithKeyring` is omitted, secret/password fields fall back to an in-memory store:
+they work for the life of the process and are **silently lost on restart**. `NewService`
+logs a warning (`slog.Warn`) when this happens, because losing a user's saved API keys
+on every relaunch is a bad enough surprise that it must never be silent. Pass a
+persistent `keyring.Store` — `keyring.NewOSStore(...)` or `keyring.NewEnvelopeStore(...)`
+— in any app that isn't a short-lived test or example.
 
 **Git usage notes:**
 
@@ -100,10 +136,14 @@ func mySettingsGroup() settings.Group {
 
 Password fields are stored in the OS keyring, never in the JSON settings file.
 
-- `GetValues()` returns `"••••••••"` for set passwords, `""` for unset
-- `SetValues()` with `"••••••••"` is a no-op (user didn't change it)
+- `GetValues()` returns `"••••••••"` (`settings.SecretMask`) for set passwords, `""` for unset
+- `SetValues()` with `settings.SecretMask` is a no-op (user didn't change it)
 - `SetValues()` with `""` clears the secret from keyring
-- `GetSecret(key)` returns the actual value (backend use only)
+- `SetValues()` with any non-string value (e.g. a stray number) is rejected with a
+  `ValidationError` (`Code: settings.CodeInvalidType`) — it never falls through to being
+  coerced to `""` and deleting the stored secret
+- `GetSecret(key)` returns the actual value — available only on `*Service`, never on
+  `*Binding` (see [Registering with Wails](#registering-with-wails--use-binding-never-the-service))
 
 ## Schema features
 
@@ -151,6 +191,14 @@ settings.Field{
 }
 ```
 
+**Validation runs against effective state, not the raw payload.** `SetValues` merges
+defaults → persisted values → this submission before validating, then persists only the
+submitted (non-secret) keys. This matters for `Condition` and `DynamicOptions`: if a
+caller submits `{"api_key": ""}` without resubmitting `provider`, validation still sees
+whatever `provider` is *currently* set to (persisted or default) when deciding whether
+`api_key`'s condition is met — a partial update can't sneak an invalid or missing
+required value past a condition simply by omitting the controlling field.
+
 ### Computed fields
 
 Server-side computed read-only fields:
@@ -174,18 +222,28 @@ Fields marked `Advanced: true` should be rendered behind a "Show advanced" toggl
 
 ## Behaviors
 
-- **Atomic writes** — writes to `.tmp` then renames, preventing corruption on crash
+- **Durable atomic writes** — writes to a temp file in the same directory, `fsync`s it,
+  closes it, and only then renames it over the target. A rename that lands before the
+  data is flushed can leave a truncated or zero-length file after a crash; `Save` never
+  renames without a successful `Sync()` first (mirrors `keyring.EnvelopeStore`'s
+  `writeTempLocked`).
 - **Schema migration** — unknown keys in saved files are stripped on load
 - **File permissions** — directories `0700`, settings file `0600`
 - **Defaults** — schema-defined defaults are applied when a key has no saved value
+- **Effective-state validation** — see [Validation](#validation) above
+- **`onChange` runs outside the lock** — callbacks are invoked after `SetValues`
+  releases its internal mutex, so a callback that calls back into the `Service` (e.g.
+  `GetValues` or another `SetValues`) never deadlocks
 
 ## Frontend contract
 
-The frontend calls three Wails bindings:
+Register `svc.Binding()` with Wails (see
+[Registering with Wails](#registering-with-wails--use-binding-never-the-service)). The
+frontend calls its three methods:
 
 1. **`GetSchema()`** — returns JSON describing all fields, types, options, conditions
-2. **`GetValues()`** — returns current values with defaults and computed fields
-3. **`SetValues(values)`** — validates, saves, triggers `onChange` callbacks
+2. **`GetValues()`** — returns current values with defaults and computed fields, secrets masked
+3. **`SetValues(values)`** — validates against effective state, saves, triggers `onChange` callbacks
 
 Render the schema with a generic loop:
 

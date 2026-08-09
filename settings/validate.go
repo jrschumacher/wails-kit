@@ -30,7 +30,7 @@ func Validate(schema Schema, values map[string]any) []ValidationError {
 
 	for _, group := range schema.Groups {
 		for _, field := range group.Fields {
-			if field.Validation == nil && field.Type != FieldSelect && field.Type != FieldToggle {
+			if field.Validation == nil && field.Type != FieldSelect && field.Type != FieldToggle && field.Type != FieldPassword {
 				continue
 			}
 
@@ -80,6 +80,16 @@ func validateField(field Field, val any, values map[string]any) []ValidationErro
 	if field.Type == FieldToggle && val != nil {
 		if _, ok := val.(bool); !ok {
 			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s must be true or false", field.Label), Code: CodeInvalidType})
+		}
+	}
+
+	// Password type validation: must be a string if provided. A non-string
+	// value (e.g. a stray number) must be rejected here rather than falling
+	// through to a raw type assertion that silently treats it as "" and
+	// deletes the stored secret.
+	if field.Type == FieldPassword && val != nil {
+		if _, ok := val.(string); !ok {
+			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s must be a string", field.Label), Code: CodeInvalidType})
 		}
 	}
 
