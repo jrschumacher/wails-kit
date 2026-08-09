@@ -17,7 +17,7 @@ func TestExtractTarGz(t *testing.T) {
 		"README.md": "# readme",
 	})
 
-	dir, err := extractArchive(archivePath)
+	dir, err := extractArchive(archivePath, t.TempDir())
 	if err != nil {
 		t.Fatalf("extractArchive: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestExtractZip(t *testing.T) {
 		"LICENSE":   "MIT",
 	})
 
-	dir, err := extractArchive(archivePath)
+	dir, err := extractArchive(archivePath, t.TempDir())
 	if err != nil {
 		t.Fatalf("extractArchive: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestExtractArchive_PlainFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dir, err := extractArchive(src)
+	dir, err := extractArchive(src, t.TempDir())
 	if err != nil {
 		t.Fatalf("extractArchive: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestExtractTarGz_PathTraversal(t *testing.T) {
 		{name: "../etc/passwd", content: "root::0:0::"},
 	})
 
-	dir, err := extractArchive(archivePath)
+	dir, err := extractArchive(archivePath, t.TempDir())
 	if err == nil {
 		_ = os.RemoveAll(dir)
 		t.Fatal("expected path traversal to be rejected")
@@ -103,7 +103,7 @@ func TestExtractZip_PathTraversal(t *testing.T) {
 		{name: "../etc/passwd", content: "root::0:0::"},
 	})
 
-	dir, err := extractArchive(archivePath)
+	dir, err := extractArchive(archivePath, t.TempDir())
 	if err == nil {
 		_ = os.RemoveAll(dir)
 		t.Fatal("expected path traversal to be rejected")
@@ -122,7 +122,7 @@ func TestExtractTarGz_ModeStripping(t *testing.T) {
 		{name: "binary", content: "#!/bin/sh", mode: 0o4755}, // setuid bit
 	})
 
-	dir, err := extractArchive(archivePath)
+	dir, err := extractArchive(archivePath, t.TempDir())
 	if err != nil {
 		t.Fatalf("extractArchive: %v", err)
 	}
@@ -308,10 +308,10 @@ func TestSanitizeMode(t *testing.T) {
 		want  os.FileMode
 	}{
 		{0o755, 0o755},
-		{0o4755, 0o755},  // setuid stripped
-		{0o2755, 0o755},  // setgid stripped
-		{0o1755, 0o755},  // sticky stripped
-		{0o7777, 0o777},  // all special bits stripped
+		{0o4755, 0o755}, // setuid stripped
+		{0o2755, 0o755}, // setgid stripped
+		{0o1755, 0o755}, // sticky stripped
+		{0o7777, 0o777}, // all special bits stripped
 		{0o644, 0o644},
 	}
 

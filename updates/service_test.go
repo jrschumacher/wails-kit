@@ -5,10 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/semver"
 	"github.com/jrschumacher/wails-kit/v2/settings"
 )
 
@@ -384,5 +388,237 @@ func TestWithIncludePrereleasesWithoutSettings(t *testing.T) {
 	}
 	if rel.TagName != "v2.0.0-alpha.1" {
 		t.Errorf("got tag %q, want %q", rel.TagName, "v2.0.0-alpha.1")
+	}
+}
+
+// TestRefuseDowngrade reproduces the downgrade-attack scenario from the
+// security review: a user on v2.0.0 sees "v2.1.0 available", the feed then
+// rolls back to an older release (this repo has literally done this — "fix:
+// revert v2.0.0 release to v1.3.0") — and a later check must not silently
+// overwrite the cache with the older, still-legitimately-signed release.
+func TestRefuseDowngrade(t *testing.T) {
+	var call int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		call++
+		if call == 1 {
+			_ = json.NewEncoder(w).Encode(Release{TagName: "v2.1.0"})
+			return
+		}
+		// The feed rolled back.
+		_ = json.NewEncoder(w).Encode(Release{TagName: "v1.3.0"})
+	}))
+	defer srv.Close()
+
+	svc, err := NewService(
+		WithCurrentVersion("v2.0.0"),
+		WithGitHubRepo("owner", "repo"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.github.apiURL = srv.URL
+
+	rel, err := svc.CheckForUpdate(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel == nil || rel.TagName != "v2.1.0" {
+		t.Fatalf("expected v2.1.0 to be reported available, got %+v", rel)
+	}
+	if cached := svc.GetLatestRelease(); cached == nil || cached.TagName != "v2.1.0" {
+		t.Fatalf("expected v2.1.0 to be cached, got %+v", cached)
+	}
+
+	// A second check sees the rolled-back feed. It must report "no
+	// update" and must NOT overwrite the cache with the older release.
+	rel2, err := svc.CheckForUpdate(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel2 != nil {
+		t.Fatalf("expected nil release after rollback, got %+v", rel2)
+	}
+	if stillCached := svc.GetLatestRelease(); stillCached == nil || stillCached.TagName != "v2.1.0" {
+		t.Fatalf("cache was overwritten by a non-newer release: %+v", stillCached)
+	}
+
+	// Whitebox: even if an older release is force-set into the cache
+	// (simulating any future code path that bypasses the newness gate in
+	// CheckForUpdate), DownloadUpdate must independently refuse it.
+	older, err := semver.ParseVersion("v1.3.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.mu.Lock()
+	svc.latestRelease = &Release{TagName: "v1.3.0", Version: older}
+	svc.mu.Unlock()
+
+	if _, err := svc.DownloadUpdate(context.Background()); err == nil {
+		t.Fatal("expected DownloadUpdate to refuse a non-newer cached release")
+	}
+}
+
+// TestApplyRechecksVersion whiteboxes a downloaded update whose recorded
+// version is not newer than current — as if the check at download time
+// were bypassed by a future refactor, or DownloadUpdate and ApplyUpdate
+// were separated further than they are today. ApplyUpdate must refuse
+// independently rather than trusting that Download already checked.
+func TestApplyRechecksVersion(t *testing.T) {
+	svc, err := NewService(
+		WithCurrentVersion("v2.0.0"),
+		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	assetPath := filepath.Join(dir, "app")
+	if err := os.WriteFile(assetPath, []byte("old-binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldVersion, err := semver.ParseVersion("v1.3.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	svc.mu.Lock()
+	svc.downloadPath = assetPath
+	svc.downloadVersion = oldVersion
+	svc.downloadDir = dir
+	svc.mu.Unlock()
+
+	if err := svc.ApplyUpdate(context.Background()); err == nil {
+		t.Fatal("expected ApplyUpdate to refuse applying a non-newer version")
+	}
+}
+
+// TestAllowDowngradeBypassesGuard confirms WithAllowDowngrade is the only
+// way past the newness guard, and that it must be explicitly opted into.
+func TestAllowDowngradeBypassesGuard(t *testing.T) {
+	svc, err := NewService(
+		WithCurrentVersion("v2.0.0"),
+		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
+		WithAllowDowngrade(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	assetPath := filepath.Join(dir, "app")
+	if err := os.WriteFile(assetPath, []byte("old-binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldVersion, err := semver.ParseVersion("v1.3.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	svc.mu.Lock()
+	svc.downloadPath = assetPath
+	svc.downloadVersion = oldVersion
+	svc.downloadDir = dir
+	svc.mu.Unlock()
+
+	if err := svc.ApplyUpdate(context.Background()); err != nil {
+		t.Fatalf("expected WithAllowDowngrade to permit applying an older version, got: %v", err)
+	}
+}
+
+// TestStagingDirPrivate verifies DownloadUpdate stages the asset under the
+// app's private cache directory rather than the shared OS temp dir (Linux's
+// /tmp is world-writable, mode 1777), and that the staging directory itself
+// carries private (0700-class) permissions.
+func TestStagingDirPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits not meaningful on Windows")
+	}
+
+	assetContent := []byte("binary")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/repo/releases/latest":
+			_ = json.NewEncoder(w).Encode(Release{
+				TagName: "v2.0.0",
+				Assets: []Asset{
+					{Name: "app", Size: int64(len(assetContent)), BrowserDownloadURL: "/download/app"},
+				},
+			})
+		case "/download/app":
+			_, _ = w.Write(assetContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	svc, err := NewService(
+		WithCurrentVersion("v1.0.0"),
+		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
+		WithAssetPattern("app"),
+		WithAppName("test-staging-private"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirs := svc.appDirs()
+	t.Cleanup(func() { _ = os.RemoveAll(dirs.Cache()) })
+	svc.github.apiURL = srv.URL
+
+	rel, err := svc.CheckForUpdate(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range rel.Assets {
+		rel.Assets[i].BrowserDownloadURL = srv.URL + rel.Assets[i].BrowserDownloadURL
+	}
+
+	path, err := svc.DownloadUpdate(context.Background())
+	if err != nil {
+		t.Fatalf("download failed: %v", err)
+	}
+
+	if !strings.HasPrefix(path, dirs.Cache()) {
+		t.Errorf("staged download %q is not under the private cache dir %q", path, dirs.Cache())
+	}
+	if strings.HasPrefix(path, os.TempDir()) {
+		t.Errorf("staged download %q must not be under the shared OS temp dir %q", path, os.TempDir())
+	}
+
+	info, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		t.Errorf("staging dir %q is not private: mode %04o", filepath.Dir(path), info.Mode().Perm())
+	}
+}
+
+// TestEnsurePrivateDirRejectsLoosePermissions is the direct regression test
+// for the Linux /tmp TOCTOU: os.MkdirAll succeeds silently on a directory
+// that already exists with the wrong permissions (as a local attacker who
+// pre-created it would leave it), so ensurePrivateDir must catch that after
+// the fact rather than trusting MkdirAll's success.
+func TestEnsurePrivateDirRejectsLoosePermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits not meaningful on Windows")
+	}
+	dir := filepath.Join(t.TempDir(), "preexisting")
+	if err := os.Mkdir(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensurePrivateDir(dir); err == nil {
+		t.Fatal("expected ensurePrivateDir to reject a pre-existing world-writable directory")
+	}
+}
+
+func TestEnsurePrivateDirAcceptsFreshDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "fresh")
+	if err := ensurePrivateDir(dir); err != nil {
+		t.Fatalf("expected ensurePrivateDir to accept a freshly created private dir: %v", err)
 	}
 }

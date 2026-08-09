@@ -2,16 +2,19 @@ package updates
 
 import (
 	"context"
-	"crypto/ed25519"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
+
+	minisign "github.com/jedisct1/go-minisign"
 
 	"github.com/jrschumacher/wails-kit/v2/appdirs"
 	"github.com/jrschumacher/wails-kit/v2/errors"
 	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/semver"
 	"github.com/jrschumacher/wails-kit/v2/settings"
 )
 
@@ -75,7 +78,7 @@ type (
 
 // Service manages update checking, downloading, and applying.
 type Service struct {
-	currentVersion     Version
+	currentVersion     semver.Version
 	github             *GitHubSource
 	emitter            *events.Emitter
 	applier            Applier
@@ -84,11 +87,26 @@ type Service struct {
 	assetPattern       string
 	binaryName         string
 	includePrereleases bool
-	publicKey          ed25519.PublicKey
+	publicKeyText      string
+	publicKey          *minisign.PublicKey
 	skipVerification   bool
-	mu                 sync.Mutex
-	latestRelease      *Release
-	downloadPath       string
+	allowDowngrade     bool
+
+	mu sync.Mutex
+	// latestRelease is populated only when it is strictly newer than
+	// currentVersion (see CheckForUpdate) — a compromised or rolled-back
+	// feed must never be able to poison this cache with an older,
+	// legitimately-signed release. See AGENTS.md, "Downgrade attack".
+	latestRelease *Release
+	// downloadPath, downloadSigPath, downloadVersion, and downloadDir
+	// describe the most recently completed DownloadUpdate. ApplyUpdate
+	// re-validates all of them (newness + signature) immediately before
+	// extraction, as defense in depth against the staging directory being
+	// tampered with between the two — separate, user-triggered — calls.
+	downloadPath    string
+	downloadSigPath string
+	downloadVersion semver.Version
+	downloadDir     string
 }
 
 type ServiceOption func(*Service)
@@ -103,7 +121,7 @@ func WithEmitter(e *events.Emitter) ServiceOption {
 // WithCurrentVersion sets the current app version for comparison.
 func WithCurrentVersion(version string) ServiceOption {
 	return func(s *Service) {
-		v, err := ParseVersion(version)
+		v, err := semver.ParseVersion(version)
 		if err == nil {
 			s.currentVersion = v
 		}
@@ -128,6 +146,18 @@ func WithGitHubToken(token string) ServiceOption {
 			s.github = &GitHubSource{}
 		}
 		s.github.token = token
+	}
+}
+
+// WithGitHubAPIURL overrides the GitHub API base URL (default
+// "https://api.github.com"). Set this for GitHub Enterprise Server, or to
+// point at a local stand-in server in tests and examples.
+func WithGitHubAPIURL(url string) ServiceOption {
+	return func(s *Service) {
+		if s.github == nil {
+			s.github = &GitHubSource{}
+		}
+		s.github.apiURL = url
 	}
 }
 
@@ -174,7 +204,8 @@ func WithSettings(svc *settings.Service) ServiceOption {
 	}
 }
 
-// WithAppName sets the application name, used for app-namespaced temp directories.
+// WithAppName sets the application name, used for app-namespaced staging
+// directories.
 func WithAppName(name string) ServiceOption {
 	return func(s *Service) {
 		s.appName = name
@@ -190,12 +221,18 @@ func WithIncludePrereleases(include bool) ServiceOption {
 	}
 }
 
-// WithPublicKey sets the Ed25519 public key used to verify update signatures.
-// When set, each downloaded asset must have a corresponding .sig file in the
-// release. The signature is verified after download, before the update is applied.
-func WithPublicKey(key ed25519.PublicKey) ServiceOption {
+// WithPublicKey sets the minisign public key used to verify update
+// signatures. Accepts either the full contents of a minisign public key
+// file (typically embedded via go:embed) or just the bare base64-encoded
+// key. When set, each downloaded asset must have a corresponding
+// "<asset>.minisig" signature file in the release; DownloadUpdate verifies
+// it after download, and ApplyUpdate verifies it again immediately before
+// extraction. The key is parsed (and rejected if malformed) at
+// NewService time rather than at first use — see AGENTS.md, "Fail-open
+// default".
+func WithPublicKey(minisignPublicKey string) ServiceOption {
 	return func(s *Service) {
-		s.publicKey = key
+		s.publicKeyText = minisignPublicKey
 	}
 }
 
@@ -205,6 +242,21 @@ func WithPublicKey(key ed25519.PublicKey) ServiceOption {
 func WithSkipVerification() ServiceOption {
 	return func(s *Service) {
 		s.skipVerification = true
+	}
+}
+
+// WithAllowDowngrade permits DownloadUpdate and ApplyUpdate to proceed
+// against a release that is not strictly newer than the current version.
+// Off by default: without it, both calls refuse a non-newer release even
+// if the release object being acted on was somehow swapped after
+// CheckForUpdate ran (e.g. a rolled-back feed) — signatures alone don't
+// prevent installing an older, legitimately-signed build with known,
+// already-patched vulnerabilities. Only enable this for an explicit,
+// user-initiated "reinstall" or "downgrade" flow. See AGENTS.md,
+// "Downgrade attack".
+func WithAllowDowngrade() ServiceOption {
+	return func(s *Service) {
+		s.allowDowngrade = true
 	}
 }
 
@@ -223,6 +275,13 @@ func NewService(opts ...ServiceOption) (*Service, error) {
 	}
 	if s.applier == nil {
 		s.applier = defaultApplier{}
+	}
+	if s.publicKeyText != "" {
+		pk, err := parseMinisignPublicKey(s.publicKeyText)
+		if err != nil {
+			return nil, fmt.Errorf("updates: %w", err)
+		}
+		s.publicKey = &pk
 	}
 
 	return s, nil
@@ -246,19 +305,26 @@ func (s *Service) CheckForUpdate(ctx context.Context) (*Release, error) {
 		return nil, errors.Wrap(ErrUpdateCheck, "check for update", err)
 	}
 
+	newer := rel.Version.NewerThan(s.currentVersion)
+	if !newer && !s.allowDowngrade {
+		// Do not cache a non-newer release: a rolled-back or compromised
+		// feed must not be able to overwrite a previously cached, genuinely
+		// newer release with an older one. See AGENTS.md, "Downgrade
+		// attack".
+		return nil, nil
+	}
+
 	s.mu.Lock()
 	s.latestRelease = rel
 	s.mu.Unlock()
 
-	if !rel.Version.NewerThan(s.currentVersion) {
-		return nil, nil
+	if newer {
+		s.emit(EventAvailable, AvailablePayload{
+			Version:      rel.Version.String(),
+			ReleaseNotes: rel.Body,
+			ReleaseURL:   rel.HTMLURL,
+		})
 	}
-
-	s.emit(EventAvailable, AvailablePayload{
-		Version:      rel.Version.String(),
-		ReleaseNotes: rel.Body,
-		ReleaseURL:   rel.HTMLURL,
-	})
 
 	return rel, nil
 }
@@ -274,25 +340,45 @@ func (s *Service) DownloadUpdate(ctx context.Context) (string, error) {
 		return "", errors.Newf(ErrUpdateDownload, "no update available; call CheckForUpdate first")
 	}
 
+	// Defense in depth: re-check newness here too, in case the cached
+	// release was set by a caller other than CheckForUpdate (e.g. a
+	// future API extension) or the check happened long enough ago that
+	// re-validating is cheap insurance. See AGENTS.md, "Downgrade attack".
+	if !s.allowDowngrade && !rel.Version.NewerThan(s.currentVersion) {
+		return "", errors.Newf(ErrUpdateDownload, "refusing to download %s: not newer than current version %s", rel.Version, s.currentVersion)
+	}
+
 	asset, err := FindAsset(rel, s.assetPattern)
 	if err != nil {
 		s.emitError(ErrUpdateDownload, err)
 		return "", errors.Wrap(ErrUpdateDownload, "find platform asset", err)
 	}
 
-	// Download to an app-namespaced temp directory
-	appName := s.appName
-	if appName == "" {
-		appName = "wails-kit"
+	// Stage the download in a private, per-attempt directory under the
+	// app's cache dir — never the shared OS temp dir. appdirs.Temp()
+	// resolves to a subdirectory of os.TempDir(), which is world-writable
+	// on Linux (/tmp is mode 1777); a local attacker can pre-create that
+	// subdirectory and own it before this process ever runs. appdirs.Cache()
+	// lives under the user's home directory instead. See AGENTS.md,
+	// "Linux /tmp TOCTOU".
+	dirs := s.appDirs()
+	stageRoot := filepath.Join(dirs.Cache(), "updates")
+	if err := ensurePrivateDir(stageRoot); err != nil {
+		s.emitError(ErrUpdateDownload, err)
+		return "", errors.Wrap(ErrUpdateDownload, "prepare staging directory", err)
 	}
-	dirs := appdirs.New(appName)
-	tmpDir := dirs.Temp()
-	if err := os.MkdirAll(tmpDir, 0700); err != nil {
-		return "", errors.Wrap(ErrUpdateDownload, "create temp dir", err)
-	}
-	tmpFile, err := os.CreateTemp(tmpDir, "update-*-"+asset.Name)
+	downloadDir, err := os.MkdirTemp(stageRoot, "dl-*")
 	if err != nil {
-		return "", errors.Wrap(ErrUpdateDownload, "create temp file", err)
+		s.emitError(ErrUpdateDownload, err)
+		return "", errors.Wrap(ErrUpdateDownload, "create download directory", err)
+	}
+
+	assetPath := filepath.Join(downloadDir, asset.Name)
+	tmpFile, err := os.OpenFile(assetPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		_ = os.RemoveAll(downloadDir)
+		s.emitError(ErrUpdateDownload, err)
+		return "", errors.Wrap(ErrUpdateDownload, "create download file", err)
 	}
 
 	version := rel.Version.String()
@@ -312,32 +398,49 @@ func (s *Service) DownloadUpdate(ctx context.Context) (string, error) {
 	_ = tmpFile.Close()
 
 	if err != nil {
-		_ = os.Remove(tmpFile.Name())
+		_ = os.RemoveAll(downloadDir)
 		s.emitError(ErrUpdateDownload, err)
 		return "", errors.Wrap(ErrUpdateDownload, "download update", err)
 	}
 
-	// Verify the downloaded asset's signature
-	if err := s.verifyDownload(ctx, rel, asset, tmpFile.Name()); err != nil {
-		_ = os.Remove(tmpFile.Name())
-		s.emitError(ErrUpdateVerify, err)
-		return "", errors.Wrap(ErrUpdateVerify, "verify update signature", err)
+	// Verify the downloaded asset's signature.
+	var sigPath string
+	switch {
+	case s.skipVerification:
+		slog.Warn("updates: signature verification skipped — do not use in production")
+	case s.publicKey == nil:
+		slog.Warn("updates: no public key configured — downloaded update will not be signature-verified")
+	default:
+		sigPath, err = s.downloadSignature(ctx, rel, asset, downloadDir)
+		if err != nil {
+			_ = os.RemoveAll(downloadDir)
+			s.emitError(ErrUpdateVerify, err)
+			return "", errors.Wrap(ErrUpdateVerify, "download update signature", err)
+		}
+		if err := verifySignature(*s.publicKey, assetPath, sigPath); err != nil {
+			_ = os.RemoveAll(downloadDir)
+			s.emitError(ErrUpdateVerify, err)
+			return "", errors.Wrap(ErrUpdateVerify, "verify update signature", err)
+		}
 	}
 
 	s.mu.Lock()
-	s.downloadPath = tmpFile.Name()
+	s.downloadPath = assetPath
+	s.downloadSigPath = sigPath
+	s.downloadVersion = rel.Version
+	s.downloadDir = downloadDir
 	s.mu.Unlock()
 
 	s.emit(EventReady, ReadyPayload{Version: version})
 
-	return tmpFile.Name(), nil
+	return assetPath, nil
 }
 
 // ApplyUpdate applies a previously downloaded update to the running binary.
 // Returns an ErrUpdateManaged error if the app was installed via a package
 // manager (e.g., Homebrew Cask). In that case, an updates:managed event is
 // emitted with instructions for the user.
-func (s *Service) ApplyUpdate(ctx context.Context) error {
+func (s *Service) ApplyUpdate(_ context.Context) error {
 	// Check for managed installs before attempting anything
 	if method := DetectInstallMethod(); method != InstallDirect {
 		instructions := method.UpdateInstructions(s.appName)
@@ -350,14 +453,42 @@ func (s *Service) ApplyUpdate(ctx context.Context) error {
 
 	s.mu.Lock()
 	downloadPath := s.downloadPath
+	sigPath := s.downloadSigPath
+	downloadVersion := s.downloadVersion
+	downloadDir := s.downloadDir
 	s.mu.Unlock()
 
 	if downloadPath == "" {
 		return errors.Newf(ErrUpdateApply, "no downloaded update; call DownloadUpdate first")
 	}
 
-	// Extract the archive (if applicable)
-	extractDir, err := extractArchive(downloadPath)
+	// Defense in depth: DownloadUpdate and ApplyUpdate are separate,
+	// user-triggered steps with an unbounded gap between them. Re-check
+	// newness here even though DownloadUpdate already checked it — the
+	// whole point is not to trust a single check-then-act window.
+	// See AGENTS.md, "Downgrade attack".
+	if !s.allowDowngrade && !downloadVersion.NewerThan(s.currentVersion) {
+		return errors.Newf(ErrUpdateApply, "refusing to apply %s: not newer than current version %s", downloadVersion, s.currentVersion)
+	}
+
+	// Defense in depth: re-verify the signature immediately before
+	// extraction, not just at download time. This closes the window where
+	// a local attacker who gains write access to the staging directory
+	// between DownloadUpdate and ApplyUpdate could swap the file.
+	// See AGENTS.md, "Linux /tmp TOCTOU".
+	if !s.skipVerification && s.publicKey != nil {
+		if sigPath == "" {
+			return errors.Newf(ErrUpdateVerify, "no signature recorded for the downloaded update; refusing to apply")
+		}
+		if err := verifySignature(*s.publicKey, downloadPath, sigPath); err != nil {
+			s.emitError(ErrUpdateVerify, err)
+			return errors.Wrap(ErrUpdateVerify, "re-verify update signature before apply", err)
+		}
+	}
+
+	// Extract the archive (if applicable) into a private subdirectory of
+	// the same staging directory used for the download.
+	extractDir, err := extractArchive(downloadPath, downloadDir)
 	if err != nil {
 		s.emitError(ErrUpdateApply, err)
 		return errors.Wrap(ErrUpdateApply, "extract update", err)
@@ -383,10 +514,14 @@ func (s *Service) ApplyUpdate(ctx context.Context) error {
 		return errors.Wrap(ErrUpdateApply, "apply update", err)
 	}
 
-	// Clean up the download
-	_ = os.Remove(downloadPath)
+	// Clean up the whole staging directory for this download (asset,
+	// signature, and any extracted files).
+	_ = os.RemoveAll(downloadDir)
 	s.mu.Lock()
 	s.downloadPath = ""
+	s.downloadSigPath = ""
+	s.downloadDir = ""
+	s.downloadVersion = semver.Version{}
 	s.mu.Unlock()
 
 	return nil
@@ -404,20 +539,21 @@ func (s *Service) GetLatestRelease() *Release {
 	return s.latestRelease
 }
 
-// verifyDownload handles signature verification for a downloaded asset.
-// If no public key is configured and skip is not set, this is a no-op.
-// If skip is set, a warning is logged.
-func (s *Service) verifyDownload(ctx context.Context, rel *Release, asset *Asset, assetPath string) error {
-	if s.skipVerification {
-		slog.Warn("updates: signature verification skipped — do not use in production")
-		return nil
+// appDirs returns the appdirs.Dirs for this service's app name, defaulting
+// to "wails-kit" when unset (matching the pre-v2 behavior).
+func (s *Service) appDirs() *appdirs.Dirs {
+	appName := s.appName
+	if appName == "" {
+		appName = "wails-kit"
 	}
-	if s.publicKey == nil {
-		return nil
-	}
+	return appdirs.New(appName)
+}
 
-	// Find the corresponding .sig asset
-	sigAssetName := asset.Name + ".sig"
+// downloadSignature fetches the minisign detached signature for asset
+// (named "<asset.Name>.minisig" in the release) into dir and returns its
+// path.
+func (s *Service) downloadSignature(ctx context.Context, rel *Release, asset *Asset, dir string) (string, error) {
+	sigAssetName := asset.Name + ".minisig"
 	var sigAsset *Asset
 	for i := range rel.Assets {
 		if rel.Assets[i].Name == sigAssetName {
@@ -426,24 +562,21 @@ func (s *Service) verifyDownload(ctx context.Context, rel *Release, asset *Asset
 		}
 	}
 	if sigAsset == nil {
-		return fmt.Errorf("signature file %q not found in release %s", sigAssetName, rel.TagName)
+		return "", fmt.Errorf("signature file %q not found in release %s", sigAssetName, rel.TagName)
 	}
 
-	// Download the signature to a temp file
-	sigFile, err := os.CreateTemp("", "update-sig-*")
+	sigPath := filepath.Join(dir, sigAssetName)
+	sigFile, err := os.OpenFile(sigPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return fmt.Errorf("create temp sig file: %w", err)
+		return "", fmt.Errorf("create signature file: %w", err)
 	}
-	sigPath := sigFile.Name()
-	defer func() { _ = os.Remove(sigPath) }()
-
 	if err := s.github.DownloadAsset(ctx, sigAsset, sigFile, nil); err != nil {
 		_ = sigFile.Close()
-		return fmt.Errorf("download signature: %w", err)
+		return "", fmt.Errorf("download signature: %w", err)
 	}
 	_ = sigFile.Close()
 
-	return verifySignature(s.publicKey, assetPath, sigPath)
+	return sigPath, nil
 }
 
 func (s *Service) emit(name string, data any) {

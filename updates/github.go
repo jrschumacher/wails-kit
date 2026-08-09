@@ -10,26 +10,39 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/jrschumacher/wails-kit/v2/semver"
 )
 
 // Release represents a GitHub release.
 type Release struct {
-	TagName    string  `json:"tag_name"`
-	Name       string  `json:"name"`
-	Body       string  `json:"body"`
-	Draft      bool    `json:"draft"`
-	Prerelease bool    `json:"prerelease"`
-	HTMLURL    string  `json:"html_url"`
-	Assets     []Asset `json:"assets"`
-	Version    Version `json:"-"`
+	TagName    string         `json:"tag_name"`
+	Name       string         `json:"name"`
+	Body       string         `json:"body"`
+	Draft      bool           `json:"draft"`
+	Prerelease bool           `json:"prerelease"`
+	HTMLURL    string         `json:"html_url"`
+	Assets     []Asset        `json:"assets"`
+	Version    semver.Version `json:"-"`
 }
 
 // Asset represents a downloadable file from a release.
 type Asset struct {
-	Name               string `json:"name"`
-	Size               int64  `json:"size"`
+	Name        string `json:"name"`
+	Size        int64  `json:"size"`
+	ContentType string `json:"content_type"`
+
+	// BrowserDownloadURL is the public CDN URL. It works unauthenticated
+	// for public repos, but for private repos it 404s even with a valid
+	// token — GitHub requires the API asset endpoint (URL) with an
+	// "Accept: application/octet-stream" header instead. See DownloadAsset.
 	BrowserDownloadURL string `json:"browser_download_url"`
-	ContentType        string `json:"content_type"`
+
+	// URL is the GitHub API asset endpoint
+	// ("https://api.github.com/repos/{owner}/{repo}/releases/assets/{id}").
+	// Present on every asset the GitHub API returns; DownloadAsset prefers
+	// it over BrowserDownloadURL when set.
+	URL string `json:"url"`
 }
 
 // GitHubSource fetches release info from the GitHub Releases API.
@@ -95,7 +108,7 @@ func (g *GitHubSource) fetchLatestIncludingPrereleases(ctx context.Context, base
 		if rel.Draft {
 			continue
 		}
-		v, err := ParseVersion(rel.TagName)
+		v, err := semver.ParseVersion(rel.TagName)
 		if err != nil {
 			continue
 		}
@@ -133,7 +146,7 @@ func (g *GitHubSource) fetchRelease(ctx context.Context, url string) (*Release, 
 		return nil, fmt.Errorf("decode release: %w", err)
 	}
 
-	v, err := ParseVersion(rel.TagName)
+	v, err := semver.ParseVersion(rel.TagName)
 	if err != nil {
 		return nil, fmt.Errorf("parse release tag %q: %w", rel.TagName, err)
 	}
@@ -199,8 +212,31 @@ func FindAsset(release *Release, pattern string) (*Asset, error) {
 }
 
 // DownloadAsset downloads an asset, reporting progress via the callback.
+//
+// Assets from private repositories must go through the GitHub API asset
+// endpoint (asset.URL) with an "Accept: application/octet-stream" header —
+// the plain browser_download_url requires a browser session and returns 404
+// for API/token-authenticated requests against a private repo. The API
+// endpoint works for public repos too, so it is always preferred when
+// present; BrowserDownloadURL is used only as a fallback for
+// hand-constructed Asset values (e.g. in tests) that don't set URL. The
+// Authorization header is safe to set unconditionally here: net/http
+// strips it automatically when the API endpoint 302-redirects to the
+// signed, unauthenticated CDN/blob-storage URL that actually serves the
+// bytes.
+//
+// The download is capped at asset.Size (the size GitHub reported for this
+// asset at release-listing time, not anything the response claims) to stop
+// a compromised or malicious feed from filling the disk before signature
+// verification ever runs. When asset.Size is 0 (unset — e.g. hand-built
+// Asset values in tests), no cap is applied.
 func (g *GitHubSource) DownloadAsset(ctx context.Context, asset *Asset, dest io.Writer, progress func(downloaded, total int64)) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, asset.BrowserDownloadURL, nil)
+	url := asset.BrowserDownloadURL
+	if asset.URL != "" {
+		url = asset.URL
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("create download request: %w", err)
 	}
@@ -220,12 +256,24 @@ func (g *GitHubSource) DownloadAsset(ctx context.Context, asset *Asset, dest io.
 	}
 
 	total := resp.ContentLength
+	if asset.Size > 0 {
+		total = asset.Size
+	}
+
+	// Cap the read at asset.Size+1: if the body is still producing bytes
+	// after that, it's larger than the release metadata promised and we
+	// bail out below rather than keep buffering an unbounded stream.
+	var body io.Reader = resp.Body
+	if asset.Size > 0 {
+		body = io.LimitReader(resp.Body, asset.Size+1)
+	}
+
 	var downloaded int64
 	buf := make([]byte, 32*1024)
 	lastReport := time.Time{}
 
 	for {
-		n, readErr := resp.Body.Read(buf)
+		n, readErr := body.Read(buf)
 		if n > 0 {
 			if _, writeErr := dest.Write(buf[:n]); writeErr != nil {
 				return fmt.Errorf("write downloaded data: %w", writeErr)
@@ -242,6 +290,10 @@ func (g *GitHubSource) DownloadAsset(ctx context.Context, asset *Asset, dest io.
 		if readErr != nil {
 			return fmt.Errorf("read download stream: %w", readErr)
 		}
+	}
+
+	if asset.Size > 0 && downloaded > asset.Size {
+		return fmt.Errorf("downloaded %d bytes but release metadata declared %d bytes for %q: refusing, possible compromised feed", downloaded, asset.Size, asset.Name)
 	}
 
 	// Final progress report
@@ -305,7 +357,7 @@ func buildCandidateNames(pattern, goos, goarch string) []string {
 }
 
 func isSignatureLikeAsset(name string) bool {
-	for _, suffix := range []string{".sig", ".sha256", ".sha512", ".checksums", ".checksum"} {
+	for _, suffix := range []string{".minisig", ".sig", ".sha256", ".sha512", ".checksums", ".checksum"} {
 		if strings.HasSuffix(name, suffix) {
 			return true
 		}

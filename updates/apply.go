@@ -15,6 +15,18 @@ import (
 // archive. This protects against decompression bombs.
 const maxExtractSize = 1 << 30 // 1 GiB
 
+// ensurePrivateDir creates dir (and parents) with 0700 permissions if it
+// doesn't exist, then verifies it is actually private (see
+// verifyPrivateDir). os.MkdirAll alone is not enough: it returns nil
+// without complaint when the directory already exists, no matter who
+// created it or with what permissions.
+func ensurePrivateDir(dir string) error {
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("create private dir: %w", err)
+	}
+	return verifyPrivateDir(dir)
+}
+
 // Applier replaces the running binary with a new version.
 type Applier interface {
 	Apply(newPath, currentPath string) error
@@ -68,15 +80,23 @@ func moveFile(src, dst string) error {
 	return os.Remove(src)
 }
 
-// extractArchive extracts a downloaded archive to a temp directory.
-// Returns the path to the extracted directory. The caller is responsible
-// for cleanup.
-func extractArchive(archivePath string) (string, error) {
+// extractArchive extracts a downloaded archive into a fresh subdirectory of
+// parentDir. Returns the path to the extracted directory. The caller is
+// responsible for cleanup.
+//
+// parentDir must already be a private, exclusively-owned directory (see
+// ensurePrivateDir / verifyPrivateDir) — extractArchive deliberately does
+// not fall back to the shared OS temp directory. Downloaded archives are
+// signature-verified but the extraction step still writes attacker-supplied
+// (albeit verified) file names and content to disk; staging that under a
+// world-writable parent would reopen the same TOCTOU window the private
+// staging directory exists to close. See AGENTS.md, "Linux /tmp TOCTOU".
+func extractArchive(archivePath, parentDir string) (string, error) {
 	lower := strings.ToLower(archivePath)
 
-	dir, err := os.MkdirTemp("", "wails-kit-update-*")
+	dir, err := os.MkdirTemp(parentDir, "extract-*")
 	if err != nil {
-		return "", fmt.Errorf("create temp dir: %w", err)
+		return "", fmt.Errorf("create extraction dir: %w", err)
 	}
 
 	switch {

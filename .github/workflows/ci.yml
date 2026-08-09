@@ -69,6 +69,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Required since WP-06 removed the `wails` build tag from shortcuts/apply.go.
+      # wails/v3/pkg/application is now in the default build graph, and its Linux
+      # implementation is cgo with `#cgo linux pkg-config: gtk+-3.0 webkit2gtk-4.1
+      # gdk-3.0`. Without these, `go build ./...` fails on a bare runner.
+      - name: Install Wails Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: test
@@ -78,6 +87,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Wails Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: lint
@@ -115,6 +129,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Wails Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: security

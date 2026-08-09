@@ -4,8 +4,8 @@ import "github.com/jrschumacher/wails-kit/v2/settings"
 
 // Settings keys.
 const (
-	SettingCheckFrequency    = "updates.check_frequency"
-	SettingAutoDownload      = "updates.auto_download"
+	SettingCheckFrequency     = "updates.check_frequency"
+	SettingAutoDownload       = "updates.auto_download"
 	SettingIncludePrereleases = "updates.include_prereleases"
 )
 
@@ -34,10 +34,10 @@ func SettingsGroup() settings.Group {
 				Default: false,
 			},
 			{
-				Key:     SettingIncludePrereleases,
-				Type:    settings.FieldToggle,
-				Label:   "Include pre-release versions",
-				Default: false,
+				Key:      SettingIncludePrereleases,
+				Type:     settings.FieldToggle,
+				Label:    "Include pre-release versions",
+				Default:  false,
 				Advanced: true,
 			},
 		},

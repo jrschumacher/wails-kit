@@ -1,4 +1,9 @@
-package updates
+// Package semver implements a minimal Semantic Versioning 2.0.0 parser and
+// comparator. It has no dependencies beyond the standard library and does
+// not import any other wails-kit package, so it is safe to use from any
+// consumer — including packages like updates and firstrun — without pulling
+// in unrelated machinery.
+package semver
 
 import (
 	"fmt"

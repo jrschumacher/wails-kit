@@ -1,4 +1,4 @@
-package updates
+package semver
 
 import "testing"
 
@@ -65,9 +65,9 @@ func TestVersionCompare(t *testing.T) {
 		{"v1.1.0", "v1.0.0", 1},
 		{"v1.0.1", "v1.0.0", 1},
 		// Prerelease precedence
-		{"v1.0.0", "v1.0.0-alpha", 1},       // stable > prerelease
-		{"v1.0.0-alpha", "v1.0.0", -1},       // prerelease < stable
-		{"v1.0.0-beta", "v1.0.0-alpha", 1},   // beta > alpha
+		{"v1.0.0", "v1.0.0-alpha", 1},      // stable > prerelease
+		{"v1.0.0-alpha", "v1.0.0", -1},     // prerelease < stable
+		{"v1.0.0-beta", "v1.0.0-alpha", 1}, // beta > alpha
 		{"v1.0.0-alpha.2", "v1.0.0-alpha.1", 1},
 		{"v1.0.0-alpha.1", "v1.0.0-alpha.1", 0},
 		// Numeric < alphanumeric in prerelease

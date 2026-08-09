@@ -1,30 +1,55 @@
 package updates
 
 import (
-	"crypto/ed25519"
 	"fmt"
-	"os"
+	"strings"
+
+	minisign "github.com/jedisct1/go-minisign"
 )
 
-// verifySignature reads the asset file at assetPath, reads the detached
-// Ed25519 signature from sigPath, and verifies the signature against the
-// given public key. Returns nil on success.
-func verifySignature(publicKey ed25519.PublicKey, assetPath, sigPath string) error {
-	message, err := os.ReadFile(assetPath)
-	if err != nil {
-		return fmt.Errorf("read asset for verification: %w", err)
+// parseMinisignPublicKey accepts either the full contents of a minisign
+// public key file (two lines: an "untrusted comment: ..." line followed by
+// the base64-encoded key) or just the bare base64-encoded key on its own.
+// Apps typically embed the whole .pub file via go:embed and pass its
+// contents directly.
+func parseMinisignPublicKey(raw string) (minisign.PublicKey, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return minisign.PublicKey{}, fmt.Errorf("empty public key")
 	}
+	if strings.Contains(trimmed, "\n") {
+		pk, err := minisign.DecodePublicKey(trimmed)
+		if err != nil {
+			return minisign.PublicKey{}, fmt.Errorf("decode minisign public key file: %w", err)
+		}
+		return pk, nil
+	}
+	pk, err := minisign.NewPublicKey(trimmed)
+	if err != nil {
+		return minisign.PublicKey{}, fmt.Errorf("decode minisign public key: %w", err)
+	}
+	return pk, nil
+}
 
-	sig, err := os.ReadFile(sigPath)
+// verifySignature verifies the minisign detached signature at sigPath
+// against the asset at assetPath, using the given public key. It checks
+// both the per-file signature and minisign's global signature over the
+// trusted comment. Returns nil only when both are valid.
+//
+// go-minisign's Verify returns (bool, error); a false result with a nil
+// error is treated as failure just like a non-nil error — never trust the
+// bare bool alone for a security decision (see AGENTS.md).
+func verifySignature(publicKey minisign.PublicKey, assetPath, sigPath string) error {
+	sig, err := minisign.NewSignatureFromFile(sigPath)
 	if err != nil {
 		return fmt.Errorf("read signature file: %w", err)
 	}
 
-	if len(sig) != ed25519.SignatureSize {
-		return fmt.Errorf("invalid signature size: got %d bytes, want %d", len(sig), ed25519.SignatureSize)
+	ok, err := publicKey.VerifyFromFile(assetPath, sig)
+	if err != nil {
+		return fmt.Errorf("verify signature: %w", err)
 	}
-
-	if !ed25519.Verify(publicKey, message, sig) {
+	if !ok {
 		return fmt.Errorf("signature verification failed: binary may have been tampered with")
 	}
 
