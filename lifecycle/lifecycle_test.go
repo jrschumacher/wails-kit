@@ -4,6 +4,7 @@ import (
 	"context"
 	stderrors "errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -68,6 +69,27 @@ type healthyService struct {
 
 func (h *healthyService) Health() HealthStatus {
 	return h.status
+}
+
+// ignoresContextService ignores context cancellation during OnStartup —
+// it always sleeps out startDelay and reports success, regardless of
+// whether the manager already gave up on it. Used to exercise the
+// timed-out-but-later-succeeds reap path.
+type ignoresContextService struct {
+	startDelay time.Duration
+	started    chan struct{}
+	stopped    chan struct{}
+}
+
+func (s *ignoresContextService) OnStartup(_ context.Context) error {
+	time.Sleep(s.startDelay)
+	close(s.started)
+	return nil
+}
+
+func (s *ignoresContextService) OnShutdown() error {
+	close(s.stopped)
+	return nil
 }
 
 func TestNewManager_NoDeps(t *testing.T) {
@@ -609,5 +631,205 @@ func TestHealth_Unhealthy(t *testing.T) {
 	health := mgr.Health()
 	if len(health) != 1 || health[0].Status != StatusUnhealthy {
 		t.Fatalf("expected unhealthy, got %+v", health)
+	}
+}
+
+// --- Regression tests: duplicate names, rollback timeouts, concurrency,
+// and orphaned timed-out startups ---
+
+// TestDuplicateServiceName is the regression test for NewManager silently
+// accepting two services registered under the same name. topoSort used to
+// dedupe names into a set for its cycle check, so len(order) still ended up
+// looking consistent, and entryMap() is last-writer-wins — so one entry
+// silently vanishes, its service is never started, and whichever entry
+// wins the map gets started (and later shut down) as if it were both.
+func TestDuplicateServiceName(t *testing.T) {
+	var order []string
+	a1 := &mockService{name: "a1", startOrder: &order}
+	a2 := &mockService{name: "a2", startOrder: &order}
+
+	_, err := NewManager(
+		WithService("a", a1),
+		WithService("a", a2),
+	)
+	if err == nil {
+		t.Fatal("expected error for duplicate service name")
+	}
+	if !errors.IsCode(err, ErrDuplicateService) {
+		t.Fatalf("expected ErrDuplicateService, got %v", err)
+	}
+}
+
+// TestRollbackHonorsTimeout is the regression test for rollback calling
+// OnShutdown directly instead of going through stopService: a service that
+// hangs in OnShutdown during rollback used to block Startup forever, even
+// with a timeout configured specifically to prevent that. "Forever" isn't
+// something a test can wait out, so this asserts Startup returns well
+// within the configured timeout instead of hanging — a service with a
+// 500ms shutdown delay against a 50ms service timeout must not make the
+// test (or a real Startup call) wait 500ms.
+func TestRollbackHonorsTimeout(t *testing.T) {
+	db := &slowService{stopDelay: 500 * time.Millisecond}
+	settings := &mockService{name: "settings", startErr: stderrors.New("settings broken")}
+
+	mem := events.NewMemoryEmitter()
+	mgr, err := NewManager(
+		WithService("settings", settings, DependsOn("db")),
+		WithService("db", db, WithServiceTimeout(50*time.Millisecond)),
+		WithEmitter(events.NewEmitter(mem)),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- mgr.Startup(context.Background()) }()
+
+	select {
+	case err = <-done:
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("Startup did not return within 300ms — rollback did not honor the configured per-service timeout")
+	}
+
+	if err == nil {
+		t.Fatal("expected startup error")
+	}
+
+	// A shutdown timeout event must have been emitted for db during rollback.
+	var foundTimeout bool
+	for _, evt := range mem.Events() {
+		if evt.Name == EventTimeout {
+			payload := evt.Data.(TimeoutPayload)
+			if payload.Name == "db" && payload.Phase == "shutdown" {
+				foundTimeout = true
+			}
+		}
+	}
+	if !foundTimeout {
+		t.Fatal("expected a shutdown timeout event emitted during rollback")
+	}
+}
+
+// TestStartup_TwiceWithoutShutdown_ReturnsError is the regression test for
+// "Startup twice double-starts everything": calling Startup a second time
+// without an intervening Shutdown used to reset m.started and re-run every
+// service's OnStartup from scratch, on top of whatever was already running.
+func TestStartup_TwiceWithoutShutdown_ReturnsError(t *testing.T) {
+	var order []string
+	a := &mockService{name: "a", startOrder: &order}
+
+	mgr, err := NewManager(WithService("a", a))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := mgr.Startup(context.Background()); err != nil {
+		t.Fatalf("first startup failed: %v", err)
+	}
+
+	err = mgr.Startup(context.Background())
+	if err == nil {
+		t.Fatal("expected an error calling Startup twice without an intervening Shutdown")
+	}
+	if !errors.IsCode(err, ErrInvalidState) {
+		t.Fatalf("expected ErrInvalidState, got %v", err)
+	}
+
+	if len(order) != 1 {
+		t.Fatalf("service must start exactly once, got %d starts: %v", len(order), order)
+	}
+}
+
+// TestStartup_ConcurrentCalls_OnlyOneSucceeds exercises the "no mutex, not
+// safe for concurrent use" gap directly: two goroutines racing Startup()
+// must not both succeed (double-starting the service) and must not race on
+// m.started — run with -race.
+func TestStartup_ConcurrentCalls_OnlyOneSucceeds(t *testing.T) {
+	a := &slowService{startDelay: 50 * time.Millisecond}
+
+	mgr, err := NewManager(WithService("a", a))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, 2)
+	wg.Add(2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer wg.Done()
+			errCh <- mgr.Startup(context.Background())
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+
+	var successCount, invalidStateCount int
+	for err := range errCh {
+		switch {
+		case err == nil:
+			successCount++
+		case errors.IsCode(err, ErrInvalidState):
+			invalidStateCount++
+		default:
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if successCount != 1 {
+		t.Fatalf("expected exactly 1 successful concurrent Startup, got %d", successCount)
+	}
+	if invalidStateCount != 1 {
+		t.Fatalf("expected exactly 1 ErrInvalidState from the losing concurrent Startup, got %d", invalidStateCount)
+	}
+}
+
+// TestShutdown_SafeNoOpWhenNeverStarted verifies Shutdown can be called
+// unconditionally (the common `defer mgr.Shutdown()` pattern) even when
+// Startup was never called or already failed, without panicking or acting
+// on stale state.
+func TestShutdown_SafeNoOpWhenNeverStarted(t *testing.T) {
+	mgr, err := NewManager(WithService("a", &mockService{name: "a"}))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := mgr.Shutdown(); err != nil {
+		t.Fatalf("Shutdown on a never-started manager should be a no-op, got: %v", err)
+	}
+}
+
+// TestStartup_TimeoutReapsLateSuccess is the regression test for a startup
+// service that times out but ignores context cancellation and eventually
+// succeeds anyway: it must not be orphaned (leaked, still running, with no
+// caller ever able to shut it down again since it's not in m.started).
+func TestStartup_TimeoutReapsLateSuccess(t *testing.T) {
+	svc := &ignoresContextService{
+		startDelay: 100 * time.Millisecond,
+		started:    make(chan struct{}),
+		stopped:    make(chan struct{}),
+	}
+
+	mgr, err := NewManager(
+		WithService("slow", svc, WithServiceTimeout(20*time.Millisecond)),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = mgr.Startup(context.Background())
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+
+	select {
+	case <-svc.started:
+	case <-time.After(1 * time.Second):
+		t.Fatal("service never finished its (ignored-timeout) OnStartup call")
+	}
+
+	select {
+	case <-svc.stopped:
+	case <-time.After(1 * time.Second):
+		t.Fatal("service that timed out but later succeeded was never shut down (orphaned)")
 	}
 }

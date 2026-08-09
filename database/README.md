@@ -69,6 +69,11 @@ Migrations run automatically on `New()`. Use `Version()` to check the current sc
 version, err := db.Version()
 ```
 
+`Version()` returns `(0, nil)` only for the legitimate "no migrations applied
+yet" case (no `goose_db_version` table). Any other failure — a closed
+connection, an I/O error, a corrupt database — is returned as an error
+(`database_version`) rather than silently reported as version 0.
+
 ### Baseline version (adopting wails-kit with existing tables)
 
 When integrating wails-kit into an app that already has SQLite tables, migrations will fail because goose tries to run all migrations from scratch. Use `WithBaselineVersion` to stamp existing migrations as applied:
@@ -85,6 +90,14 @@ db, err := database.New(
 - If `goose_db_version` table already exists → no-op (goose is already tracking)
 - If the database has no user tables (fresh) → no-op (let goose run from scratch)
 - If the database has tables but no goose tracking → creates `goose_db_version` and stamps versions 0 through n, then runs any remaining migrations
+
+Table creation and every stamped row happen inside a single transaction. If
+stamping fails partway (disk full, process killed mid-loop), the whole
+transaction rolls back — including the `CREATE TABLE`, since SQLite DDL is
+transactional — so the next run sees no `goose_db_version` table and retries
+baselining from scratch. Without this, a partial stamp would look like a
+*completed* baseline to the no-op check above and permanently skip the
+remaining versions.
 
 ### Schema version guard
 
@@ -132,6 +145,8 @@ db, err := database.New(
 // db.Close() is a no-op — caller retains ownership
 ```
 
+**Caveat:** because this package doesn't control the DSN an externally-provided `*sql.DB` was opened with, it can't bake pragmas into it per-connection the way it does when it opens the database itself (see "Default pragmas" below). To keep pragmas honest, `New()` calls `existingDB.SetMaxOpenConns(1)` before applying them — the one pooled connection that then ever exists keeps them for the life of the process. This is a real constraint (no concurrent readers on that pool) that only applies to `WithDB`; a database opened via `WithPath`/`WithAppName` is unaffected and its pool can grow freely.
+
 ## Options
 
 | Option | Description |
@@ -148,8 +163,6 @@ db, err := database.New(
 
 ## Default pragmas
 
-Applied automatically to every connection:
-
 | Pragma | Value | Purpose |
 |--------|-------|---------|
 | `journal_mode` | `WAL` | Better concurrent read performance |
@@ -157,6 +170,31 @@ Applied automatically to every connection:
 | `foreign_keys` | `ON` | Enforce foreign key constraints |
 | `synchronous` | `NORMAL` | Safe with WAL, better write performance |
 | `journal_size_limit` | `67108864` | Cap WAL file at 64MB |
+
+**How pragmas are actually applied — read this if you use `WithPragmas`.**
+`*sql.DB` is a connection *pool*, and every SQLite pragma except `journal_mode`
+(which is stored in the database file itself) is **per-connection**. Running
+`PRAGMA foreign_keys = ON` once via `Exec` — which is what earlier versions of
+this package did — only reaches whichever single connection happens to
+service that call. As soon as the pool opens a second connection (any
+concurrent query — a held transaction plus a second read is enough),
+that connection has `foreign_keys` back to its SQLite default (`OFF`) and
+`busy_timeout` at `0`, silently disabling foreign-key enforcement and turning
+lock contention into an immediate `SQLITE_BUSY` instead of a bounded wait.
+
+For a database this package opens itself (`WithPath`/`WithAppName`), pragmas
+are instead encoded into the connection string as
+[modernc.org/sqlite's](https://pkg.go.dev/modernc.org/sqlite) `_pragma` query
+parameters (`file:app.db?_pragma=foreign_keys=ON&_pragma=busy_timeout=5000`).
+The driver re-applies them on **every** new physical connection it opens, so
+the guarantee holds no matter how large the pool grows. This is verified by
+`TestForeignKeysEveryConnection`, which pins one connection with an open
+transaction, forces the pool to open a second, and asserts the pragmas hold
+there too.
+
+For a `WithDB`-supplied external database, see the caveat in "External
+database connection" above — pragmas are still applied, but by clamping the
+pool to one connection, not via the DSN.
 
 Override with `WithPragmas`:
 
@@ -183,3 +221,4 @@ database.WithPragmas(map[string]string{
 | `database_baseline` | Database baseline failed. Please contact support. |
 | `database_version_mismatch` | The database was created by a newer version of this app. Please update the app. |
 | `database_backup` | Failed to create a database backup before migration. Please check disk space and try again. |
+| `database_version` | Unable to determine the database schema version. Please contact support. |

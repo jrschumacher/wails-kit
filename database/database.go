@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,6 +28,7 @@ const (
 	ErrDatabaseBaseline        errors.Code = "database_baseline"
 	ErrDatabaseVersionMismatch errors.Code = "database_version_mismatch"
 	ErrDatabaseBackup          errors.Code = "database_backup"
+	ErrDatabaseVersion         errors.Code = "database_version"
 )
 
 func init() {
@@ -36,6 +38,7 @@ func init() {
 		ErrDatabaseBaseline:        "Database baseline failed. Please contact support.",
 		ErrDatabaseVersionMismatch: "The database was created by a newer version of this app. Please update the app.",
 		ErrDatabaseBackup:          "Failed to create a database backup before migration. Please check disk space and try again.",
+		ErrDatabaseVersion:         "Unable to determine the database schema version. Please contact support.",
 	})
 }
 
@@ -52,10 +55,10 @@ type MigratedPayload struct {
 
 // Default pragmas applied to every database connection.
 var defaultPragmas = map[string]string{
-	"journal_mode":      "WAL",
-	"busy_timeout":      "5000",
-	"foreign_keys":      "ON",
-	"synchronous":       "NORMAL",
+	"journal_mode":       "WAL",
+	"busy_timeout":       "5000",
+	"foreign_keys":       "ON",
+	"synchronous":        "NORMAL",
 	"journal_size_limit": "67108864",
 }
 
@@ -154,8 +157,22 @@ func WithMaxBackups(n int) Option {
 
 // WithDB provides an existing *sql.DB connection. When set, the database
 // package will not open or close the connection — the caller retains ownership.
-// Pragmas are still applied. WithPath/WithAppName are ignored for opening but
-// Path() will still return whatever was configured.
+// WithPath/WithAppName are ignored for opening but Path() will still return
+// whatever was configured.
+//
+// Pragmas are still applied, but with a caveat: SQLite pragmas other than
+// journal_mode are per-connection, and an externally-provided *sql.DB was
+// already opened with a DSN this package does not control, so pragmas cannot
+// be baked into it the way New() does for a database it opens itself (see
+// buildDSN). To keep the "every connection sees these pragmas" guarantee
+// honest, New() forces db.SetMaxOpenConns(1) on an external *sql.DB before
+// applying pragmas via Exec, so the single pooled connection that exists
+// keeps them for the lifetime of the process. This is a real behavior change
+// (external DBs used to allow pool growth silently and unsafely) and a real
+// constraint (no concurrent readers) — defensible for a desktop app's local
+// SQLite file, but callers relying on concurrent access to a WithDB-supplied
+// pool should not use this package's pragma management and should apply
+// their own DSN-based pragmas instead.
 func WithDB(db *sql.DB) Option {
 	return func(d *DB) {
 		d.db = db
@@ -180,8 +197,8 @@ func New(opts ...Option) (*DB, error) {
 		opt(d)
 	}
 
-	// Resolve database path if we need to open a connection.
 	if d.db == nil {
+		// We own the connection: resolve the path and open it ourselves.
 		if err := d.resolvePath(); err != nil {
 			return nil, err
 		}
@@ -192,19 +209,43 @@ func New(opts ...Option) (*DB, error) {
 			return nil, errors.Wrap(ErrDatabaseOpen, fmt.Sprintf("create directory %s", dir), err)
 		}
 
-		db, err := sql.Open("sqlite", d.path)
+		// Bake pragmas into the connection DSN via modernc.org/sqlite's
+		// _pragma query parameter instead of Exec-ing "PRAGMA ..." after
+		// Open. sql.DB is a connection *pool*; Exec runs on whichever
+		// connection happens to be free, and SQLite pragmas other than
+		// journal_mode are per-connection. A pool that grows past one
+		// connection (any concurrent query, e.g. a held transaction plus a
+		// second read) previously got foreign_keys=OFF and busy_timeout=0 on
+		// every connection beyond the first, silently disabling FK
+		// enforcement and turning lock contention into immediate
+		// SQLITE_BUSY instead of a bounded wait. Query params in the DSN
+		// are applied by the driver on every new physical connection
+		// (modernc.org/sqlite@v1.46.1 conn.go:75, applyQueryParams called
+		// from newConn, which Driver.Open calls per connection), so this
+		// holds regardless of how large the pool grows. See
+		// TestForeignKeysEveryConnection.
+		db, err := sql.Open("sqlite", d.buildDSN())
 		if err != nil {
 			return nil, errors.Wrap(ErrDatabaseOpen, fmt.Sprintf("open %s", d.path), err)
 		}
-		d.db = db
-	}
-
-	// Apply pragmas.
-	if err := d.applyPragmas(); err != nil {
-		if d.owned {
-			_ = d.db.Close()
+		// sql.Open never dials; it just validates the DSN. Ping forces the
+		// first physical connection now, both so the database file exists
+		// immediately after New() returns (callers relied on this — see
+		// TestNew_WithPath) and so a bad pragma value in the DSN surfaces
+		// here rather than on the caller's first query.
+		if err := db.PingContext(context.Background()); err != nil {
+			_ = db.Close()
+			return nil, errors.Wrap(ErrDatabaseOpen, fmt.Sprintf("open %s", d.path), err)
 		}
-		return nil, err
+		d.db = db
+	} else {
+		// External *sql.DB: we don't control its DSN, so pragmas can't be
+		// baked in per-connection. Force a single connection so the Exec'd
+		// pragmas below stay valid for every query (see WithDB doc comment).
+		d.db.SetMaxOpenConns(1)
+		if err := d.applyPragmas(); err != nil {
+			return nil, err
+		}
 	}
 
 	// Apply baseline version if configured.
@@ -243,12 +284,31 @@ func (d *DB) Path() string {
 
 // Version returns the current migration version. Returns 0 if no migrations
 // have been applied.
+//
+// The absence of goose_db_version (fresh database) is checked explicitly and
+// treated as version 0. Any other query/scan failure (closed connection,
+// I/O error, corrupt database) is returned as an error rather than silently
+// reported as version 0 — the previous implementation collapsed every Scan
+// error into "no migrations applied, no error", which hid real failures
+// behind a valid-looking zero.
 func (d *DB) Version() (int64, error) {
-	row := d.db.QueryRow("SELECT MAX(version_id) FROM goose_db_version WHERE version_id > 0")
-	var version sql.NullInt64
-	if err := row.Scan(&version); err != nil {
-		// Table doesn't exist — no migrations have been applied.
+	var gooseTableExists bool
+	err := d.db.QueryRow(
+		"SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='goose_db_version'",
+	).Scan(&gooseTableExists)
+	if err != nil {
+		return 0, errors.Wrap(ErrDatabaseVersion, "check goose_db_version table", err)
+	}
+	if !gooseTableExists {
 		return 0, nil
+	}
+
+	var version sql.NullInt64
+	err = d.db.QueryRow(
+		"SELECT MAX(version_id) FROM goose_db_version WHERE version_id > 0",
+	).Scan(&version)
+	if err != nil {
+		return 0, errors.Wrap(ErrDatabaseVersion, "read goose_db_version", err)
 	}
 	return version.Int64, nil
 }
@@ -274,6 +334,35 @@ func (d *DB) resolvePath() error {
 	return nil
 }
 
+// buildDSN returns the DSN used to open an owned SQLite connection, with
+// active pragmas encoded as modernc.org/sqlite's `_pragma` query parameter so
+// the driver re-applies them on every new physical connection it opens (see
+// the comment in New()). Pragmas set to "" (disabled) are omitted. Keys are
+// sorted for a deterministic, testable DSN.
+func (d *DB) buildDSN() string {
+	active := make([]string, 0, len(d.pragmas))
+	for key, value := range d.pragmas {
+		if value == "" {
+			continue
+		}
+		active = append(active, key)
+	}
+	if len(active) == 0 {
+		return d.path
+	}
+	sort.Strings(active)
+
+	q := url.Values{}
+	for _, key := range active {
+		q.Add("_pragma", key+"="+d.pragmas[key])
+	}
+	return "file:" + d.path + "?" + q.Encode()
+}
+
+// applyPragmas Exec's each configured pragma against d.db. Only correct as a
+// per-connection guarantee when d.db is limited to a single connection (see
+// callers: it's used exclusively for the WithDB / external *sql.DB path,
+// after New() calls SetMaxOpenConns(1)).
 func (d *DB) applyPragmas() error {
 	for key, value := range d.pragmas {
 		if value == "" {
@@ -376,7 +465,28 @@ func (d *DB) baseline() error {
 	}
 
 	// Database has existing tables but no goose tracking — stamp baseline.
-	_, err = d.db.Exec(`CREATE TABLE goose_db_version (
+	//
+	// The table creation and every stamped row are wrapped in a single
+	// transaction (SQLite DDL is transactional, so CREATE TABLE rolls back
+	// too) so a mid-loop failure — disk full, a bad baselineVersion, the
+	// process dying — can't leave goose_db_version half-stamped. A
+	// half-stamped table is worse than no table: the early-exit check above
+	// ("if gooseTableExists return nil") would see it on the next run and
+	// treat baselining as already done, permanently skipping the remaining
+	// versions. Wrapping in a transaction means a failure leaves no table at
+	// all, so the next run retries baselining from scratch.
+	tx, err := d.db.Begin()
+	if err != nil {
+		return errors.Wrap(ErrDatabaseBaseline, "begin baseline transaction", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	_, err = tx.Exec(`CREATE TABLE goose_db_version (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		version_id INTEGER NOT NULL,
 		is_applied INTEGER NOT NULL,
@@ -387,13 +497,18 @@ func (d *DB) baseline() error {
 	}
 
 	for v := int64(0); v <= d.baselineVersion; v++ {
-		_, err = d.db.Exec(
+		_, err = tx.Exec(
 			"INSERT INTO goose_db_version (version_id, is_applied) VALUES (?, ?)", v, 1,
 		)
 		if err != nil {
 			return errors.Wrap(ErrDatabaseBaseline, fmt.Sprintf("stamp version %d", v), err)
 		}
 	}
+
+	if err := tx.Commit(); err != nil {
+		return errors.Wrap(ErrDatabaseBaseline, "commit baseline transaction", err)
+	}
+	committed = true
 
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jrschumacher/wails-kit/v2/errors"
@@ -22,6 +23,8 @@ const (
 	ErrStartup          errors.Code = "lifecycle_startup"
 	ErrShutdown         errors.Code = "lifecycle_shutdown"
 	ErrTimeout          errors.Code = "lifecycle_timeout"
+	ErrDuplicateService errors.Code = "lifecycle_duplicate_service"
+	ErrInvalidState     errors.Code = "lifecycle_invalid_state"
 )
 
 func init() {
@@ -31,6 +34,8 @@ func init() {
 		ErrStartup:          "Failed to start a required service. Please try restarting the application.",
 		ErrShutdown:         "An error occurred while shutting down. Some resources may not have been cleaned up.",
 		ErrTimeout:          "A service took too long to respond. Please try restarting the application.",
+		ErrDuplicateService: "Service configuration error: a service name is registered more than once.",
+		ErrInvalidState:     "The application's service manager is busy or already running. Please try again.",
 	})
 }
 
@@ -62,9 +67,9 @@ type ErrorPayload struct {
 
 // RollbackPayload is emitted when a partial startup failure triggers rollback.
 type RollbackPayload struct {
-	FailedService    string   `json:"failedService"`
-	RollingBack      []string `json:"rollingBack"`
-	RollbackErrors   []string `json:"rollbackErrors,omitempty"`
+	FailedService  string   `json:"failedService"`
+	RollingBack    []string `json:"rollingBack"`
+	RollbackErrors []string `json:"rollbackErrors,omitempty"`
 }
 
 // HealthStatus represents the health state of a service.
@@ -78,9 +83,9 @@ const (
 
 // TimeoutPayload is emitted when a service operation times out.
 type TimeoutPayload struct {
-	Name      string `json:"name"`
-	Phase     string `json:"phase"` // "startup" or "shutdown"
-	Timeout   string `json:"timeout"`
+	Name    string `json:"name"`
+	Phase   string `json:"phase"` // "startup" or "shutdown"
+	Timeout string `json:"timeout"`
 }
 
 // ServiceHealth reports the health of a single service.
@@ -109,11 +114,51 @@ type entry struct {
 	timeout time.Duration // per-service timeout override; 0 means use global
 }
 
+// managerState tracks what a Manager is currently doing, so Startup and
+// Shutdown can detect and reject concurrent or repeated calls instead of
+// silently corrupting m.started (see Startup/Shutdown for the guard).
+type managerState int
+
+const (
+	stateIdle managerState = iota
+	stateStarting
+	stateStarted
+	stateStopping
+)
+
+func (s managerState) String() string {
+	switch s {
+	case stateIdle:
+		return "idle"
+	case stateStarting:
+		return "starting"
+	case stateStarted:
+		return "started"
+	case stateStopping:
+		return "stopping"
+	default:
+		return "unknown"
+	}
+}
+
 // Manager manages ordered startup and shutdown of services.
+//
+// entries and order are fixed after NewManager returns and are read without
+// a lock. mu guards everything that changes across the lifetime of the
+// Manager: state and started. Callers must not use a Manager concurrently
+// beyond that guarantee — e.g. Health() during a Startup/Shutdown call is
+// safe (it will see a consistent, if possibly stale, snapshot), but nothing
+// makes it meaningful to call Startup from two goroutines "at the same
+// time" beyond one of them deterministically losing the race and getting
+// ErrInvalidState.
 type Manager struct {
 	entries []*entry
 	order   []string // topologically sorted service names
+
+	mu      sync.Mutex
+	state   managerState
 	started []string // services that have been started (in start order)
+
 	emitter *events.Emitter
 	timeout time.Duration // global timeout; 0 means no timeout
 }
@@ -192,9 +237,25 @@ func (m *Manager) Order() []string {
 // Startup starts all services in dependency order. If a service fails,
 // already-started services are shut down in reverse order. The original
 // startup error is always returned; rollback errors are joined.
+//
+// Startup returns ErrInvalidState instead of running if the Manager is
+// already starting, already started, or shutting down — calling Startup a
+// second time without an intervening Shutdown used to silently re-run
+// OnStartup on every service (double-starting already-running ones) while
+// discarding the previous m.started list, orphaning whatever it tracked.
 func (m *Manager) Startup(ctx context.Context) error {
-	byName := m.entryMap()
+	m.mu.Lock()
+	if m.state != stateIdle {
+		state := m.state
+		m.mu.Unlock()
+		return errors.New(ErrInvalidState,
+			fmt.Sprintf("Startup called while manager state is %v; call Shutdown before starting again", state), nil)
+	}
+	m.state = stateStarting
 	m.started = nil
+	m.mu.Unlock()
+
+	byName := m.entryMap()
 
 	for _, name := range m.order {
 		e := byName[name]
@@ -211,28 +272,54 @@ func (m *Manager) Startup(ctx context.Context) error {
 			// Rollback already-started services in reverse order.
 			rollbackErrs := m.rollback(name)
 
+			m.mu.Lock()
+			m.state = stateIdle
+			m.mu.Unlock()
+
 			if rollbackErrs != nil {
 				return stderrors.Join(startErr, rollbackErrs)
 			}
 			return startErr
 		}
 
+		m.mu.Lock()
 		m.started = append(m.started, name)
+		m.mu.Unlock()
 		m.emit(EventStarted, ServiceStartedPayload{Name: name})
 	}
+
+	m.mu.Lock()
+	m.state = stateStarted
+	m.mu.Unlock()
 
 	return nil
 }
 
 // Shutdown stops all started services in reverse startup order.
 // It does not stop on the first error; all errors are collected and joined.
+//
+// Shutdown is a safe no-op if the Manager was never successfully started
+// (state != stateStarted) — including a second concurrent call while a
+// Shutdown is already in flight — rather than acting on a partial or
+// already-cleared m.started list. This makes `defer mgr.Shutdown()`
+// unconditionally safe regardless of whether Startup succeeded.
 func (m *Manager) Shutdown() error {
+	m.mu.Lock()
+	if m.state != stateStarted {
+		m.mu.Unlock()
+		return nil
+	}
+	m.state = stateStopping
+	started := make([]string, len(m.started))
+	copy(started, m.started)
+	m.mu.Unlock()
+
 	byName := m.entryMap()
 	var errs []error
 
 	// Shut down in reverse startup order.
-	for i := len(m.started) - 1; i >= 0; i-- {
-		name := m.started[i]
+	for i := len(started) - 1; i >= 0; i-- {
+		name := started[i]
 		e := byName[name]
 		if err := m.stopService(e); err != nil {
 			shutErr := errors.Wrap(ErrShutdown, fmt.Sprintf("service %q failed to shut down", name), err).
@@ -250,7 +337,10 @@ func (m *Manager) Shutdown() error {
 		}
 	}
 
+	m.mu.Lock()
 	m.started = nil
+	m.state = stateIdle
+	m.mu.Unlock()
 
 	if len(errs) > 0 {
 		return stderrors.Join(errs...)
@@ -261,10 +351,15 @@ func (m *Manager) Shutdown() error {
 // Health returns the health status of all started services. Services that
 // implement HealthChecker report their own status; others are reported as healthy.
 func (m *Manager) Health() []ServiceHealth {
-	byName := m.entryMap()
-	result := make([]ServiceHealth, 0, len(m.started))
+	m.mu.Lock()
+	started := make([]string, len(m.started))
+	copy(started, m.started)
+	m.mu.Unlock()
 
-	for _, name := range m.started {
+	byName := m.entryMap()
+	result := make([]ServiceHealth, 0, len(started))
+
+	for _, name := range started {
 		e := byName[name]
 		status := StatusHealthy
 		if hc, ok := e.service.(HealthChecker); ok {
@@ -310,10 +405,40 @@ func (m *Manager) startService(ctx context.Context, e *entry) error {
 			Phase:   "startup",
 			Timeout: timeout.String(),
 		})
+		// The manager is about to report this service as failed and move
+		// on to rollback (or return the timeout error to the Startup
+		// caller), but the goroutine above is still running OnStartup(e)
+		// against a service that may ignore context cancellation. If it
+		// eventually succeeds, it will never be in m.started — nothing
+		// will ever call its OnShutdown — and it leaks, still running,
+		// for the life of the process. Reap it in the background: wait
+		// for the call to finish and, if it did succeed after all, shut
+		// it straight back down.
+		go m.reapTimedOutStartup(e, done)
 		return errors.New(ErrTimeout,
 			fmt.Sprintf("service %q startup timed out after %s", e.name, timeout), startCtx.Err()).
 			WithField("service", e.name).
 			WithField("timeout", timeout.String())
+	}
+}
+
+// reapTimedOutStartup waits for a service's OnStartup call to finish after
+// startService has already reported it as timed out and the manager has
+// moved on. See the call site in startService. Best-effort: there is no
+// in-flight Startup/Shutdown caller left to return an error to, so a
+// resulting OnShutdown failure is only reported via EventError.
+func (m *Manager) reapTimedOutStartup(e *entry, done <-chan error) {
+	if err := <-done; err == nil {
+		if shutErr := e.service.OnShutdown(); shutErr != nil {
+			wrapped := errors.Wrap(ErrShutdown,
+				fmt.Sprintf("service %q started after its timeout had already been reported; shutdown of the orphaned instance also failed", e.name),
+				shutErr).WithField("service", e.name)
+			m.emit(EventError, ErrorPayload{
+				Name:    e.name,
+				Message: errors.GetUserMessage(wrapped),
+				Code:    ErrShutdown,
+			})
+		}
 	}
 }
 
@@ -345,11 +470,20 @@ func (m *Manager) stopService(e *entry) error {
 
 // rollback shuts down already-started services in reverse order after a
 // startup failure. Returns joined errors or nil.
+//
+// It shuts each service down through stopService — the same path Shutdown
+// uses — rather than calling OnShutdown directly, so WithTimeout /
+// WithServiceTimeout apply here too. A service that hangs in OnShutdown
+// during rollback used to block Startup forever despite a configured
+// timeout existing for exactly this situation.
 func (m *Manager) rollback(failedName string) error {
-	byName := m.entryMap()
-
+	m.mu.Lock()
 	rollingBack := make([]string, len(m.started))
 	copy(rollingBack, m.started)
+	m.mu.Unlock()
+
+	byName := m.entryMap()
+
 	// Reverse for display.
 	for i, j := 0, len(rollingBack)-1; i < j; i, j = i+1, j-1 {
 		rollingBack[i], rollingBack[j] = rollingBack[j], rollingBack[i]
@@ -360,7 +494,7 @@ func (m *Manager) rollback(failedName string) error {
 
 	for _, name := range rollingBack {
 		e := byName[name]
-		if err := e.service.OnShutdown(); err != nil {
+		if err := m.stopService(e); err != nil {
 			errs = append(errs, errors.Wrap(ErrShutdown, fmt.Sprintf("rollback: service %q failed to shut down", name), err))
 			errMsgs = append(errMsgs, fmt.Sprintf("%s: %v", name, err))
 		}
@@ -372,7 +506,9 @@ func (m *Manager) rollback(failedName string) error {
 		RollbackErrors: errMsgs,
 	})
 
+	m.mu.Lock()
 	m.started = nil
+	m.mu.Unlock()
 
 	if len(errs) > 0 {
 		return stderrors.Join(errs...)
@@ -381,10 +517,24 @@ func (m *Manager) rollback(failedName string) error {
 }
 
 // topoSort performs a topological sort using Kahn's algorithm.
-// Returns an error on missing dependencies or cycles.
+// Returns an error on duplicate names, missing dependencies, or cycles.
 func (m *Manager) topoSort() ([]string, error) {
 	names := make(map[string]bool, len(m.entries))
 	for _, e := range m.entries {
+		// Reject duplicate names before anything else. Without this check,
+		// this same map collapses two entries into one key, so the
+		// len(order) != len(m.entries) cycle-detection guard below never
+		// fires (order comes out the same length as the deduped name set,
+		// which coincidentally still differs from len(m.entries) — but not
+		// reliably, and the real damage happens earlier: entryMap() is
+		// last-writer-wins, so name resolution during Startup silently
+		// starts the *other* entry's service, not the caller's expected
+		// one, while the actual entry with that name is never started.
+		if names[e.name] {
+			return nil, errors.New(ErrDuplicateService,
+				fmt.Sprintf("service %q is registered more than once", e.name), nil).
+				WithField("service", e.name)
+		}
 		names[e.name] = true
 	}
 
