@@ -1,13 +1,19 @@
-// Package anyllm provides a settings template for configuring LLM providers
-// via any-llm-go. It generates a settings group with provider/model/API key
-// fields and a function to build a configured any-llm-go provider from the
-// current settings values.
+// Package anyllm builds a runnable any-llm-go client from the LLM selection
+// produced by settings/templates/llmconfig, and offers live model
+// enumeration where the underlying any-llm-go provider supports it.
+//
+// This package is a nested Go module (its own go.mod, tagged separately —
+// see README.md) so that depending on it, and therefore on any-llm-go, is a
+// choice a consumer makes explicitly. Importing llmconfig never pulls this
+// package or any-llm-go along with it.
 package anyllm
 
 import (
+	"context"
+	"errors"
 	"fmt"
 
-	anyllm "github.com/mozilla-ai/any-llm-go"
+	anyllmsdk "github.com/mozilla-ai/any-llm-go"
 	"github.com/mozilla-ai/any-llm-go/providers/anthropic"
 	"github.com/mozilla-ai/any-llm-go/providers/deepseek"
 	"github.com/mozilla-ai/any-llm-go/providers/gemini"
@@ -17,281 +23,86 @@ import (
 	"github.com/mozilla-ai/any-llm-go/providers/openai"
 
 	"github.com/jrschumacher/wails-kit/v2/settings"
+	"github.com/jrschumacher/wails-kit/v2/settings/templates/llmconfig"
 )
 
-// providerDef holds display info and default models for a provider.
-type providerDef struct {
-	Label  string
-	Models []settings.SelectOption
+// ErrNoProviderSelected is returned by BuildProvider when the settings
+// selection has no provider chosen — a fresh install with no default, or a
+// llmconfig.Group built with no providers at all.
+var ErrNoProviderSelected = errors.New("anyllm: no provider selected")
+
+// ErrModelListingUnsupported is returned by ListModels when the given
+// provider's any-llm-go client does not implement the optional ModelLister
+// interface. Of the providers newProvider knows about, this is currently
+// only Anthropic — the OpenAI-compatible providers (OpenAI, DeepSeek, Groq,
+// Mistral) inherit ListModels via any-llm-go's shared CompatibleProvider,
+// and Gemini and Ollama implement it directly.
+var ErrModelListingUnsupported = errors.New("anyllm: provider does not support live model listing")
+
+// BuildProvider reads the effective provider/model/API-key/base-URL
+// selection out of svc via cfg (a *llmconfig.Config from llmconfig.New) and
+// constructs the corresponding any-llm-go provider. It returns the provider
+// and the resolved model ID to pass as CompletionParams.Model.
+//
+//	group, cfg := llmconfig.New(llmconfig.WithProviders("anthropic", "openai"))
+//	svc := settings.NewService(settings.WithGroup(group), ...)
+//	provider, modelID, err := anyllm.BuildProvider(svc, cfg)
+func BuildProvider(svc *settings.Service, cfg *llmconfig.Config) (anyllmsdk.Provider, string, error) {
+	providerID, modelID, apiKey, err := cfg.Selection(svc)
+	if err != nil {
+		return nil, "", fmt.Errorf("anyllm: read selection: %w", err)
+	}
+	if providerID == "" {
+		return nil, "", ErrNoProviderSelected
+	}
+
+	baseURL, err := cfg.BaseURL(svc, providerID)
+	if err != nil {
+		return nil, "", fmt.Errorf("anyllm: read base URL: %w", err)
+	}
+
+	var opts []anyllmsdk.Option
+	if apiKey != "" {
+		opts = append(opts, anyllmsdk.WithAPIKey(apiKey))
+	}
+	if baseURL != "" {
+		opts = append(opts, anyllmsdk.WithBaseURL(baseURL))
+	}
+
+	p, err := newProvider(providerID, opts...)
+	if err != nil {
+		return nil, "", fmt.Errorf("anyllm: create %s provider: %w", providerID, err)
+	}
+	return p, modelID, nil
 }
 
-// registry of known providers and their default model lists.
-var registry = map[string]providerDef{
-	"anthropic": {
-		Label: "Anthropic",
-		Models: []settings.SelectOption{
-			{Label: "Claude Sonnet 4.6", Value: "claude-sonnet-4-6"},
-			{Label: "Claude Opus 4.6", Value: "claude-opus-4-6"},
-			{Label: "Claude Haiku 4.5", Value: "claude-haiku-4-5-20251001"},
-		},
-	},
-	"openai": {
-		Label: "OpenAI",
-		Models: []settings.SelectOption{
-			{Label: "GPT-4o", Value: "gpt-4o"},
-			{Label: "GPT-4o Mini", Value: "gpt-4o-mini"},
-			{Label: "o3", Value: "o3"},
-		},
-	},
-	"deepseek": {
-		Label: "DeepSeek",
-		Models: []settings.SelectOption{
-			{Label: "DeepSeek Chat", Value: "deepseek-chat"},
-			{Label: "DeepSeek Reasoner", Value: "deepseek-reasoner"},
-		},
-	},
-	"gemini": {
-		Label: "Gemini",
-		Models: []settings.SelectOption{
-			{Label: "Gemini 2.0 Flash", Value: "gemini-2.0-flash"},
-			{Label: "Gemini 2.5 Pro", Value: "gemini-2.5-pro-preview-06-05"},
-		},
-	},
-	"groq": {
-		Label: "Groq",
-		Models: []settings.SelectOption{
-			{Label: "Llama 3 70B", Value: "llama3-70b-8192"},
-		},
-	},
-	"mistral": {
-		Label: "Mistral",
-		Models: []settings.SelectOption{
-			{Label: "Mistral Large", Value: "mistral-large-latest"},
-			{Label: "Mistral Small", Value: "mistral-small-latest"},
-		},
-	},
-	"ollama": {
-		Label: "Ollama",
-		Models: []settings.SelectOption{
-			{Label: "Llama 3", Value: "llama3"},
-		},
-	},
+// ListModels returns the live model catalog reported by the provider's API,
+// for providers whose any-llm-go client implements ModelLister. Use
+// errors.Is(err, ErrModelListingUnsupported) to distinguish "this provider
+// can't do this" from a real request failure.
+func ListModels(ctx context.Context, p anyllmsdk.Provider) ([]anyllmsdk.Model, error) {
+	lister, ok := p.(anyllmsdk.ModelLister)
+	if !ok {
+		return nil, ErrModelListingUnsupported
+	}
+	resp, err := lister.ListModels(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("anyllm: list models: %w", err)
+	}
+	if resp == nil {
+		return nil, nil
+	}
+	return resp.Data, nil
 }
 
-// BuildProviderFunc builds an any-llm-go Provider from the current settings.
-type BuildProviderFunc func(svc *settings.Service) (anyllm.Provider, string, error)
-
-// Option configures the template.
-type Option func(*config)
-
-type config struct {
-	providers       []string
-	defaultProvider string
-	groupKey        string
-	groupLabel      string
-}
-
-// WithProviders sets which providers appear in the settings dropdown.
-// Provider names must match registry keys: "anthropic", "openai", "deepseek",
-// "gemini", "groq", "mistral", "ollama".
-func WithProviders(providers ...string) Option {
-	return func(c *config) {
-		c.providers = providers
-	}
-}
-
-// WithDefaultProvider sets the default provider selection.
-func WithDefaultProvider(provider string) Option {
-	return func(c *config) {
-		c.defaultProvider = provider
-	}
-}
-
-// WithGroupKey overrides the settings group key (default: "llm").
-func WithGroupKey(key string) Option {
-	return func(c *config) {
-		c.groupKey = key
-	}
-}
-
-// WithGroupLabel overrides the settings group label (default: "LLM").
-func WithGroupLabel(label string) Option {
-	return func(c *config) {
-		c.groupLabel = label
-	}
-}
-
-// New creates a settings group and a provider builder function.
-// The group contains provider/model selection, API key, and advanced fields.
-// The builder reads current settings values to construct the appropriate
-// any-llm-go provider.
-func New(opts ...Option) (settings.Group, BuildProviderFunc) {
-	cfg := &config{
-		providers:       []string{"anthropic", "openai"},
-		defaultProvider: "anthropic",
-		groupKey:        "llm",
-		groupLabel:      "LLM",
-	}
-	for _, opt := range opts {
-		opt(cfg)
-	}
-
-	group := buildGroup(cfg)
-	builder := buildProviderFunc(cfg)
-	return group, builder
-}
-
-func buildGroup(cfg *config) settings.Group {
-	prefix := cfg.groupKey
-
-	// Provider select options.
-	var providerOpts []settings.SelectOption
-	modelsByProvider := make(map[string][]settings.SelectOption)
-	for _, name := range cfg.providers {
-		def, ok := registry[name]
-		if !ok {
-			continue
-		}
-		providerOpts = append(providerOpts, settings.SelectOption{
-			Label: def.Label,
-			Value: name,
-		})
-		modelsByProvider[name] = def.Models
-	}
-
-	// Determine default model from default provider.
-	var defaultModel string
-	if def, ok := registry[cfg.defaultProvider]; ok && len(def.Models) > 0 {
-		defaultModel = def.Models[0].Value
-	}
-
-	fields := []settings.Field{
-		{
-			Key:     prefix + ".provider",
-			Type:    settings.FieldSelect,
-			Label:   "Provider",
-			Default: cfg.defaultProvider,
-			Options: providerOpts,
-		},
-		{
-			Key:     prefix + ".model",
-			Type:    settings.FieldSelect,
-			Label:   "Model",
-			Default: defaultModel,
-			DynamicOptions: &settings.DynamicOptions{
-				DependsOn: prefix + ".provider",
-				Options:   modelsByProvider,
-			},
-		},
-	}
-
-	// Per-provider advanced fields: API key, base URL, custom model.
-	for _, name := range cfg.providers {
-		if _, ok := registry[name]; !ok {
-			continue
-		}
-		cond := &settings.Condition{
-			Field:  prefix + ".provider",
-			Equals: []string{name},
-		}
-		fields = append(fields,
-			settings.Field{
-				Key:       prefix + "." + name + ".secret",
-				Type:      settings.FieldPassword,
-				Label:     "API Key",
-				Advanced:  true,
-				Condition: cond,
-			},
-			settings.Field{
-				Key:       prefix + "." + name + ".baseURL",
-				Type:      settings.FieldText,
-				Label:     "Base URL",
-				Advanced:  true,
-				Condition: cond,
-			},
-			settings.Field{
-				Key:       prefix + "." + name + ".customModel",
-				Type:      settings.FieldText,
-				Label:     "Custom Model ID",
-				Advanced:  true,
-				Condition: cond,
-			},
-		)
-	}
-
-	// Computed resolved model.
-	resolvedKey := prefix + ".resolvedModelID"
-	fields = append(fields, settings.Field{
-		Key:      resolvedKey,
-		Type:     settings.FieldComputed,
-		Label:    "Resolved Model ID",
-		Advanced: true,
-	})
-
-	return settings.Group{
-		Key:    cfg.groupKey,
-		Label:  cfg.groupLabel,
-		Fields: fields,
-		ComputeFuncs: map[string]settings.ComputeFunc{
-			resolvedKey: func(values map[string]any) any {
-				return resolveModelID(cfg.groupKey, values)
-			},
-		},
-	}
-}
-
-func resolveModelID(prefix string, values map[string]any) string {
-	provider, _ := values[prefix+".provider"].(string)
-	if provider == "" {
-		return ""
-	}
-	if custom, _ := values[prefix+"."+provider+".customModel"].(string); custom != "" {
-		return custom
-	}
-	model, _ := values[prefix+".model"].(string)
-	return model
-}
-
-func buildProviderFunc(cfg *config) BuildProviderFunc {
-	return func(svc *settings.Service) (anyllm.Provider, string, error) {
-		values, err := svc.GetValues()
-		if err != nil {
-			return nil, "", fmt.Errorf("anyllm: read settings: %w", err)
-		}
-
-		prefix := cfg.groupKey
-		providerName, _ := values[prefix+".provider"].(string)
-		if providerName == "" {
-			providerName = cfg.defaultProvider
-		}
-
-		modelID := resolveModelID(prefix, values)
-
-		// Read API key from keyring (secret field).
-		secretKey := prefix + "." + providerName + ".secret"
-		apiKey, _ := svc.GetSecret(secretKey)
-
-		// Read optional base URL.
-		baseURL, _ := values[prefix+"."+providerName+".baseURL"].(string)
-
-		var providerOpts []anyllm.Option
-		if apiKey != "" {
-			providerOpts = append(providerOpts, anyllm.WithAPIKey(apiKey))
-		}
-		if baseURL != "" {
-			providerOpts = append(providerOpts, anyllm.WithBaseURL(baseURL))
-		}
-
-		p, err := newProvider(providerName, providerOpts...)
-		if err != nil {
-			return nil, "", fmt.Errorf("anyllm: create %s provider: %w", providerName, err)
-		}
-		return p, modelID, nil
-	}
-}
-
-func newProvider(name string, opts ...anyllm.Option) (anyllm.Provider, error) {
-	switch name {
+// newProvider maps a llmconfig provider ID to the any-llm-go subpackage that
+// implements it. This is a mechanical mapping tied to which provider
+// packages any-llm-go ships, not the kind of business data (model names,
+// snapshot IDs) that goes stale — see llmconfig.Builtin for that. Adding
+// support for a provider any-llm-go adds after this switch was last updated
+// means adding a case here.
+func newProvider(id string, opts ...anyllmsdk.Option) (anyllmsdk.Provider, error) {
+	switch id {
 	case "anthropic":
 		return anthropic.New(opts...)
 	case "openai":
@@ -307,6 +118,6 @@ func newProvider(name string, opts ...anyllm.Option) (anyllm.Provider, error) {
 	case "ollama":
 		return ollama.New(opts...)
 	default:
-		return nil, fmt.Errorf("unknown provider: %s", name)
+		return nil, fmt.Errorf("anyllm: unknown provider %q", id)
 	}
 }

@@ -1,180 +1,213 @@
 package anyllm
 
 import (
+	"errors"
+	"path/filepath"
 	"testing"
 
+	"github.com/jrschumacher/wails-kit/v2/keyring"
 	"github.com/jrschumacher/wails-kit/v2/settings"
+	"github.com/jrschumacher/wails-kit/v2/settings/templates/llmconfig"
+	anyllmsdk "github.com/mozilla-ai/any-llm-go"
 )
 
-func TestNew_DefaultConfig(t *testing.T) {
-	group, builder := New()
-
-	if group.Key != "llm" {
-		t.Errorf("group key = %q, want %q", group.Key, "llm")
-	}
-	if group.Label != "LLM" {
-		t.Errorf("group label = %q, want %q", group.Label, "LLM")
-	}
-	if builder == nil {
-		t.Fatal("builder is nil")
-	}
-
-	// Should have provider and model fields plus per-provider advanced fields.
-	if len(group.Fields) < 2 {
-		t.Fatalf("expected at least 2 fields, got %d", len(group.Fields))
-	}
-
-	// First field: provider select.
-	pf := group.Fields[0]
-	if pf.Key != "llm.provider" {
-		t.Errorf("first field key = %q, want %q", pf.Key, "llm.provider")
-	}
-	if pf.Default != "anthropic" {
-		t.Errorf("default provider = %v, want %q", pf.Default, "anthropic")
-	}
-	if len(pf.Options) != 2 {
-		t.Errorf("provider options count = %d, want 2", len(pf.Options))
-	}
-
-	// Second field: model select with dynamic options.
-	mf := group.Fields[1]
-	if mf.Key != "llm.model" {
-		t.Errorf("second field key = %q, want %q", mf.Key, "llm.model")
-	}
-	if mf.DynamicOptions == nil {
-		t.Fatal("model field missing dynamic options")
-	}
-	if mf.DynamicOptions.DependsOn != "llm.provider" {
-		t.Errorf("model depends on = %q, want %q", mf.DynamicOptions.DependsOn, "llm.provider")
-	}
-}
-
-func TestNew_CustomProviders(t *testing.T) {
-	group, _ := New(
-		WithProviders("openai", "mistral", "deepseek"),
-		WithDefaultProvider("openai"),
+func newTestService(t *testing.T, group settings.Group) *settings.Service {
+	t.Helper()
+	return settings.NewService(
+		settings.WithStoragePath(filepath.Join(t.TempDir(), "settings.json")),
+		settings.WithKeyring(keyring.NewMemoryStore()),
+		settings.WithGroup(group),
 	)
+}
 
-	pf := group.Fields[0]
-	if len(pf.Options) != 3 {
-		t.Errorf("provider options count = %d, want 3", len(pf.Options))
-	}
-	if pf.Default != "openai" {
-		t.Errorf("default provider = %v, want %q", pf.Default, "openai")
-	}
+func TestBuildProvider_NoProviderSelected(t *testing.T) {
+	group, cfg := llmconfig.New(llmconfig.WithProviders(), llmconfig.WithDefaultProvider(""))
+	svc := newTestService(t, group)
 
-	// Model field should have dynamic options for all 3 providers.
-	mf := group.Fields[1]
-	if len(mf.DynamicOptions.Options) != 3 {
-		t.Errorf("dynamic option providers = %d, want 3", len(mf.DynamicOptions.Options))
+	_, _, err := BuildProvider(svc, cfg)
+	if !errors.Is(err, ErrNoProviderSelected) {
+		t.Fatalf("err = %v, want ErrNoProviderSelected", err)
 	}
 }
 
-func TestNew_CustomGroupKey(t *testing.T) {
-	group, _ := New(
-		WithGroupKey("ai"),
-		WithGroupLabel("AI Provider"),
+func TestBuildProvider_ConstructsAnthropicProvider(t *testing.T) {
+	group, cfg := llmconfig.New(llmconfig.WithProviders("anthropic"))
+	svc := newTestService(t, group)
+
+	if _, err := svc.SetValues(map[string]any{
+		"llm.provider":         "anthropic",
+		"llm.model":            "claude-sonnet-4-6",
+		"llm.anthropic.secret": "sk-ant-test-key-not-real",
+	}); err != nil {
+		t.Fatalf("SetValues: %v", err)
+	}
+
+	provider, modelID, err := BuildProvider(svc, cfg)
+	if err != nil {
+		t.Fatalf("BuildProvider: %v", err)
+	}
+	if provider == nil {
+		t.Fatal("provider is nil")
+	}
+	if provider.Name() != "anthropic" {
+		t.Errorf("provider.Name() = %q, want %q", provider.Name(), "anthropic")
+	}
+	if modelID != "claude-sonnet-4-6" {
+		t.Errorf("modelID = %q, want %q", modelID, "claude-sonnet-4-6")
+	}
+}
+
+func TestBuildProvider_ConstructsOpenAIProvider(t *testing.T) {
+	group, cfg := llmconfig.New(llmconfig.WithProviders("openai"), llmconfig.WithDefaultProvider("openai"))
+	svc := newTestService(t, group)
+
+	if _, err := svc.SetValues(map[string]any{
+		"llm.provider":      "openai",
+		"llm.model":         "gpt-4o",
+		"llm.openai.secret": "sk-test-key-not-real",
+	}); err != nil {
+		t.Fatalf("SetValues: %v", err)
+	}
+
+	provider, modelID, err := BuildProvider(svc, cfg)
+	if err != nil {
+		t.Fatalf("BuildProvider: %v", err)
+	}
+	if provider.Name() != "openai" {
+		t.Errorf("provider.Name() = %q, want %q", provider.Name(), "openai")
+	}
+	if modelID != "gpt-4o" {
+		t.Errorf("modelID = %q, want %q", modelID, "gpt-4o")
+	}
+}
+
+func TestBuildProvider_CustomModelOverride(t *testing.T) {
+	group, cfg := llmconfig.New(llmconfig.WithProviders("anthropic"))
+	svc := newTestService(t, group)
+
+	if _, err := svc.SetValues(map[string]any{
+		"llm.provider":              "anthropic",
+		"llm.model":                 "claude-sonnet-4-6",
+		"llm.anthropic.secret":      "sk-ant-test-key-not-real",
+		"llm.anthropic.customModel": "my-fine-tune",
+	}); err != nil {
+		t.Fatalf("SetValues: %v", err)
+	}
+
+	_, modelID, err := BuildProvider(svc, cfg)
+	if err != nil {
+		t.Fatalf("BuildProvider: %v", err)
+	}
+	if modelID != "my-fine-tune" {
+		t.Errorf("modelID = %q, want %q", modelID, "my-fine-tune")
+	}
+}
+
+func TestBuildProvider_BaseURLOverride(t *testing.T) {
+	group, cfg := llmconfig.New(llmconfig.WithProviders("anthropic"))
+	svc := newTestService(t, group)
+
+	if _, err := svc.SetValues(map[string]any{
+		"llm.provider":          "anthropic",
+		"llm.anthropic.secret":  "sk-ant-test-key-not-real",
+		"llm.anthropic.baseURL": "https://custom.example.com",
+	}); err != nil {
+		t.Fatalf("SetValues: %v", err)
+	}
+
+	// Constructing the provider must succeed with a base-URL override; this
+	// only exercises client construction, never an outbound request.
+	provider, _, err := BuildProvider(svc, cfg)
+	if err != nil {
+		t.Fatalf("BuildProvider: %v", err)
+	}
+	if provider == nil {
+		t.Fatal("provider is nil")
+	}
+}
+
+func TestBuildProvider_MissingAPIKey(t *testing.T) {
+	group, cfg := llmconfig.New(llmconfig.WithProviders("anthropic"))
+	svc := newTestService(t, group)
+
+	if _, err := svc.SetValues(map[string]any{"llm.provider": "anthropic"}); err != nil {
+		t.Fatalf("SetValues: %v", err)
+	}
+
+	// any-llm-go's anthropic.New requires an API key (from options or env);
+	// with none set (and assuming ANTHROPIC_API_KEY isn't set in the test
+	// environment) provider construction itself fails.
+	_, _, err := BuildProvider(svc, cfg)
+	if err == nil {
+		t.Skip("ANTHROPIC_API_KEY appears to be set in this environment; skipping")
+	}
+}
+
+func TestBuildProvider_UnknownProviderID(t *testing.T) {
+	// A provider registered with llmconfig but unknown to newProvider's
+	// switch — simulates any-llm-go not (yet) shipping a package for it.
+	group, cfg := llmconfig.New(
+		llmconfig.WithProvider(llmconfig.Provider{ID: "acme", Label: "Acme LLM"}),
+		llmconfig.WithProviders("acme"),
+		llmconfig.WithDefaultProvider("acme"),
 	)
+	svc := newTestService(t, group)
 
-	if group.Key != "ai" {
-		t.Errorf("group key = %q, want %q", group.Key, "ai")
-	}
-	if group.Label != "AI Provider" {
-		t.Errorf("group label = %q, want %q", group.Label, "AI Provider")
+	if _, err := svc.SetValues(map[string]any{"llm.provider": "acme"}); err != nil {
+		t.Fatalf("SetValues: %v", err)
 	}
 
-	// All field keys should use the custom prefix.
-	for _, f := range group.Fields {
-		if f.Key[:3] != "ai." {
-			t.Errorf("field key %q doesn't start with %q", f.Key, "ai.")
-		}
+	_, _, err := BuildProvider(svc, cfg)
+	if err == nil {
+		t.Fatal("expected an error for a provider ID with no any-llm-go mapping")
 	}
 }
 
-func TestNew_PerProviderAdvancedFields(t *testing.T) {
-	group, _ := New(WithProviders("anthropic", "openai"))
+func TestListModels_UnsupportedProvider(t *testing.T) {
+	group, cfg := llmconfig.New(llmconfig.WithProviders("anthropic"))
+	svc := newTestService(t, group)
 
-	// Find per-provider fields.
-	var advancedFields []settings.Field
-	for _, f := range group.Fields {
-		if f.Advanced {
-			advancedFields = append(advancedFields, f)
-		}
+	if _, err := svc.SetValues(map[string]any{
+		"llm.provider":         "anthropic",
+		"llm.anthropic.secret": "sk-ant-test-key-not-real",
+	}); err != nil {
+		t.Fatalf("SetValues: %v", err)
 	}
 
-	// Each provider should have: secret, baseURL, customModel (3 each) + 1 computed.
-	// 2 providers * 3 + 1 computed = 7.
-	if len(advancedFields) != 7 {
-		t.Errorf("advanced fields = %d, want 7", len(advancedFields))
+	provider, _, err := BuildProvider(svc, cfg)
+	if err != nil {
+		t.Fatalf("BuildProvider: %v", err)
 	}
 
-	// Verify conditions exist on per-provider fields.
-	for _, f := range advancedFields {
-		if f.Type == settings.FieldComputed {
-			continue
-		}
-		if f.Condition == nil {
-			t.Errorf("field %q missing condition", f.Key)
-		}
+	_, err = ListModels(t.Context(), provider)
+	if !errors.Is(err, ErrModelListingUnsupported) {
+		t.Fatalf("err = %v, want ErrModelListingUnsupported", err)
 	}
 }
 
-func TestNew_UnknownProviderIgnored(t *testing.T) {
-	group, _ := New(WithProviders("anthropic", "nonexistent"))
+func TestListModels_SupportedProviderImplementsModelLister(t *testing.T) {
+	// OpenAI (and the other OpenAI-compatible providers: DeepSeek, Groq,
+	// Mistral) inherit ListModels from any-llm-go's shared
+	// CompatibleProvider. This test only checks the interface is satisfied
+	// — it never performs the network call ListModels(ctx) would make.
+	group, cfg := llmconfig.New(llmconfig.WithProviders("openai"), llmconfig.WithDefaultProvider("openai"))
+	svc := newTestService(t, group)
 
-	pf := group.Fields[0]
-	if len(pf.Options) != 1 {
-		t.Errorf("provider options = %d, want 1 (unknown should be ignored)", len(pf.Options))
-	}
-}
-
-func TestResolveModelID(t *testing.T) {
-	tests := []struct {
-		name   string
-		values map[string]any
-		want   string
-	}{
-		{
-			name:   "standard model",
-			values: map[string]any{"llm.provider": "anthropic", "llm.model": "claude-sonnet-4-6"},
-			want:   "claude-sonnet-4-6",
-		},
-		{
-			name:   "custom model overrides",
-			values: map[string]any{"llm.provider": "anthropic", "llm.model": "claude-sonnet-4-6", "llm.anthropic.customModel": "my-custom-model"},
-			want:   "my-custom-model",
-		},
-		{
-			name:   "empty provider",
-			values: map[string]any{},
-			want:   "",
-		},
+	if _, err := svc.SetValues(map[string]any{
+		"llm.provider":      "openai",
+		"llm.openai.secret": "sk-test-key-not-real",
+	}); err != nil {
+		t.Fatalf("SetValues: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := resolveModelID("llm", tt.values)
-			if got != tt.want {
-				t.Errorf("resolveModelID() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestComputeFunc_ResolvedModelID(t *testing.T) {
-	group, _ := New()
-
-	fn, ok := group.ComputeFuncs["llm.resolvedModelID"]
-	if !ok {
-		t.Fatal("compute func for llm.resolvedModelID not found")
+	provider, _, err := BuildProvider(svc, cfg)
+	if err != nil {
+		t.Fatalf("BuildProvider: %v", err)
 	}
 
-	values := map[string]any{
-		"llm.provider": "openai",
-		"llm.model":    "gpt-4o",
-	}
-	got := fn(values)
-	if got != "gpt-4o" {
-		t.Errorf("computed resolved model = %v, want %q", got, "gpt-4o")
+	// This only checks the interface is satisfied; it never calls
+	// ListModels(ctx), which would make a real HTTP request.
+	if _, ok := provider.(anyllmsdk.ModelLister); !ok {
+		t.Fatal("openai provider does not implement ModelLister; ListModels would incorrectly report unsupported")
 	}
 }
