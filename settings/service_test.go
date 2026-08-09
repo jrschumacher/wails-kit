@@ -903,3 +903,73 @@ func TestServiceOptions_StoragePathSurvivesAppNameAfter(t *testing.T) {
 		t.Errorf("expected WithStoragePath to survive a later WithAppName, got %q", svc.store.Path())
 	}
 }
+
+// TestAddOnChange covers the post-construction hook. Packages that compose
+// with settings are usually built after the Service (they need it to exist),
+// so WithOnChange alone forces a forward-declared-closure dance at every such
+// call site. appearance hit this first.
+func TestAddOnChange(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewService(
+		WithStoragePath(filepath.Join(dir, "settings.json")),
+		WithKeyring(keyring.NewMemoryStore()),
+		WithGroup(Group{
+			Key:   "g",
+			Label: i18n.Text{Other: "G"},
+			Fields: []Field{
+				{Key: "g.name", Type: FieldText, Label: i18n.Text{Other: "Name"}},
+			},
+		}),
+	)
+
+	var got map[string]any
+	svc.AddOnChange(func(values map[string]any) { got = values })
+	svc.AddOnChange(nil) // must be ignored, not panic
+
+	if _, err := svc.SetValues(map[string]any{"g.name": "hello"}); err != nil {
+		t.Fatalf("SetValues: %v", err)
+	}
+	if got == nil {
+		t.Fatal("callback registered after construction was never invoked")
+	}
+	if got["g.name"] != "hello" {
+		t.Errorf("callback saw %v, want hello", got["g.name"])
+	}
+}
+
+// TestAddOnChangeNoDeadlock pins the same guarantee WithOnChange has: the
+// callback runs with the lock released, so re-entering the Service is safe.
+func TestAddOnChangeNoDeadlock(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewService(
+		WithStoragePath(filepath.Join(dir, "settings.json")),
+		WithKeyring(keyring.NewMemoryStore()),
+		WithGroup(Group{
+			Key:   "g",
+			Label: i18n.Text{Other: "G"},
+			Fields: []Field{
+				{Key: "g.name", Type: FieldText, Label: i18n.Text{Other: "Name"}},
+			},
+		}),
+	)
+
+	svc.AddOnChange(func(map[string]any) {
+		if _, err := svc.GetValues(); err != nil {
+			t.Errorf("re-entrant GetValues: %v", err)
+		}
+	})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := svc.SetValues(map[string]any{"g.name": "x"}); err != nil {
+			t.Errorf("SetValues: %v", err)
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("deadlock: callback re-entered the Service while the lock was held")
+	}
+}

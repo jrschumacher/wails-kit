@@ -102,6 +102,28 @@ func WithOnChange(fn func(values map[string]any)) ServiceOption {
 	}
 }
 
+// AddOnChange registers a change callback after construction. It behaves
+// exactly like WithOnChange, including invoking the callback with the lock
+// released.
+//
+// This exists because packages that compose with settings are frequently
+// constructed *after* the Service — they need the Service in order to be
+// built at all. appearance is the motivating case: a generic settings form
+// writes through Service.SetValues directly, so without a post-construction
+// hook nothing tells appearance to re-resolve and emit. The alternative was a
+// forward-declared closure captured by WithOnChange before the dependent
+// package exists, which works but reads as a puzzle at every call site.
+//
+// Safe to call concurrently with SetValues.
+func (s *Service) AddOnChange(fn func(values map[string]any)) {
+	if fn == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onChange = append(s.onChange, fn)
+}
+
 // NewService creates a new settings service.
 func NewService(opts ...ServiceOption) *Service {
 	s := &Service{appName: "app"}
