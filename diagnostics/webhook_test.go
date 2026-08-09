@@ -74,7 +74,7 @@ func TestSubmitBundle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		err = svc.SubmitBundle(context.Background(), bundlePath, srv.URL)
+		err = svc.submitBundle(context.Background(), bundlePath, srv.URL)
 		if err != nil {
 			t.Fatalf("expected no error, got: %v", err)
 		}
@@ -121,7 +121,7 @@ func TestSubmitBundle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		err = svc.SubmitBundle(context.Background(), bundlePath, srv.URL)
+		err = svc.submitBundle(context.Background(), bundlePath, srv.URL)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -149,7 +149,7 @@ func TestSubmitBundle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		err = svc.SubmitBundle(context.Background(), bundlePath, srv.URL)
+		err = svc.submitBundle(context.Background(), bundlePath, srv.URL)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -181,7 +181,7 @@ func TestSubmitBundle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		err = svc.SubmitBundle(context.Background(), bundlePath, srv.URL)
+		err = svc.submitBundle(context.Background(), bundlePath, srv.URL)
 		if err != nil {
 			t.Fatalf("expected success after retries, got: %v", err)
 		}
@@ -206,7 +206,7 @@ func TestSubmitBundle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		err = svc.SubmitBundle(context.Background(), bundlePath, srv.URL)
+		err = svc.submitBundle(context.Background(), bundlePath, srv.URL)
 		if err == nil {
 			t.Fatal("expected error for 403")
 		}
@@ -232,7 +232,7 @@ func TestSubmitBundle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		err = svc.SubmitBundle(context.Background(), bundlePath, srv.URL)
+		err = svc.submitBundle(context.Background(), bundlePath, srv.URL)
 		if err == nil {
 			t.Fatal("expected error after exhausting retries")
 		}
@@ -257,7 +257,7 @@ func TestSubmitBundle(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
 
-		err = svc.SubmitBundle(ctx, bundlePath, srv.URL)
+		err = svc.submitBundle(ctx, bundlePath, srv.URL)
 		if err == nil {
 			t.Fatal("expected error from context cancellation")
 		}
@@ -269,7 +269,7 @@ func TestSubmitBundle(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		err = svc.SubmitBundle(context.Background(), "/nonexistent/bundle.zip", "http://localhost")
+		err = svc.submitBundle(context.Background(), "/nonexistent/bundle.zip", "http://localhost")
 		if err == nil {
 			t.Fatal("expected error for missing file")
 		}

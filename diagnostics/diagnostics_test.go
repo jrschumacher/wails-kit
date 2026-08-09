@@ -293,6 +293,32 @@ func TestCreateBundle(t *testing.T) {
 		}
 	})
 
+	t.Run("bundle file is created 0600, not 0644", func(t *testing.T) {
+		// Audit finding: the output directory is 0700, but users are told
+		// the bundle path and will move the file elsewhere (e.g. into
+		// Downloads) or attach it somewhere, at which point the directory's
+		// protection no longer applies — the file's own mode is what
+		// matters from that point on.
+		outputDir := t.TempDir()
+		svc, err := NewService(WithAppName("test-app"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		path, err := svc.CreateBundle(context.Background(), outputDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fi.Mode().Perm(); got != 0o600 {
+			t.Errorf("expected bundle file mode 0600, got %#o", got)
+		}
+	})
+
 	t.Run("nonexistent log dir is not an error", func(t *testing.T) {
 		outputDir := t.TempDir()
 		svc, err := NewService(

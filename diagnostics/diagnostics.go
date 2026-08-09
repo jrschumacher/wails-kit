@@ -24,16 +24,18 @@ import (
 
 // Error codes.
 const (
-	ErrBundleCreate errors.Code = "diagnostics_bundle"
-	ErrBundleLogs   errors.Code = "diagnostics_logs"
-	ErrBundleSubmit errors.Code = "diagnostics_submit"
+	ErrBundleCreate    errors.Code = "diagnostics_bundle"
+	ErrBundleLogs      errors.Code = "diagnostics_logs"
+	ErrBundleSubmit    errors.Code = "diagnostics_submit"
+	ErrConsentRequired errors.Code = "diagnostics_consent_required"
 )
 
 func init() {
 	errors.RegisterMessages(map[errors.Code]string{
-		ErrBundleCreate: "Failed to create the diagnostics bundle. Please try again.",
-		ErrBundleLogs:   "Failed to collect log files for the diagnostics bundle.",
-		ErrBundleSubmit: "Failed to submit the diagnostics bundle. Please try again.",
+		ErrBundleCreate:    "Failed to create the diagnostics bundle. Please try again.",
+		ErrBundleLogs:      "Failed to collect log files for the diagnostics bundle.",
+		ErrBundleSubmit:    "Failed to submit the diagnostics bundle. Please try again.",
+		ErrConsentRequired: "Diagnostics submission requires your consent. Enable it in Settings before sharing a bundle.",
 	})
 }
 
@@ -72,18 +74,18 @@ type SystemInfo struct {
 
 // Service creates diagnostics bundles from application state.
 type Service struct {
-	appName    string
-	appVersion string
-	logDir     string
-	dirs       *appdirs.Dirs
-	settings   *settings.Service
-	emitter    *events.Emitter
-	maxLogSize       int64 // bytes; total cap for log files in bundle
-	collectors       map[string]CollectorFunc
-	webhookToken     string
-	webhookTimeout   time.Duration
+	appName           string
+	appVersion        string
+	logDir            string
+	dirs              *appdirs.Dirs
+	settings          *settings.Service
+	emitter           *events.Emitter
+	maxLogSize        int64 // bytes; total cap for log files in bundle
+	collectors        map[string]CollectorFunc
+	webhookToken      string
+	webhookTimeout    time.Duration
 	webhookMaxRetries int
-	httpClient       *http.Client
+	httpClient        *http.Client
 }
 
 // ServiceOption configures a Service.
@@ -196,7 +198,11 @@ func (s *Service) CreateBundle(ctx context.Context, outputDir string) (string, e
 		return "", errors.Wrap(ErrBundleCreate, "create output directory", err)
 	}
 
-	f, err := os.Create(outputPath)
+	// 0600, not the 0644 os.Create would give: the output directory is 0700,
+	// but users are told the bundle path and will move the file out of it
+	// (e.g. into Downloads) or attach it somewhere, at which point the
+	// directory's protection no longer applies.
+	f, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return "", errors.Wrap(ErrBundleCreate, "create bundle file", err)
 	}
