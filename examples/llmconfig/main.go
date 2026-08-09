@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/jrschumacher/wails-kit/v2/keyring"
 	"github.com/jrschumacher/wails-kit/v2/settings"
 	"github.com/jrschumacher/wails-kit/v2/settings/templates/llmconfig"
@@ -45,7 +46,7 @@ func run() error {
 		llmconfig.WithProviders("anthropic", "openai"),
 		llmconfig.WithDefaultProvider("anthropic"),
 		llmconfig.WithModels("anthropic", append(anthropicBuiltinModels(),
-			settings.SelectOption{Label: "Claude Next (example)", Value: "claude-next-example"},
+			settings.SelectOption{Label: i18n.Text{Other: "Claude Next (example)"}, Value: "claude-next-example"},
 		)),
 	)
 

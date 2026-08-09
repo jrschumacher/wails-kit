@@ -1,0 +1,13 @@
+{
+  "wailskit.settings.locale_group.label": "Language",
+  "wailskit.settings.locale_group.field_label": "Language",
+  "wailskit.settings.validation.required": "%s is required",
+  "wailskit.settings.validation.pattern": "%s has invalid format",
+  "wailskit.settings.validation.min_length": "%s must be at least %d characters",
+  "wailskit.settings.validation.max_length": "%s must be at most %d characters",
+  "wailskit.settings.validation.min": "%s must be at least %d",
+  "wailskit.settings.validation.max": "%s must be at most %d",
+  "wailskit.settings.validation.invalid_type_toggle": "%s must be true or false",
+  "wailskit.settings.validation.invalid_type_password": "%s must be a string",
+  "wailskit.settings.validation.invalid_option": "%s has an invalid option"
+}

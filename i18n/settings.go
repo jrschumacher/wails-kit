@@ -5,18 +5,32 @@ import (
 
 	"golang.org/x/text/language"
 	"golang.org/x/text/language/display"
-
-	"github.com/jrschumacher/wails-kit/v2/settings"
 )
 
-// SettingsGroup returns a settings.Group with one field, a locale picker,
-// whose options are "system" (SettingsGroup's default — defers to the
-// env/OS/default resolution tiers) plus every locale actually present in
-// l's merged catalog. Field labels are plain strings here, matching
-// settings.Field's current string-typed Label/Description/Placeholder;
-// settings gains i18n.Text-typed fields in WP-12, and this group is not
-// meant to pre-empt that.
-func (l *Localizer) SettingsGroup() settings.Group {
+// LocaleOption is one entry in a locale picker: a value paired with its
+// display label.
+//
+// WP-12 note: this package used to expose a Localizer.SettingsGroup()
+// method that built a settings.Group directly (importing package settings
+// for its Group/Field/SelectOption types). WP-12 makes settings.Field carry
+// i18n.Text and settings.Service accept a *Localizer via WithLocalizer,
+// which means package settings now imports package i18n. Keeping this
+// package's former settings import too would create a hard cycle
+// (i18n -> settings -> i18n), which Go refuses to build. LocaleOptions is
+// the cycle-free replacement: it returns plain data, and settings.LocaleGroup
+// (settings/locale.go) assembles it into a settings.Group. See
+// settings/AGENTS.md "Dependencies & insulation" for the settings-side half
+// of this note.
+type LocaleOption struct {
+	Value string
+	Label Text
+}
+
+// LocaleOptions returns the locale-picker options for l's merged catalog:
+// "system" first (the option a picker should default to — defers to the
+// env/OS/default resolution tiers), then every locale actually present in
+// the catalog, sorted, each labeled with an English-language display name.
+func (l *Localizer) LocaleOptions() []LocaleOption {
 	l.mu.RLock()
 	keys := make([]string, 0, len(l.catalogs))
 	for k := range l.catalogs {
@@ -25,31 +39,12 @@ func (l *Localizer) SettingsGroup() settings.Group {
 	l.mu.RUnlock()
 	sort.Strings(keys)
 
-	options := make([]settings.SelectOption, 0, len(keys)+1)
-	options = append(options, settings.SelectOption{
-		Value: "system",
-		Label: l.T(systemLocaleLabel),
-	})
+	options := make([]LocaleOption, 0, len(keys)+1)
+	options = append(options, LocaleOption{Value: "system", Label: systemLocaleLabel})
 	for _, k := range keys {
-		options = append(options, settings.SelectOption{
-			Value: k,
-			Label: localeDisplayName(k),
-		})
+		options = append(options, LocaleOption{Value: k, Label: T("", localeDisplayName(k))})
 	}
-
-	return settings.Group{
-		Key:   "i18n",
-		Label: "Language",
-		Fields: []settings.Field{
-			{
-				Key:     SettingLocale,
-				Type:    settings.FieldSelect,
-				Label:   "Language",
-				Default: "system",
-				Options: options,
-			},
-		},
-	}
+	return options
 }
 
 // systemLocaleLabel is a kit-catalog string (see locales/en.json) rather
@@ -59,7 +54,9 @@ var systemLocaleLabel = T("wailskit.i18n.locale_option.system", "System default"
 
 // localeDisplayName renders tag as an English-language display name (e.g.
 // "fr" -> "French"), falling back to the raw tag string if display has
-// nothing for it (or tag doesn't parse).
+// nothing for it (or tag doesn't parse). Deliberately not a catalog lookup
+// (no per-locale-name translation) — an unadorned Text{Other: name} is
+// exactly right for LocaleOption.Label.
 func localeDisplayName(tag string) string {
 	parsed, err := language.Parse(tag)
 	if err != nil {

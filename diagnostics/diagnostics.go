@@ -338,7 +338,7 @@ func (s *Service) writeSettings(zw *zip.Writer) error {
 }
 
 // sanitizeSettings replaces password field values with "[REDACTED]".
-func sanitizeSettings(schema settings.Schema, values map[string]any) map[string]any {
+func sanitizeSettings(schema settings.ResolvedSchema, values map[string]any) map[string]any {
 	passwordKeys := make(map[string]bool)
 	for _, group := range schema.Groups {
 		for _, field := range group.Fields {

@@ -3,6 +3,7 @@ package llmconfig
 import (
 	"testing"
 
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/jrschumacher/wails-kit/v2/settings"
 )
 
@@ -12,7 +13,7 @@ func TestNew_DefaultConfig(t *testing.T) {
 	if group.Key != "llm" {
 		t.Errorf("group key = %q, want %q", group.Key, "llm")
 	}
-	if group.Label != "LLM" {
+	if group.Label.Other != "LLM" {
 		t.Errorf("group label = %q, want %q", group.Label, "LLM")
 	}
 	if cfg == nil {
@@ -72,13 +73,13 @@ func TestNew_CustomProviders(t *testing.T) {
 func TestNew_CustomGroupKey(t *testing.T) {
 	group, cfg := New(
 		WithGroupKey("ai"),
-		WithGroupLabel("AI Provider"),
+		WithGroupLabel(i18n.Text{Other: "AI Provider"}),
 	)
 
 	if group.Key != "ai" {
 		t.Errorf("group key = %q, want %q", group.Key, "ai")
 	}
-	if group.Label != "AI Provider" {
+	if group.Label.Other != "AI Provider" {
 		t.Errorf("group label = %q, want %q", group.Label, "AI Provider")
 	}
 	if cfg.GroupKey() != "ai" {
@@ -129,9 +130,9 @@ func TestNew_UnknownProviderIgnored(t *testing.T) {
 func TestWithProvider_AddsCustomProvider(t *testing.T) {
 	custom := Provider{
 		ID:    "acme",
-		Label: "Acme LLM",
+		Label: i18n.Text{Other: "Acme LLM"},
 		Models: []settings.SelectOption{
-			{Label: "Acme Large", Value: "acme-large"},
+			{Label: i18n.Text{Other: "Acme Large"}, Value: "acme-large"},
 		},
 	}
 	group, _ := New(
@@ -145,7 +146,7 @@ func TestWithProvider_AddsCustomProvider(t *testing.T) {
 	}
 	found := false
 	for _, o := range pf.Options {
-		if o.Value == "acme" && o.Label == "Acme LLM" {
+		if o.Value == "acme" && o.Label.Other == "Acme LLM" {
 			found = true
 		}
 	}
@@ -156,19 +157,19 @@ func TestWithProvider_AddsCustomProvider(t *testing.T) {
 
 func TestWithProvider_OverridesBuiltin(t *testing.T) {
 	group, _ := New(
-		WithProvider(Provider{ID: "anthropic", Label: "Anthropic (custom)", Models: nil}),
+		WithProvider(Provider{ID: "anthropic", Label: i18n.Text{Other: "Anthropic (custom)"}, Models: nil}),
 		WithProviders("anthropic"),
 	)
 
 	pf := group.Fields[0]
-	if pf.Options[0].Label != "Anthropic (custom)" {
+	if pf.Options[0].Label.Other != "Anthropic (custom)" {
 		t.Errorf("provider label = %q, want %q", pf.Options[0].Label, "Anthropic (custom)")
 	}
 }
 
 func TestWithModels_ReplacesBuiltinModelList(t *testing.T) {
 	newModels := []settings.SelectOption{
-		{Label: "Claude Next", Value: "claude-next"},
+		{Label: i18n.Text{Other: "Claude Next"}, Value: "claude-next"},
 	}
 	group, _ := New(
 		WithModels("anthropic", newModels),
@@ -184,13 +185,13 @@ func TestWithModels_ReplacesBuiltinModelList(t *testing.T) {
 
 func TestWithModels_OnCustomProvider(t *testing.T) {
 	group, _ := New(
-		WithProvider(Provider{ID: "acme", Label: "Acme"}),
-		WithModels("acme", []settings.SelectOption{{Label: "Acme v1", Value: "acme-v1"}}),
+		WithProvider(Provider{ID: "acme", Label: i18n.Text{Other: "Acme"}}),
+		WithModels("acme", []settings.SelectOption{{Label: i18n.Text{Other: "Acme v1"}, Value: "acme-v1"}}),
 		WithProviders("acme"),
 	)
 
 	pf := group.Fields[0]
-	if pf.Options[0].Label != "Acme" {
+	if pf.Options[0].Label.Other != "Acme" {
 		t.Errorf("provider label = %q, want %q", pf.Options[0].Label, "Acme")
 	}
 	mf := group.Fields[1]
@@ -202,14 +203,14 @@ func TestWithModels_OnCustomProvider(t *testing.T) {
 
 func TestBuiltin_ReturnsIndependentCopy(t *testing.T) {
 	a := Builtin()
-	a[0].Label = "mutated"
-	a[0].Models[0].Label = "mutated model"
+	a[0].Label = i18n.Text{Other: "mutated"}
+	a[0].Models[0].Label = i18n.Text{Other: "mutated model"}
 
 	b := Builtin()
-	if b[0].Label == "mutated" {
+	if b[0].Label.Other == "mutated" {
 		t.Error("Builtin() mutation leaked into a later call (Label)")
 	}
-	if b[0].Models[0].Label == "mutated model" {
+	if b[0].Models[0].Label.Other == "mutated model" {
 		t.Error("Builtin() mutation leaked into a later call (Models)")
 	}
 }

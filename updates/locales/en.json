@@ -1,0 +1,10 @@
+{
+  "wailskit.updates.settings.group_label": "Updates",
+  "wailskit.updates.settings.check_frequency.label": "Check for updates",
+  "wailskit.updates.settings.check_frequency.option.startup": "On startup",
+  "wailskit.updates.settings.check_frequency.option.daily": "Daily",
+  "wailskit.updates.settings.check_frequency.option.weekly": "Weekly",
+  "wailskit.updates.settings.check_frequency.option.never": "Never",
+  "wailskit.updates.settings.auto_download.label": "Automatically download updates",
+  "wailskit.updates.settings.include_prereleases.label": "Include pre-release versions"
+}

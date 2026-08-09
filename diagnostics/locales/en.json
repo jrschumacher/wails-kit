@@ -1,0 +1,5 @@
+{
+  "wailskit.diagnostics.group": "Diagnostics",
+  "wailskit.diagnostics.consent.label": "Share diagnostic bundles with support",
+  "wailskit.diagnostics.consent.description": "When enabled, you can submit diagnostics bundles (logs and system info) to support. Nothing is sent automatically or without this being on."
+}

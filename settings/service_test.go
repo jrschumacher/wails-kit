@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/jrschumacher/wails-kit/v2/keyring"
 )
 
@@ -33,9 +34,9 @@ func TestNewService_WithStoragePath(t *testing.T) {
 		WithStoragePath(path),
 		WithGroup(Group{
 			Key:   "general",
-			Label: "General",
+			Label: i18n.Text{Other: "General"},
 			Fields: []Field{
-				{Key: "name", Type: FieldText, Label: "Name", Default: "default"},
+				{Key: "name", Type: FieldText, Label: i18n.Text{Other: "Name"}, Default: "default"},
 			},
 		}),
 	)
@@ -84,10 +85,10 @@ func TestWithStoragePath_PasswordNeverInFile(t *testing.T) {
 		WithKeyring(secrets),
 		WithGroup(Group{
 			Key:   "auth",
-			Label: "Auth",
+			Label: i18n.Text{Other: "Auth"},
 			Fields: []Field{
-				{Key: "token", Type: FieldPassword, Label: "Token"},
-				{Key: "host", Type: FieldText, Label: "Host"},
+				{Key: "token", Type: FieldPassword, Label: i18n.Text{Other: "Token"}},
+				{Key: "host", Type: FieldText, Label: i18n.Text{Other: "Host"}},
 			},
 		}),
 	)
@@ -121,11 +122,11 @@ func TestNewService_RegistersDefaults(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "general",
-			Label: "General",
+			Label: i18n.Text{Other: "General"},
 			Fields: []Field{
-				{Key: "theme", Type: FieldSelect, Label: "Theme", Default: "dark"},
-				{Key: "lang", Type: FieldSelect, Label: "Language", Default: "en"},
-				{Key: "notes", Type: FieldText, Label: "Notes"},
+				{Key: "theme", Type: FieldSelect, Label: i18n.Text{Other: "Theme"}, Default: "dark"},
+				{Key: "lang", Type: FieldSelect, Label: i18n.Text{Other: "Language"}, Default: "en"},
+				{Key: "notes", Type: FieldText, Label: i18n.Text{Other: "Notes"}},
 			},
 		}),
 	)
@@ -146,8 +147,8 @@ func TestNewService_RegistersDefaults(t *testing.T) {
 }
 
 func TestGetSchema_ReturnsAllGroups(t *testing.T) {
-	g1 := Group{Key: "g1", Label: "Group 1", Fields: []Field{{Key: "f1", Type: FieldText, Label: "F1"}}}
-	g2 := Group{Key: "g2", Label: "Group 2", Fields: []Field{{Key: "f2", Type: FieldToggle, Label: "F2"}}}
+	g1 := Group{Key: "g1", Label: i18n.Text{Other: "Group 1"}, Fields: []Field{{Key: "f1", Type: FieldText, Label: i18n.Text{Other: "F1"}}}}
+	g2 := Group{Key: "g2", Label: i18n.Text{Other: "Group 2"}, Fields: []Field{{Key: "f2", Type: FieldToggle, Label: i18n.Text{Other: "F2"}}}}
 
 	svc := NewService(WithGroup(g1), WithGroup(g2))
 	schema := svc.GetSchema()
@@ -171,11 +172,11 @@ func TestGetValues_AppliesComputeFuncs(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "info",
-			Label: "Info",
+			Label: i18n.Text{Other: "Info"},
 			Fields: []Field{
-				{Key: "first", Type: FieldText, Label: "First", Default: "John"},
-				{Key: "last", Type: FieldText, Label: "Last", Default: "Doe"},
-				{Key: "full_name", Type: FieldComputed, Label: "Full Name"},
+				{Key: "first", Type: FieldText, Label: i18n.Text{Other: "First"}, Default: "John"},
+				{Key: "last", Type: FieldText, Label: i18n.Text{Other: "Last"}, Default: "Doe"},
+				{Key: "full_name", Type: FieldComputed, Label: i18n.Text{Other: "Full Name"}},
 			},
 			ComputeFuncs: map[string]ComputeFunc{
 				"full_name": func(values map[string]any) any {
@@ -204,9 +205,9 @@ func TestSetValues_ValidatesAndSaves(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "config",
-			Label: "Config",
+			Label: i18n.Text{Other: "Config"},
 			Fields: []Field{
-				{Key: "name", Type: FieldText, Label: "Name", Validation: &Validation{Required: true}},
+				{Key: "name", Type: FieldText, Label: i18n.Text{Other: "Name"}, Validation: &Validation{Required: true}},
 			},
 		}),
 	)
@@ -238,9 +239,9 @@ func TestSetValues_ReturnsValidationErrors(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "config",
-			Label: "Config",
+			Label: i18n.Text{Other: "Config"},
 			Fields: []Field{
-				{Key: "name", Type: FieldText, Label: "Name", Validation: &Validation{Required: true}},
+				{Key: "name", Type: FieldText, Label: i18n.Text{Other: "Name"}, Validation: &Validation{Required: true}},
 			},
 		}),
 	)
@@ -270,10 +271,10 @@ func TestSetValues_StripsComputedFields(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "info",
-			Label: "Info",
+			Label: i18n.Text{Other: "Info"},
 			Fields: []Field{
-				{Key: "first", Type: FieldText, Label: "First"},
-				{Key: "display", Type: FieldComputed, Label: "Display"},
+				{Key: "first", Type: FieldText, Label: i18n.Text{Other: "First"}},
+				{Key: "display", Type: FieldComputed, Label: i18n.Text{Other: "Display"}},
 			},
 			ComputeFuncs: map[string]ComputeFunc{
 				"display": func(values map[string]any) any {
@@ -313,9 +314,9 @@ func TestWithOnChange_CalledAfterSave(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "config",
-			Label: "Config",
+			Label: i18n.Text{Other: "Config"},
 			Fields: []Field{
-				{Key: "key", Type: FieldText, Label: "Key"},
+				{Key: "key", Type: FieldText, Label: i18n.Text{Other: "Key"}},
 			},
 		}),
 		WithOnChange(func(values map[string]any) {
@@ -346,9 +347,9 @@ func TestWithOnChange_NotCalledOnValidationFailure(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "config",
-			Label: "Config",
+			Label: i18n.Text{Other: "Config"},
 			Fields: []Field{
-				{Key: "name", Type: FieldText, Label: "Name", Validation: &Validation{Required: true}},
+				{Key: "name", Type: FieldText, Label: i18n.Text{Other: "Name"}, Validation: &Validation{Required: true}},
 			},
 		}),
 		WithOnChange(func(values map[string]any) {
@@ -370,17 +371,17 @@ func TestMultipleGroups_Compose(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "appearance",
-			Label: "Appearance",
+			Label: i18n.Text{Other: "Appearance"},
 			Fields: []Field{
-				{Key: "theme", Type: FieldSelect, Label: "Theme", Default: "light"},
+				{Key: "theme", Type: FieldSelect, Label: i18n.Text{Other: "Theme"}, Default: "light"},
 			},
 		}),
 		WithGroup(Group{
 			Key:   "connection",
-			Label: "Connection",
+			Label: i18n.Text{Other: "Connection"},
 			Fields: []Field{
-				{Key: "url", Type: FieldText, Label: "URL", Default: "https://example.com"},
-				{Key: "timeout", Type: FieldNumber, Label: "Timeout", Default: float64(30)},
+				{Key: "url", Type: FieldText, Label: i18n.Text{Other: "URL"}, Default: "https://example.com"},
+				{Key: "timeout", Type: FieldNumber, Label: i18n.Text{Other: "Timeout"}, Default: float64(30)},
 			},
 		}),
 	)
@@ -438,10 +439,10 @@ func TestPasswordField_StoredInKeyring(t *testing.T) {
 		WithKeyring(secrets),
 		WithGroup(Group{
 			Key:   "auth",
-			Label: "Auth",
+			Label: i18n.Text{Other: "Auth"},
 			Fields: []Field{
-				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
-				{Key: "host", Type: FieldText, Label: "Host"},
+				{Key: "api_key", Type: FieldPassword, Label: i18n.Text{Other: "API Key"}},
+				{Key: "host", Type: FieldText, Label: i18n.Text{Other: "Host"}},
 			},
 		}),
 	)
@@ -483,9 +484,9 @@ func TestPasswordField_MaskedInGetValues(t *testing.T) {
 		WithKeyring(secrets),
 		WithGroup(Group{
 			Key:   "auth",
-			Label: "Auth",
+			Label: i18n.Text{Other: "Auth"},
 			Fields: []Field{
-				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+				{Key: "api_key", Type: FieldPassword, Label: i18n.Text{Other: "API Key"}},
 			},
 		}),
 	)
@@ -510,9 +511,9 @@ func TestPasswordField_MaskSentinelIsNoOp(t *testing.T) {
 		WithKeyring(secrets),
 		WithGroup(Group{
 			Key:   "auth",
-			Label: "Auth",
+			Label: i18n.Text{Other: "Auth"},
 			Fields: []Field{
-				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+				{Key: "api_key", Type: FieldPassword, Label: i18n.Text{Other: "API Key"}},
 			},
 		}),
 	)
@@ -540,9 +541,9 @@ func TestPasswordField_EmptyClearsSecret(t *testing.T) {
 		WithKeyring(secrets),
 		WithGroup(Group{
 			Key:   "auth",
-			Label: "Auth",
+			Label: i18n.Text{Other: "Auth"},
 			Fields: []Field{
-				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+				{Key: "api_key", Type: FieldPassword, Label: i18n.Text{Other: "API Key"}},
 			},
 		}),
 	)
@@ -566,9 +567,9 @@ func TestPasswordField_UnsetReturnsEmpty(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "auth",
-			Label: "Auth",
+			Label: i18n.Text{Other: "Auth"},
 			Fields: []Field{
-				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+				{Key: "api_key", Type: FieldPassword, Label: i18n.Text{Other: "API Key"}},
 			},
 		}),
 	)
@@ -589,9 +590,9 @@ func TestGetSecret_ReturnsActualValue(t *testing.T) {
 		WithKeyring(secrets),
 		WithGroup(Group{
 			Key:   "auth",
-			Label: "Auth",
+			Label: i18n.Text{Other: "Auth"},
 			Fields: []Field{
-				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+				{Key: "api_key", Type: FieldPassword, Label: i18n.Text{Other: "API Key"}},
 			},
 		}),
 	)
@@ -628,21 +629,21 @@ func TestValidateEffectiveState(t *testing.T) {
 		WithKeyring(secrets),
 		WithGroup(Group{
 			Key:   "llm",
-			Label: "LLM",
+			Label: i18n.Text{Other: "LLM"},
 			Fields: []Field{
 				{
 					Key:   "provider",
 					Type:  FieldSelect,
-					Label: "Provider",
+					Label: i18n.Text{Other: "Provider"},
 					Options: []SelectOption{
-						{Label: "OpenAI", Value: "openai"},
-						{Label: "Local", Value: "local"},
+						{Label: i18n.Text{Other: "OpenAI"}, Value: "openai"},
+						{Label: i18n.Text{Other: "Local"}, Value: "local"},
 					},
 				},
 				{
 					Key:        "api_key",
 					Type:       FieldPassword,
-					Label:      "API Key",
+					Label:      i18n.Text{Other: "API Key"},
 					Validation: &Validation{Required: true},
 					Condition:  &Condition{Field: "provider", Equals: []string{"openai"}},
 				},
@@ -692,26 +693,26 @@ func TestValidateEffectiveState_DynamicSelectUsesPersistedParent(t *testing.T) {
 		WithStoragePath(path),
 		WithGroup(Group{
 			Key:   "llm",
-			Label: "LLM",
+			Label: i18n.Text{Other: "LLM"},
 			Fields: []Field{
 				{
 					Key:   "provider",
 					Type:  FieldSelect,
-					Label: "Provider",
+					Label: i18n.Text{Other: "Provider"},
 					Options: []SelectOption{
-						{Label: "Anthropic", Value: "anthropic"},
-						{Label: "OpenAI", Value: "openai"},
+						{Label: i18n.Text{Other: "Anthropic"}, Value: "anthropic"},
+						{Label: i18n.Text{Other: "OpenAI"}, Value: "openai"},
 					},
 				},
 				{
 					Key:   "model",
 					Type:  FieldSelect,
-					Label: "Model",
+					Label: i18n.Text{Other: "Model"},
 					DynamicOptions: &DynamicOptions{
 						DependsOn: "provider",
 						Options: map[string][]SelectOption{
-							"anthropic": {{Label: "Claude", Value: "claude"}},
-							"openai":    {{Label: "GPT-4o", Value: "gpt-4o"}},
+							"anthropic": {{Label: i18n.Text{Other: "Claude"}, Value: "claude"}},
+							"openai":    {{Label: i18n.Text{Other: "GPT-4o"}, Value: "gpt-4o"}},
 						},
 					},
 				},
@@ -756,9 +757,9 @@ func TestPasswordNonString(t *testing.T) {
 		WithKeyring(secrets),
 		WithGroup(Group{
 			Key:   "auth",
-			Label: "Auth",
+			Label: i18n.Text{Other: "Auth"},
 			Fields: []Field{
-				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+				{Key: "api_key", Type: FieldPassword, Label: i18n.Text{Other: "API Key"}},
 			},
 		}),
 	)
@@ -797,10 +798,10 @@ func TestOnChangeNoLock(t *testing.T) {
 		WithStoragePath(path),
 		WithGroup(Group{
 			Key:   "config",
-			Label: "Config",
+			Label: i18n.Text{Other: "Config"},
 			Fields: []Field{
-				{Key: "key", Type: FieldText, Label: "Key"},
-				{Key: "other", Type: FieldText, Label: "Other"},
+				{Key: "key", Type: FieldText, Label: i18n.Text{Other: "Key"}},
+				{Key: "other", Type: FieldText, Label: i18n.Text{Other: "Other"}},
 			},
 		}),
 		WithOnChange(func(values map[string]any) {
@@ -860,8 +861,8 @@ func TestNewService_MemoryKeyringDefaultWarns(t *testing.T) {
 
 	_ = NewService(WithGroup(Group{
 		Key:    "auth",
-		Label:  "Auth",
-		Fields: []Field{{Key: "api_key", Type: FieldPassword, Label: "API Key"}},
+		Label:  i18n.Text{Other: "Auth"},
+		Fields: []Field{{Key: "api_key", Type: FieldPassword, Label: i18n.Text{Other: "API Key"}}},
 	}))
 
 	if !strings.Contains(buf.String(), "keyring") {

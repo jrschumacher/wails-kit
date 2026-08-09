@@ -22,6 +22,10 @@ svc := settings.NewService(
 )
 ```
 
+`WithLocalizer(l *i18n.Localizer)` is an optional additional option — see
+[Localization (i18n)](#localization-i18n) below. Omit it and every label renders as its
+literal fallback text; nothing else about this snippet changes.
+
 ## Registering with Wails — use `Binding()`, never the `Service`
 
 Wails v3 binds **every exported method** of a registered service. `*settings.Service`
@@ -92,33 +96,94 @@ persistent `keyring.Store` — `keyring.NewOSStore(...)` or `keyring.NewEnvelope
 
 ## Defining groups and fields
 
+`Group.Label`, `Field.Label`/`Description`/`Placeholder`, and `SelectOption.Label` are
+all `i18n.Text` (WP-12), not `string`. Build one with `i18n.T("your.catalog.key",
+"Fallback text")`, or `i18n.Text{Other: "Literal, never looked up"}` for a label that
+doesn't need a catalog entry (its `Key` stays `""`, which no catalog will ever match, so
+it always resolves to `Other`).
+
 ```go
+import "github.com/jrschumacher/wails-kit/v2/i18n"
+
 func mySettingsGroup() settings.Group {
     return settings.Group{
         Key:   "appearance",
-        Label: "Appearance",
+        Label: i18n.T("myapp.settings.appearance.label", "Appearance"),
         Fields: []settings.Field{
             {
                 Key:     "appearance.theme",
                 Type:    settings.FieldSelect,
-                Label:   "Theme",
+                Label:   i18n.T("myapp.settings.appearance.theme.label", "Theme"),
                 Default: "system",
                 Options: []settings.SelectOption{
-                    {Label: "System", Value: "system"},
-                    {Label: "Light", Value: "light"},
-                    {Label: "Dark", Value: "dark"},
+                    {Label: i18n.T("myapp.settings.appearance.theme.system", "System"), Value: "system"},
+                    {Label: i18n.T("myapp.settings.appearance.theme.light", "Light"), Value: "light"},
+                    {Label: i18n.T("myapp.settings.appearance.theme.dark", "Dark"), Value: "dark"},
                 },
             },
             {
-                Key:     "appearance.font_size",
-                Type:    settings.FieldNumber,
-                Label:   "Font Size",
-                Default: 14,
+                Key:        "appearance.font_size",
+                Type:       settings.FieldNumber,
+                Label:      i18n.T("myapp.settings.appearance.font_size.label", "Font Size"),
+                Default:    14,
                 Validation: &settings.Validation{Min: intPtr(8), Max: intPtr(32)},
             },
         },
     }
 }
+```
+
+## Localization (i18n)
+
+`settings.WithLocalizer(l *i18n.Localizer)` wires a `Service` to an `i18n.Localizer`
+(package [`i18n`](../i18n/README.md), landed in WP-10). `GetSchema()` (and
+`Binding.GetSchema()`) resolve every `Group.Label`, `Field.Label`/`Description`/
+`Placeholder`, and `SelectOption.Label` against it, returning a `ResolvedSchema` — the
+same JSON shape the pre-WP-12 `Schema` produced, just with every label now a resolved
+plain string rather than always being the same hardcoded literal:
+
+```go
+l, _ := i18n.New(i18n.WithCatalog(myAppLocales))
+svc := settings.NewService(
+    settings.WithLocalizer(l),
+    settings.WithGroup(mySettingsGroup()),
+)
+
+schema := svc.GetSchema() // settings.ResolvedSchema — plain-string labels
+```
+
+**Localization is opt-in.** Omit `WithLocalizer` (or pass `nil`) and every `i18n.Text`
+resolves to its literal `Other` value — a consumer that never touches `i18n` sees
+exactly the same behavior as before WP-12. This is `resolveText`'s entire contract:
+`nil` localizer → `t.Other`; non-nil → `l.T(t)`.
+
+**Resolution runs fresh on every `GetSchema()` call — nothing is cached.** Switch the
+locale with `l.SetLocale("fr")` and the very next `GetSchema()` call reflects it,
+without rebuilding the `Service` or re-registering groups. Wire the same emitter into
+`i18n.New` (`i18n.WithEmitter`) and a frontend can listen for `i18n:changed` and
+refetch `GetSchema()`/`Binding.GetSchema()` to pick up the new locale.
+
+**Validation messages localize too.** `Validate` takes a `*i18n.Localizer` as its third
+argument (`nil` for the built-in English messages); both the message template (e.g.
+`"%s is required"`) and the resolved field label substituted into it go through the
+same localizer, so a validation error is fully localized, not just the field name.
+
+### Locale picker
+
+`settings.LocaleGroup(l *i18n.Localizer) Group` returns a ready-made settings group — a
+single select field — for choosing among the locales present in `l`'s merged catalog,
+"System default" plus every other locale. This used to live as `i18n.Localizer.
+SettingsGroup()` (WP-10); it moved here in WP-12 because `Field.Label` needing
+`i18n.Text` and `Service` needing `*i18n.Localizer` makes `settings` import `i18n`, and
+`i18n` importing `settings` back (for `SettingsGroup`'s old `settings.Group` return
+type) would be a cycle. See [`i18n/README.md`](../i18n/README.md#settings-integration).
+
+```go
+svc := settings.NewService(
+    settings.WithLocalizer(l),
+    settings.WithGroup(settings.LocaleGroup(l)),
+    settings.WithGroup(mySettingsGroup()),
+)
 ```
 
 ## Field types
@@ -158,8 +223,14 @@ settings.Field{
     DynamicOptions: &settings.DynamicOptions{
         DependsOn: "appearance.theme",
         Options: map[string][]settings.SelectOption{
-            "compact": {{Label: "Small", Value: "12"}, {Label: "Medium", Value: "14"}},
-            "default": {{Label: "Medium", Value: "14"}, {Label: "Large", Value: "16"}},
+            "compact": {
+                {Label: i18n.T("myapp.settings.font_size.small", "Small"), Value: "12"},
+                {Label: i18n.T("myapp.settings.font_size.medium", "Medium"), Value: "14"},
+            },
+            "default": {
+                {Label: i18n.T("myapp.settings.font_size.medium", "Medium"), Value: "14"},
+                {Label: i18n.T("myapp.settings.font_size.large", "Large"), Value: "16"},
+            },
         },
     },
 }
@@ -206,7 +277,7 @@ Server-side computed read-only fields:
 ```go
 settings.Group{
     Fields: []settings.Field{
-        {Key: "resolved_model", Type: settings.FieldComputed, Label: "Resolved Model"},
+        {Key: "resolved_model", Type: settings.FieldComputed, Label: i18n.T("myapp.settings.resolved_model.label", "Resolved Model")},
     },
     ComputeFuncs: map[string]settings.ComputeFunc{
         "resolved_model": func(values map[string]any) any {
@@ -241,7 +312,11 @@ Register `svc.Binding()` with Wails (see
 [Registering with Wails](#registering-with-wails--use-binding-never-the-service)). The
 frontend calls its three methods:
 
-1. **`GetSchema()`** — returns JSON describing all fields, types, options, conditions
+1. **`GetSchema()`** — returns JSON describing all fields, types, options, conditions.
+   Labels are plain, already-resolved strings on the wire — the JSON shape is unchanged
+   from before WP-12 even though the Go-side `Field.Label` etc. are now `i18n.Text`; see
+   [Localization (i18n)](#localization-i18n). Refetch after an `i18n:changed` event to
+   pick up a locale switch — `GetSchema()` never caches a resolved schema.
 2. **`GetValues()`** — returns current values with defaults and computed fields, secrets masked
 3. **`SetValues(values)`** — validates against effective state, saves, triggers `onChange` callbacks
 

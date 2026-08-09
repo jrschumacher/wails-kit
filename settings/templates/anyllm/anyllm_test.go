@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/jrschumacher/wails-kit/v2/keyring"
 	"github.com/jrschumacher/wails-kit/v2/settings"
 	"github.com/jrschumacher/wails-kit/v2/settings/templates/llmconfig"
@@ -147,7 +148,7 @@ func TestBuildProvider_UnknownProviderID(t *testing.T) {
 	// A provider registered with llmconfig but unknown to newProvider's
 	// switch — simulates any-llm-go not (yet) shipping a package for it.
 	group, cfg := llmconfig.New(
-		llmconfig.WithProvider(llmconfig.Provider{ID: "acme", Label: "Acme LLM"}),
+		llmconfig.WithProvider(llmconfig.Provider{ID: "acme", Label: i18n.Text{Other: "Acme LLM"}}),
 		llmconfig.WithProviders("acme"),
 		llmconfig.WithDefaultProvider("acme"),
 	)

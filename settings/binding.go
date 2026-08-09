@@ -20,8 +20,9 @@ func (s *Service) Binding() *Binding {
 	return &Binding{svc: s}
 }
 
-// GetSchema returns the settings schema. See Service.GetSchema.
-func (b *Binding) GetSchema() Schema {
+// GetSchema returns the settings schema, resolved to plain strings against
+// the service's localizer. See Service.GetSchema.
+func (b *Binding) GetSchema() ResolvedSchema {
 	return b.svc.GetSchema()
 }
 

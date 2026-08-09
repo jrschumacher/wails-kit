@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/jrschumacher/wails-kit/v2/errors"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/jrschumacher/wails-kit/v2/keyring"
 	"github.com/jrschumacher/wails-kit/v2/settings"
 )
@@ -134,10 +135,10 @@ func TestUploadPathRedactsSecrets(t *testing.T) {
 		settings.WithGroup(SettingsGroup()),
 		settings.WithGroup(settings.Group{
 			Key:   "general",
-			Label: "General",
+			Label: i18n.Text{Other: "General"},
 			Fields: []settings.Field{
-				{Key: "general.name", Type: settings.FieldText, Label: "Name"},
-				{Key: "general.api_key", Type: settings.FieldPassword, Label: "API Key"},
+				{Key: "general.name", Type: settings.FieldText, Label: i18n.Text{Other: "Name"}},
+				{Key: "general.api_key", Type: settings.FieldPassword, Label: i18n.Text{Other: "API Key"}},
 			},
 		}),
 	)

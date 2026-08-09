@@ -9,7 +9,8 @@ loading/merging from `fs.FS` sources, locale resolution (OQ-5's five-tier order)
 plural selection via `golang.org/x/text`, and the frontend-safe `Binding`. It does
 **not** own: wiring itself into `errors`/`settings` (WP-11/WP-12), the TypeScript
 plural resolver `@wails-kit/i18n` (WP-33), or OS-level locale registration beyond
-reading it (no writing/setting the OS locale).
+reading it (no writing/setting the OS locale). As of WP-12 it also does **not** own
+assembling a `settings.Group` for the locale picker — see Landmines.
 
 ## Public API (load-bearing signatures)
 
@@ -30,7 +31,7 @@ func (l *Localizer) T(t Text, args ...any) string
 func (l *Localizer) TN(t Text, n int, args ...any) string // n is always the first fmt arg
 func (l *Localizer) Catalog() map[string]any
 func (l *Localizer) Binding() *Binding                    // GetCatalog/GetLocale/SetLocale
-func (l *Localizer) SettingsGroup() settings.Group        // locale picker
+func (l *Localizer) LocaleOptions() []LocaleOption         // {Value, Label} pairs for a locale picker
 ```
 
 ## Invariants (do not break)
@@ -71,9 +72,14 @@ func (l *Localizer) SettingsGroup() settings.Group        // locale picker
 - `golang.org/x/text` (`language`, `feature/plural`, `language/display`) for tag
   parsing/matching and CLDR plural rules — never hand-roll plural logic here.
 - `github.com/jrschumacher/wails-kit/v2/events` for `*events.Emitter` (optional,
-  nil-safe). `github.com/jrschumacher/wails-kit/v2/settings` for `SettingsGroup`'s
-  return type only — `SettingsSource` is a narrow local interface, not an import of
-  `*settings.Service`, so this package doesn't couple to `settings`'s internals.
+  nil-safe).
+- **No `github.com/jrschumacher/wails-kit/v2/settings` import, deliberately (WP-12).**
+  `SettingsSource` is a narrow local interface (`GetValues() (map[string]any, error)`),
+  not an import of `*settings.Service` — that was already true pre-WP-12. What changed:
+  this package used to import `settings` for `Localizer.SettingsGroup()`'s
+  `settings.Group` return type. WP-12 makes `settings.Field` carry `i18n.Text` and
+  `settings.Service` accept a `*Localizer`, so `settings` now imports `i18n` — and
+  `i18n` importing `settings` too would be a cycle. See Landmines.
 - No `wails/v3` import — Wails-free per the AD-4 allowlist. `Binding` registration
   happens in the consuming app or `kit/wailsbridge` (WP-31).
 
@@ -116,20 +122,29 @@ func (l *Localizer) SettingsGroup() settings.Group        // locale picker
 - `catalog.go` — `catalogEntry` (+ JSON unmarshal), `mergeFS`, embedded `kitLocalesFS`.
 - `option.go` — `Option`s, `SettingsSource`.
 - `binding.go` — `Binding`.
-- `settings.go` — `SettingsGroup`, `localeDisplayName`.
+- `settings.go` — `LocaleOption`, `LocaleOptions`, `localeDisplayName`. Despite the
+  filename, does **not** import `settings` (WP-12) — see Dependencies & Landmines.
 - `os_locale_darwin.go` / `os_locale_other.go` — `osLocales` per platform.
 - `locales/en.json` — the kit's own catalog (currently one key: the locale picker's
   "System default" option label).
 
 ## Landmines
 
+- **`settings.go` must never import package `settings` again.** It did, pre-WP-12
+  (`Localizer.SettingsGroup() settings.Group`). WP-12 needed `settings.Field` to carry
+  `i18n.Text` and `settings.Service` to accept a `*Localizer`
+  (`settings.WithLocalizer`), which makes `settings` import `i18n`. Re-adding a
+  `settings` import here would be an immediate build-breaking cycle
+  (`i18n -> settings -> i18n`). If a locale-picker feature needs something only
+  `settings` can express, add data-only surface here (like `LocaleOptions`) and let
+  `settings.LocaleGroup` (or an app) assemble it — never construct a `settings.Group`
+  from inside this package.
 - Tiers 1-3 do **not** run through the language matcher — only tier 4 does. This is
   intentional (see Invariants), but it means `Locale()` after `WithLocale("de-DE")` is
   literally `"de-DE"`, not canonicalized to `"de"` even if only a `"de"` catalog
   exists. Don't "fix" this without re-reading OQ-5 — `lookupCandidates` already
   handles the fallback at lookup time.
-- `go.work`'s workspace build list already resolves `golang.org/x/text` (via the
-  `settings/templates/anyllm` nested module's transitive deps), so `go build` works
-  without a `golang.org/x/text` line in the root `go.mod`. That's real but incidental
-  — don't rely on it staying true; root `go.mod`/`go.work` are owned by WP-01/WP-07,
-  not this package.
+- `golang.org/x/text` is a direct require in root `go.mod` (verified during WP-12) —
+  don't reintroduce reliance on `go.work`'s workspace build list resolving it
+  incidentally via another module's transitive deps; `GOWORK=off go build ./i18n/...`
+  is the check. Root `go.mod`/`go.work` are owned by WP-01/WP-07, not this package.

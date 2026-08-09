@@ -104,7 +104,11 @@ func TestBinding(t *testing.T) {
 	}
 }
 
-func TestSettingsGroup(t *testing.T) {
+// TestLocaleOptions replaces the former TestSettingsGroup — see
+// settings.go's LocaleOption doc comment for why the settings.Group
+// construction moved to package settings (settings.LocaleGroup) instead of
+// staying a method here.
+func TestLocaleOptions(t *testing.T) {
 	clearLocaleEnv(t)
 	withOSLocales(t, nil)
 
@@ -112,23 +116,13 @@ func TestSettingsGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	group := l.SettingsGroup()
+	options := l.LocaleOptions()
 
-	if group.Key != "i18n" {
-		t.Errorf("group.Key = %q, want %q", group.Key, "i18n")
+	if len(options) == 0 || options[0].Value != "system" {
+		t.Fatalf("options[0] = %#v, want Value \"system\" first", options)
 	}
-	if len(group.Fields) != 1 {
-		t.Fatalf("expected exactly one field, got %d", len(group.Fields))
-	}
-	field := group.Fields[0]
-	if field.Key != SettingLocale {
-		t.Errorf("field.Key = %q, want %q", field.Key, SettingLocale)
-	}
-	if field.Default != "system" {
-		t.Errorf("field.Default = %#v, want %q", field.Default, "system")
-	}
-	if len(field.Options) == 0 || field.Options[0].Value != "system" {
-		t.Errorf("field.Options[0] = %#v, want Value \"system\" first", field.Options)
+	if options[0].Label.Key != "wailskit.i18n.locale_option.system" {
+		t.Errorf("options[0].Label.Key = %q, want the system-default catalog key", options[0].Label.Key)
 	}
 }
 

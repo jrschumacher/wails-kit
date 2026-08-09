@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/jrschumacher/wails-kit/v2/keyring"
 	"github.com/jrschumacher/wails-kit/v2/settings"
 )
@@ -168,10 +169,10 @@ func TestCreateBundle(t *testing.T) {
 			settings.WithKeyring(keyring.NewMemoryStore()),
 			settings.WithGroup(settings.Group{
 				Key:   "general",
-				Label: "General",
+				Label: i18n.Text{Other: "General"},
 				Fields: []settings.Field{
-					{Key: "general.name", Type: settings.FieldText, Label: "Name"},
-					{Key: "general.api_key", Type: settings.FieldPassword, Label: "API Key"},
+					{Key: "general.name", Type: settings.FieldText, Label: i18n.Text{Other: "Name"}},
+					{Key: "general.api_key", Type: settings.FieldPassword, Label: i18n.Text{Other: "API Key"}},
 				},
 			}),
 		)
@@ -406,12 +407,14 @@ func TestCustomCollectors(t *testing.T) {
 }
 
 func TestSanitizeSettings(t *testing.T) {
-	schema := settings.Schema{
-		Groups: []settings.Group{
+	// sanitizeSettings consumes the resolved wire shape, which is what
+	// Service.GetSchema returns — labels are already strings by then.
+	schema := settings.ResolvedSchema{
+		Groups: []settings.ResolvedGroup{
 			{
 				Key:   "test",
 				Label: "Test",
-				Fields: []settings.Field{
+				Fields: []settings.ResolvedField{
 					{Key: "name", Type: settings.FieldText, Label: "Name"},
 					{Key: "secret", Type: settings.FieldPassword, Label: "Secret"},
 					{Key: "toggle", Type: settings.FieldToggle, Label: "Toggle"},

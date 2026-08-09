@@ -1,0 +1,8 @@
+{
+  "wailskit.appearance.group.label": "Appearance",
+  "wailskit.appearance.mode.label": "Theme",
+  "wailskit.appearance.mode.description": "Choose how the app looks, or follow your system setting.",
+  "wailskit.appearance.mode.option.system": "Follow system",
+  "wailskit.appearance.mode.option.light": "Light",
+  "wailskit.appearance.mode.option.dark": "Dark"
+}

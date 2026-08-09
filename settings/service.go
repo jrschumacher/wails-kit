@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/jrschumacher/wails-kit/v2/keyring"
 )
 
@@ -13,11 +14,12 @@ import (
 const SecretMask = "••••••••"
 
 type Service struct {
-	schema   Schema
-	store    *Store
-	secrets  keyring.Store
-	onChange []func(values map[string]any)
-	mu       sync.Mutex
+	schema    Schema
+	store     *Store
+	secrets   keyring.Store
+	onChange  []func(values map[string]any)
+	localizer *i18n.Localizer
+	mu        sync.Mutex
 
 	// appName and storagePath are staged by ServiceOptions and resolved into
 	// s.store once every option has run — see NewService. Resolving eagerly
@@ -79,6 +81,17 @@ func WithGroup(g Group) ServiceOption {
 	}
 }
 
+// WithLocalizer wires an *i18n.Localizer for resolving Field/Group/
+// SelectOption labels in GetSchema and validation messages in SetValues.
+// Optional — a Service with no localizer configured resolves every
+// i18n.Text to its literal Other value (see resolveText), so an existing
+// caller that never touches i18n sees no behavior change. Call
+// l.SetLocale later and the next GetSchema call re-resolves against the
+// new locale — nothing here caches a resolved schema.
+func WithLocalizer(l *i18n.Localizer) ServiceOption {
+	return func(s *Service) { s.localizer = l }
+}
+
 // WithOnChange registers a callback invoked after successful SetValues.
 // Callbacks are invoked after the service's internal lock has been
 // released, so a callback that calls back into the Service (e.g. GetValues
@@ -124,9 +137,12 @@ func NewService(opts ...ServiceOption) *Service {
 	return s
 }
 
-// GetSchema returns the settings schema.
-func (s *Service) GetSchema() Schema {
-	return s.schema
+// GetSchema returns the settings schema resolved against the service's
+// localizer (nil localizer -> literal Other values, see resolveText). This
+// is a fresh resolution on every call, not a cached snapshot, so a
+// consumer that refetches after i18n:changed sees the new locale.
+func (s *Service) GetSchema() ResolvedSchema {
+	return resolveSchema(s.schema, s.localizer)
 }
 
 // GetValues returns all current settings values.
@@ -222,7 +238,7 @@ func (s *Service) SetValues(values map[string]any) ([]ValidationError, error) {
 		return nil, err
 	}
 
-	if errs := Validate(s.schema, merged); errs != nil {
+	if errs := Validate(s.schema, merged, s.localizer); errs != nil {
 		s.mu.Unlock()
 		return errs, nil
 	}

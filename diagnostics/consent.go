@@ -1,6 +1,9 @@
 package diagnostics
 
-import "github.com/jrschumacher/wails-kit/v2/settings"
+import (
+	"github.com/jrschumacher/wails-kit/v2/i18n"
+	"github.com/jrschumacher/wails-kit/v2/settings"
+)
 
 // SettingConsent is the settings key for the diagnostics submission consent
 // toggle. It defaults to off: submitting a bundle is never a default-path
@@ -18,13 +21,13 @@ const SettingConsent = "diagnostics.submission_consent"
 func SettingsGroup() settings.Group {
 	return settings.Group{
 		Key:   "diagnostics",
-		Label: "Diagnostics",
+		Label: i18n.T("wailskit.diagnostics.group", "Diagnostics"),
 		Fields: []settings.Field{
 			{
 				Key:         SettingConsent,
 				Type:        settings.FieldToggle,
-				Label:       "Share diagnostic bundles with support",
-				Description: "When enabled, you can submit diagnostics bundles (logs and system info) to support. Nothing is sent automatically or without this being on.",
+				Label:       i18n.T("wailskit.diagnostics.consent.label", "Share diagnostic bundles with support"),
+				Description: i18n.T("wailskit.diagnostics.consent.description", "When enabled, you can submit diagnostics bundles (logs and system info) to support. Nothing is sent automatically or without this being on."),
 				Default:     false,
 			},
 		},

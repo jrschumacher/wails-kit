@@ -75,7 +75,7 @@ Highest wins ([OQ-5](../docs/v2-roadmap.md), decided):
 
 1. explicit `WithLocale` option
 2. settings override, if wired via `WithSettings` (skipped when the value is
-   `"system"`, `SettingsGroup`'s default — meaning "keep resolving lower tiers")
+   `"system"`, the locale picker's default — meaning "keep resolving lower tiers")
 3. `LC_ALL` / `LC_MESSAGES` / `LANG`
 4. OS source — `defaults read -g AppleLanguages` on darwin (see Landmines); on
    Linux/Windows the env vars above already *are* the OS source, so this tier is a
@@ -112,16 +112,22 @@ exactly `GetCatalog`, `GetLocale`, `SetLocale` regardless of what backend-only m
 
 ## Settings integration
 
-`l.SettingsGroup()` returns a `settings.Group` with one field — a locale picker whose
-options are `"system"` (default) plus every locale present in `l`'s merged catalog,
-labeled with English display names via `golang.org/x/text/language/display`. Register
-it with your `settings.Service` the same way you'd register any other group; wire the
-same service back into `i18n.New` via `WithSettings` to close the loop (persisted
-choice → resolution tier 2 → picker reflects it on next launch).
+`l.LocaleOptions()` returns the raw data for a locale picker: `"system"` (default)
+first, then every locale present in `l`'s merged catalog, each labeled with an
+English display name via `golang.org/x/text/language/display`.
+[`settings.LocaleGroup(l)`](../settings/README.md#locale-picker) turns that into a
+registerable `settings.Group` with one select field. Register it with your
+`settings.Service` the same way you'd register any other group; wire the same service
+back into `i18n.New` via `WithSettings` to close the loop (persisted choice →
+resolution tier 2 → picker reflects it on next launch).
 
-Field labels here are plain Go strings, not `i18n.Text` — `settings.Field.Label` is
-still `string`-typed as of this package; it becomes `i18n.Text`-typed in a later work
-package (WP-12), and this group isn't meant to pre-empt that.
+This package used to build the `settings.Group` itself (`Localizer.SettingsGroup()`,
+WP-10). WP-12 moved that assembly into package `settings`: once `settings.Field`
+carries `i18n.Text` and `settings.Service` accepts a `*Localizer`
+(`settings.WithLocalizer`), `settings` imports `i18n` — so `i18n` can no longer import
+`settings` too without an import cycle. `LocaleOptions()` is the cycle-free split:
+this package owns catalog-derived data, `settings` owns assembling it into its own
+types.
 
 ## Extraction lint
 

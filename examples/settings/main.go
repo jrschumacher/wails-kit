@@ -1,6 +1,8 @@
 // Command settings-example demonstrates the settings package headlessly:
-// defining a schema, reading/writing values, and the masking behavior
-// around password fields.
+// defining a schema, reading/writing values, the masking behavior around
+// password fields, and (WP-12) resolving Field/Group labels through an
+// *i18n.Localizer — including what changes when there's no localizer at
+// all, and what changes when the locale is switched at runtime.
 //
 // It uses a throwaway temp directory for the settings file and
 // keyring.NewMemoryStore() for secrets, so this example never touches a
@@ -13,10 +15,25 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"testing/fstest"
 
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/jrschumacher/wails-kit/v2/keyring"
 	"github.com/jrschumacher/wails-kit/v2/settings"
 )
+
+// themeLabel is a real catalog key (not example.* Text{Other: ...} zero-key
+// literals like the other labels in this file) so the example can show it
+// actually resolving through a locale catalog below.
+var themeLabel = i18n.T("example.settings.theme.label", "Theme")
+
+// frCatalog is a tiny embedded French catalog, just enough to demonstrate
+// GetSchema() re-resolving after SetLocale. A real app would ship this as
+// locales/fr.json via i18n.WithCatalog(someEmbedFS) instead of an in-memory
+// fstest.MapFS.
+var frCatalog = fstest.MapFS{
+	"locales/fr.json": &fstest.MapFile{Data: []byte(`{"example.settings.theme.label": "Thème"}`)},
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -33,9 +50,18 @@ func run() error {
 
 	secrets := keyring.NewMemoryStore()
 
+	// WithLocalizer is optional (WP-12) — a Service built without one
+	// resolves every i18n.Text to its literal Other value, so localization
+	// is strictly opt-in. l starts on English; SetLocale below switches it.
+	l, err := i18n.New(i18n.WithCatalog(frCatalog), i18n.WithLocale("en"))
+	if err != nil {
+		return fmt.Errorf("i18n.New: %w", err)
+	}
+
 	svc := settings.NewService(
 		settings.WithStoragePath(filepath.Join(tmp, "settings.json")),
 		settings.WithKeyring(secrets),
+		settings.WithLocalizer(l),
 		settings.WithGroup(appearanceGroup()),
 		settings.WithGroup(llmGroup()),
 		settings.WithOnChange(func(values map[string]any) {
@@ -43,6 +69,24 @@ func run() error {
 		}),
 	)
 	fmt.Println("settings file:", svc.GetSchema().Groups[0].Key, "...")
+
+	// GetSchema resolves fresh every call — no cached snapshot — so
+	// switching the localizer's locale is immediately visible on the next
+	// call, with no need to re-register groups or rebuild the service.
+	fmt.Println("theme label (en):", svc.GetSchema().Groups[0].Fields[0].Label)
+	if err := l.SetLocale("fr"); err != nil {
+		return fmt.Errorf("set locale: %w", err)
+	}
+	fmt.Println("theme label (fr):", svc.GetSchema().Groups[0].Fields[0].Label)
+	if err := l.SetLocale("en"); err != nil {
+		return fmt.Errorf("set locale: %w", err)
+	}
+
+	// A Service with no localizer configured at all still works — every
+	// i18n.Text just renders as its literal Other value. Localization is
+	// opt-in; a consumer that never touches i18n sees no behavior change.
+	noLocalizerSvc := settings.NewService(settings.WithKeyring(secrets), settings.WithGroup(appearanceGroup()))
+	fmt.Println("theme label (no localizer):", noLocalizerSvc.GetSchema().Groups[0].Fields[0].Label)
 
 	// GetSchema is what a frontend renders from — every field, type,
 	// options, and visibility condition needed to build a form generically.
@@ -121,17 +165,17 @@ func run() error {
 func appearanceGroup() settings.Group {
 	return settings.Group{
 		Key:   "appearance",
-		Label: "Appearance",
+		Label: i18n.Text{Other: "Appearance"},
 		Fields: []settings.Field{
 			{
 				Key:     "theme",
 				Type:    settings.FieldSelect,
-				Label:   "Theme",
+				Label:   themeLabel,
 				Default: "system",
 				Options: []settings.SelectOption{
-					{Label: "System", Value: "system"},
-					{Label: "Light", Value: "light"},
-					{Label: "Dark", Value: "dark"},
+					{Label: i18n.Text{Other: "System"}, Value: "system"},
+					{Label: i18n.Text{Other: "Light"}, Value: "light"},
+					{Label: i18n.Text{Other: "Dark"}, Value: "dark"},
 				},
 			},
 		},
@@ -141,22 +185,22 @@ func appearanceGroup() settings.Group {
 func llmGroup() settings.Group {
 	return settings.Group{
 		Key:   "llm",
-		Label: "LLM Provider",
+		Label: i18n.Text{Other: "LLM Provider"},
 		Fields: []settings.Field{
 			{
 				Key:     "provider",
 				Type:    settings.FieldSelect,
-				Label:   "Provider",
+				Label:   i18n.Text{Other: "Provider"},
 				Default: "anthropic",
 				Options: []settings.SelectOption{
-					{Label: "Anthropic", Value: "anthropic"},
-					{Label: "OpenAI", Value: "openai"},
+					{Label: i18n.Text{Other: "Anthropic"}, Value: "anthropic"},
+					{Label: i18n.Text{Other: "OpenAI"}, Value: "openai"},
 				},
 			},
 			{
 				Key:   "api_key",
 				Type:  settings.FieldPassword,
-				Label: "API Key",
+				Label: i18n.Text{Other: "API Key"},
 				// Required only while a provider is selected — demonstrates
 				// that validation now sees the *effective* provider value
 				// (persisted or submitted), not just what's in a given

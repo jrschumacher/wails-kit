@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 )
 
 // TestBindingSurface is the actual guard for defect #1: GetSecret must
@@ -59,9 +61,9 @@ func TestBinding_DelegatesToService(t *testing.T) {
 		WithStoragePath(filepath.Join(dir, "settings.json")),
 		WithGroup(Group{
 			Key:   "g",
-			Label: "G",
+			Label: i18n.Text{Other: "G"},
 			Fields: []Field{
-				{Key: "name", Type: FieldText, Label: "Name", Default: "x"},
+				{Key: "name", Type: FieldText, Label: i18n.Text{Other: "Name"}, Default: "x"},
 			},
 		}),
 	)

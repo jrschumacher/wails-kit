@@ -1,0 +1,11 @@
+{
+  "wailskit.health.settings.group_label": "Connectivity",
+  "wailskit.health.settings.check_interval.label": "Check interval",
+  "wailskit.health.settings.check_interval.description": "How often to probe registered endpoints.",
+  "wailskit.health.settings.interval.15s": "Every 15 seconds",
+  "wailskit.health.settings.interval.30s": "Every 30 seconds",
+  "wailskit.health.settings.interval.1m": "Every minute",
+  "wailskit.health.settings.interval.2m": "Every 2 minutes",
+  "wailskit.health.settings.interval.5m": "Every 5 minutes",
+  "wailskit.health.settings.interval.15m": "Every 15 minutes"
+}

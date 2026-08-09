@@ -11,7 +11,10 @@
 // README for why the split is a nested Go module rather than a build tag.
 package llmconfig
 
-import "github.com/jrschumacher/wails-kit/v2/settings"
+import (
+	"github.com/jrschumacher/wails-kit/v2/i18n"
+	"github.com/jrschumacher/wails-kit/v2/settings"
+)
 
 // Provider describes one LLM provider as it appears in the generated
 // settings schema: its stable ID (used as the settings value and as the key
@@ -19,7 +22,7 @@ import "github.com/jrschumacher/wails-kit/v2/settings"
 // model list.
 type Provider struct {
 	ID     string
-	Label  string
+	Label  i18n.Text
 	Models []settings.SelectOption
 }
 
@@ -38,58 +41,58 @@ func (p Provider) clone() Provider {
 var builtinProviders = []Provider{
 	{
 		ID:    "anthropic",
-		Label: "Anthropic",
+		Label: i18n.Text{Other: "Anthropic"},
 		Models: []settings.SelectOption{
-			{Label: "Claude Sonnet 4.6", Value: "claude-sonnet-4-6"},
-			{Label: "Claude Opus 4.6", Value: "claude-opus-4-6"},
-			{Label: "Claude Haiku 4.5", Value: "claude-haiku-4-5-20251001"},
+			{Label: i18n.Text{Other: "Claude Sonnet 4.6"}, Value: "claude-sonnet-4-6"},
+			{Label: i18n.Text{Other: "Claude Opus 4.6"}, Value: "claude-opus-4-6"},
+			{Label: i18n.Text{Other: "Claude Haiku 4.5"}, Value: "claude-haiku-4-5-20251001"},
 		},
 	},
 	{
 		ID:    "openai",
-		Label: "OpenAI",
+		Label: i18n.Text{Other: "OpenAI"},
 		Models: []settings.SelectOption{
-			{Label: "GPT-4o", Value: "gpt-4o"},
-			{Label: "GPT-4o Mini", Value: "gpt-4o-mini"},
-			{Label: "o3", Value: "o3"},
+			{Label: i18n.Text{Other: "GPT-4o"}, Value: "gpt-4o"},
+			{Label: i18n.Text{Other: "GPT-4o Mini"}, Value: "gpt-4o-mini"},
+			{Label: i18n.Text{Other: "o3"}, Value: "o3"},
 		},
 	},
 	{
 		ID:    "deepseek",
-		Label: "DeepSeek",
+		Label: i18n.Text{Other: "DeepSeek"},
 		Models: []settings.SelectOption{
-			{Label: "DeepSeek Chat", Value: "deepseek-chat"},
-			{Label: "DeepSeek Reasoner", Value: "deepseek-reasoner"},
+			{Label: i18n.Text{Other: "DeepSeek Chat"}, Value: "deepseek-chat"},
+			{Label: i18n.Text{Other: "DeepSeek Reasoner"}, Value: "deepseek-reasoner"},
 		},
 	},
 	{
 		ID:    "gemini",
-		Label: "Gemini",
+		Label: i18n.Text{Other: "Gemini"},
 		Models: []settings.SelectOption{
-			{Label: "Gemini 2.0 Flash", Value: "gemini-2.0-flash"},
-			{Label: "Gemini 2.5 Pro", Value: "gemini-2.5-pro-preview-06-05"},
+			{Label: i18n.Text{Other: "Gemini 2.0 Flash"}, Value: "gemini-2.0-flash"},
+			{Label: i18n.Text{Other: "Gemini 2.5 Pro"}, Value: "gemini-2.5-pro-preview-06-05"},
 		},
 	},
 	{
 		ID:    "groq",
-		Label: "Groq",
+		Label: i18n.Text{Other: "Groq"},
 		Models: []settings.SelectOption{
-			{Label: "Llama 3 70B", Value: "llama3-70b-8192"},
+			{Label: i18n.Text{Other: "Llama 3 70B"}, Value: "llama3-70b-8192"},
 		},
 	},
 	{
 		ID:    "mistral",
-		Label: "Mistral",
+		Label: i18n.Text{Other: "Mistral"},
 		Models: []settings.SelectOption{
-			{Label: "Mistral Large", Value: "mistral-large-latest"},
-			{Label: "Mistral Small", Value: "mistral-small-latest"},
+			{Label: i18n.Text{Other: "Mistral Large"}, Value: "mistral-large-latest"},
+			{Label: i18n.Text{Other: "Mistral Small"}, Value: "mistral-small-latest"},
 		},
 	},
 	{
 		ID:    "ollama",
-		Label: "Ollama",
+		Label: i18n.Text{Other: "Ollama"},
 		Models: []settings.SelectOption{
-			{Label: "Llama 3", Value: "llama3"},
+			{Label: i18n.Text{Other: "Llama 3"}, Value: "llama3"},
 		},
 	},
 }
@@ -113,7 +116,7 @@ type config struct {
 	overrides       map[string]Provider
 	defaultProvider string
 	groupKey        string
-	groupLabel      string
+	groupLabel      i18n.Text
 }
 
 // WithProviders sets which provider IDs appear in the settings dropdown, and
@@ -183,7 +186,7 @@ func WithGroupKey(key string) Option {
 }
 
 // WithGroupLabel overrides the settings group label (default: "LLM").
-func WithGroupLabel(label string) Option {
+func WithGroupLabel(label i18n.Text) Option {
 	return func(c *config) { c.groupLabel = label }
 }
 
@@ -196,7 +199,7 @@ func New(opts ...Option) (settings.Group, *Config) {
 		providers:       []string{"anthropic", "openai"},
 		defaultProvider: "anthropic",
 		groupKey:        "llm",
-		groupLabel:      "LLM",
+		groupLabel:      i18n.T("wailskit.llmconfig.group", "LLM"),
 	}
 	for _, opt := range opts {
 		opt(cfg)
@@ -243,14 +246,14 @@ func buildGroup(cfg *config, registry map[string]Provider) settings.Group {
 		{
 			Key:     prefix + ".provider",
 			Type:    settings.FieldSelect,
-			Label:   "Provider",
+			Label:   i18n.T("wailskit.llmconfig.provider", "Provider"),
 			Default: cfg.defaultProvider,
 			Options: providerOpts,
 		},
 		{
 			Key:     prefix + ".model",
 			Type:    settings.FieldSelect,
-			Label:   "Model",
+			Label:   i18n.T("wailskit.llmconfig.model", "Model"),
 			Default: defaultModel,
 			DynamicOptions: &settings.DynamicOptions{
 				DependsOn: prefix + ".provider",
@@ -268,21 +271,21 @@ func buildGroup(cfg *config, registry map[string]Provider) settings.Group {
 			settings.Field{
 				Key:       prefix + "." + id + ".secret",
 				Type:      settings.FieldPassword,
-				Label:     "API Key",
+				Label:     i18n.T("wailskit.llmconfig.apiKey", "API Key"),
 				Advanced:  true,
 				Condition: cond,
 			},
 			settings.Field{
 				Key:       prefix + "." + id + ".baseURL",
 				Type:      settings.FieldText,
-				Label:     "Base URL",
+				Label:     i18n.T("wailskit.llmconfig.baseURL", "Base URL"),
 				Advanced:  true,
 				Condition: cond,
 			},
 			settings.Field{
 				Key:       prefix + "." + id + ".customModel",
 				Type:      settings.FieldText,
-				Label:     "Custom Model ID",
+				Label:     i18n.T("wailskit.llmconfig.customModel", "Custom Model ID"),
 				Advanced:  true,
 				Condition: cond,
 			},
@@ -293,7 +296,7 @@ func buildGroup(cfg *config, registry map[string]Provider) settings.Group {
 	fields = append(fields, settings.Field{
 		Key:      resolvedKey,
 		Type:     settings.FieldComputed,
-		Label:    "Resolved Model ID",
+		Label:    i18n.T("wailskit.llmconfig.resolvedModel", "Resolved Model ID"),
 		Advanced: true,
 	})
 

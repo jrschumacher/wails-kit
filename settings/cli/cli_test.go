@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/jrschumacher/wails-kit/v2/keyring"
 	"github.com/jrschumacher/wails-kit/v2/settings"
 )
@@ -26,14 +27,14 @@ func testService(t *testing.T, groups ...settings.Group) *settings.Service {
 func basicGroup() settings.Group {
 	return settings.Group{
 		Key:   "general",
-		Label: "General",
+		Label: i18n.Text{Other: "General"},
 		Fields: []settings.Field{
-			{Key: "name", Type: settings.FieldText, Label: "Name", Default: "World"},
-			{Key: "theme", Type: settings.FieldSelect, Label: "Theme", Default: "dark", Options: []settings.SelectOption{
-				{Label: "Dark", Value: "dark"},
-				{Label: "Light", Value: "light"},
+			{Key: "name", Type: settings.FieldText, Label: i18n.Text{Other: "Name"}, Default: "World"},
+			{Key: "theme", Type: settings.FieldSelect, Label: i18n.Text{Other: "Theme"}, Default: "dark", Options: []settings.SelectOption{
+				{Label: i18n.Text{Other: "Dark"}, Value: "dark"},
+				{Label: i18n.Text{Other: "Light"}, Value: "light"},
 			}},
-			{Key: "notifications", Type: settings.FieldToggle, Label: "Notifications", Default: true},
+			{Key: "notifications", Type: settings.FieldToggle, Label: i18n.Text{Other: "Notifications"}, Default: true},
 		},
 	}
 }
@@ -64,9 +65,9 @@ func TestShow(t *testing.T) {
 func TestShow_PasswordMasked(t *testing.T) {
 	svc := testService(t, settings.Group{
 		Key:   "auth",
-		Label: "Auth",
+		Label: i18n.Text{Other: "Auth"},
 		Fields: []settings.Field{
-			{Key: "api_key", Type: settings.FieldPassword, Label: "API Key"},
+			{Key: "api_key", Type: settings.FieldPassword, Label: i18n.Text{Other: "API Key"}},
 		},
 	})
 
@@ -91,13 +92,13 @@ func TestShow_PasswordMasked(t *testing.T) {
 func TestShow_ConditionalFieldHidden(t *testing.T) {
 	svc := testService(t, settings.Group{
 		Key:   "llm",
-		Label: "LLM",
+		Label: i18n.Text{Other: "LLM"},
 		Fields: []settings.Field{
-			{Key: "provider", Type: settings.FieldSelect, Label: "Provider", Default: "openai", Options: []settings.SelectOption{
-				{Label: "OpenAI", Value: "openai"},
-				{Label: "Anthropic", Value: "anthropic"},
+			{Key: "provider", Type: settings.FieldSelect, Label: i18n.Text{Other: "Provider"}, Default: "openai", Options: []settings.SelectOption{
+				{Label: i18n.Text{Other: "OpenAI"}, Value: "openai"},
+				{Label: i18n.Text{Other: "Anthropic"}, Value: "anthropic"},
 			}},
-			{Key: "anthropic_key", Type: settings.FieldText, Label: "Anthropic Key", Condition: &settings.Condition{
+			{Key: "anthropic_key", Type: settings.FieldText, Label: i18n.Text{Other: "Anthropic Key"}, Condition: &settings.Condition{
 				Field: "provider", Equals: []string{"anthropic"},
 			}},
 		},
@@ -152,9 +153,9 @@ func TestGet_Toggle(t *testing.T) {
 func TestGet_PasswordMasked(t *testing.T) {
 	svc := testService(t, settings.Group{
 		Key:   "auth",
-		Label: "Auth",
+		Label: i18n.Text{Other: "Auth"},
 		Fields: []settings.Field{
-			{Key: "api_key", Type: settings.FieldPassword, Label: "API Key"},
+			{Key: "api_key", Type: settings.FieldPassword, Label: i18n.Text{Other: "API Key"}},
 		},
 	})
 
@@ -183,9 +184,9 @@ func TestGet_UnknownKey(t *testing.T) {
 func TestGet_UnsetValue(t *testing.T) {
 	svc := testService(t, settings.Group{
 		Key:   "test",
-		Label: "Test",
+		Label: i18n.Text{Other: "Test"},
 		Fields: []settings.Field{
-			{Key: "optional", Type: settings.FieldText, Label: "Optional"},
+			{Key: "optional", Type: settings.FieldText, Label: i18n.Text{Other: "Optional"}},
 		},
 	})
 
@@ -234,9 +235,9 @@ func TestSet_Number(t *testing.T) {
 	min, max := 1, 100
 	svc := testService(t, settings.Group{
 		Key:   "prefs",
-		Label: "Preferences",
+		Label: i18n.Text{Other: "Preferences"},
 		Fields: []settings.Field{
-			{Key: "font_size", Type: settings.FieldNumber, Label: "Font Size", Default: 14,
+			{Key: "font_size", Type: settings.FieldNumber, Label: i18n.Text{Other: "Font Size"}, Default: 14,
 				Validation: &settings.Validation{Min: &min, Max: &max}},
 		},
 	})
@@ -266,9 +267,9 @@ func TestSet_UnknownKey(t *testing.T) {
 func TestSet_ComputedField(t *testing.T) {
 	svc := testService(t, settings.Group{
 		Key:   "info",
-		Label: "Info",
+		Label: i18n.Text{Other: "Info"},
 		Fields: []settings.Field{
-			{Key: "computed_field", Type: settings.FieldComputed, Label: "Computed"},
+			{Key: "computed_field", Type: settings.FieldComputed, Label: i18n.Text{Other: "Computed"}},
 		},
 	})
 
@@ -281,11 +282,11 @@ func TestSet_ComputedField(t *testing.T) {
 func TestSet_ValidationError(t *testing.T) {
 	svc := testService(t, settings.Group{
 		Key:   "prefs",
-		Label: "Preferences",
+		Label: i18n.Text{Other: "Preferences"},
 		Fields: []settings.Field{
-			{Key: "theme", Type: settings.FieldSelect, Label: "Theme", Options: []settings.SelectOption{
-				{Label: "Dark", Value: "dark"},
-				{Label: "Light", Value: "light"},
+			{Key: "theme", Type: settings.FieldSelect, Label: i18n.Text{Other: "Theme"}, Options: []settings.SelectOption{
+				{Label: i18n.Text{Other: "Dark"}, Value: "dark"},
+				{Label: i18n.Text{Other: "Light"}, Value: "light"},
 			}},
 		},
 	})
@@ -306,17 +307,17 @@ func TestSet_ValidationError(t *testing.T) {
 func TestSet_DynamicOptions(t *testing.T) {
 	svc := testService(t, settings.Group{
 		Key:   "llm",
-		Label: "LLM",
+		Label: i18n.Text{Other: "LLM"},
 		Fields: []settings.Field{
-			{Key: "provider", Type: settings.FieldSelect, Label: "Provider", Default: "anthropic", Options: []settings.SelectOption{
-				{Label: "Anthropic", Value: "anthropic"},
-				{Label: "OpenAI", Value: "openai"},
+			{Key: "provider", Type: settings.FieldSelect, Label: i18n.Text{Other: "Provider"}, Default: "anthropic", Options: []settings.SelectOption{
+				{Label: i18n.Text{Other: "Anthropic"}, Value: "anthropic"},
+				{Label: i18n.Text{Other: "OpenAI"}, Value: "openai"},
 			}},
-			{Key: "model", Type: settings.FieldSelect, Label: "Model", DynamicOptions: &settings.DynamicOptions{
+			{Key: "model", Type: settings.FieldSelect, Label: i18n.Text{Other: "Model"}, DynamicOptions: &settings.DynamicOptions{
 				DependsOn: "provider",
 				Options: map[string][]settings.SelectOption{
-					"anthropic": {{Label: "Claude", Value: "claude"}},
-					"openai":    {{Label: "GPT-4o", Value: "gpt-4o"}},
+					"anthropic": {{Label: i18n.Text{Other: "Claude"}, Value: "claude"}},
+					"openai":    {{Label: i18n.Text{Other: "GPT-4o"}, Value: "gpt-4o"}},
 				},
 			}},
 		},
@@ -355,20 +356,20 @@ func TestValidationErrors_Error(t *testing.T) {
 
 func TestCoerceValue(t *testing.T) {
 	tests := []struct {
-		field settings.Field
+		field settings.ResolvedField
 		input string
 		want  any
 		err   bool
 	}{
-		{settings.Field{Type: settings.FieldToggle}, "true", true, false},
-		{settings.Field{Type: settings.FieldToggle}, "yes", true, false},
-		{settings.Field{Type: settings.FieldToggle}, "false", false, false},
-		{settings.Field{Type: settings.FieldToggle}, "no", false, false},
-		{settings.Field{Type: settings.FieldToggle}, "invalid", nil, true},
-		{settings.Field{Type: settings.FieldNumber}, "42", 42, false},
-		{settings.Field{Type: settings.FieldNumber}, "3.14", 3.14, false},
-		{settings.Field{Type: settings.FieldNumber}, "abc", nil, true},
-		{settings.Field{Type: settings.FieldText}, "hello", "hello", false},
+		{settings.ResolvedField{Type: settings.FieldToggle}, "true", true, false},
+		{settings.ResolvedField{Type: settings.FieldToggle}, "yes", true, false},
+		{settings.ResolvedField{Type: settings.FieldToggle}, "false", false, false},
+		{settings.ResolvedField{Type: settings.FieldToggle}, "no", false, false},
+		{settings.ResolvedField{Type: settings.FieldToggle}, "invalid", nil, true},
+		{settings.ResolvedField{Type: settings.FieldNumber}, "42", 42, false},
+		{settings.ResolvedField{Type: settings.FieldNumber}, "3.14", 3.14, false},
+		{settings.ResolvedField{Type: settings.FieldNumber}, "abc", nil, true},
+		{settings.ResolvedField{Type: settings.FieldText}, "hello", "hello", false},
 	}
 
 	for _, tt := range tests {

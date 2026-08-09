@@ -13,9 +13,12 @@ import (
 	"github.com/jrschumacher/wails-kit/v2/settings"
 )
 
-// SettingsProvider is the subset of *settings.Service that the CLI adapter needs.
+// SettingsProvider is the subset of *settings.Service that the CLI adapter
+// needs. It takes the resolved schema: the CLI renders labels, and by the
+// time GetSchema returns, i18n.Text has already been resolved to strings for
+// the active locale.
 type SettingsProvider interface {
-	GetSchema() settings.Schema
+	GetSchema() settings.ResolvedSchema
 	GetValues() (map[string]any, error)
 	SetValues(values map[string]any) ([]settings.ValidationError, error)
 }
@@ -147,7 +150,7 @@ func conditionMet(c *settings.Condition, values map[string]any) bool {
 	return false
 }
 
-func findField(schema settings.Schema, key string) (settings.Field, bool) {
+func findField(schema settings.ResolvedSchema, key string) (settings.ResolvedField, bool) {
 	for _, group := range schema.Groups {
 		for _, field := range group.Fields {
 			if field.Key == key {
@@ -155,10 +158,10 @@ func findField(schema settings.Schema, key string) (settings.Field, bool) {
 			}
 		}
 	}
-	return settings.Field{}, false
+	return settings.ResolvedField{}, false
 }
 
-func coerceValue(field settings.Field, value string) (any, error) {
+func coerceValue(field settings.ResolvedField, value string) (any, error) {
 	switch field.Type {
 	case settings.FieldToggle:
 		switch strings.ToLower(value) {
@@ -183,7 +186,7 @@ func coerceValue(field settings.Field, value string) (any, error) {
 	}
 }
 
-func formatValue(field settings.Field, val any) string {
+func formatValue(field settings.ResolvedField, val any) string {
 	if val == nil {
 		return "(not set)"
 	}

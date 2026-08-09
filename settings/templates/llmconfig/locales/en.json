@@ -1,0 +1,9 @@
+{
+  "wailskit.llmconfig.group": "LLM",
+  "wailskit.llmconfig.provider": "Provider",
+  "wailskit.llmconfig.model": "Model",
+  "wailskit.llmconfig.apiKey": "API Key",
+  "wailskit.llmconfig.baseURL": "Base URL",
+  "wailskit.llmconfig.customModel": "Custom Model ID",
+  "wailskit.llmconfig.resolvedModel": "Resolved Model ID"
+}
