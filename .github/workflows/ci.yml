@@ -107,6 +107,49 @@ jobs:
           cache: true
       - run: ./.github/scripts/check-wails-imports.sh
 
+  # go.work unions the nested anyllm module's dependency graph into local
+  # builds, which can mask a dependency the root go.mod fails to declare. That
+  # is invisible here and a hard build failure for consumers — it happened once
+  # with golang.org/x/text, where i18n compiled locally and would not have
+  # compiled for anyone else. Building with the workspace disabled is what a
+  # consumer actually experiences.
+  consumer-build:
+    name: Consumer Build (no workspace)
+    runs-on: ubuntu-latest
+    env:
+      GOWORK: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install Wails Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+      - run: go build ./...
+      - run: go mod tidy -diff
+
+  # The nested module is a separate module: `go build ./...` at the root does
+  # not reach it, so without this it can fail to compile while the root build
+  # reports clean. That also happened once during development.
+  nested-module:
+    name: Nested Module (anyllm)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: settings/templates/anyllm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: settings/templates/anyllm/go.mod
+          cache: true
+      - run: go build ./...
+      - run: go test -race ./...
+
   typecheck:
     name: TypeScript
     runs-on: ubuntu-latest

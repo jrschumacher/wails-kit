@@ -17,14 +17,28 @@ set -euo pipefail
 
 MODULE="github.com/jrschumacher/wails-kit/v2"
 
-# The four packages permitted to import github.com/wailsapp/wails/v3.
-# Exact full import paths — no prefix matching, no wildcards.
-ALLOWED="
-${MODULE}/shortcuts
-${MODULE}/windowstate
-${MODULE}/permissions
-${MODULE}/kit/wailsbridge
+# The packages permitted to import github.com/wailsapp/wails/v3 (AD-4).
+# Exact full import paths — no prefix matching, no wildcards, so a future
+# .../foo/shortcuts is not silently exempted.
+ALLOWED_PKGS="
+shortcuts
+windowstate
+permissions
+kit/wailsbridge
 "
+
+# Each allowlisted package's example is allowed too, derived rather than
+# listed: §4 requires a runnable example per package, and a meaningful example
+# for a GUI package must construct a real app/window, which means importing
+# wails directly. Crippling the example to satisfy this check would be the
+# wrong trade. Deriving these means the next GUI package (permissions,
+# wailsbridge) does not rediscover this the hard way.
+ALLOWED=""
+for p in $ALLOWED_PKGS; do
+	ALLOWED="${ALLOWED}
+${MODULE}/${p}
+${MODULE}/examples/${p}"
+done
 
 is_allowed() {
 	local pkg="$1" a

@@ -1630,10 +1630,23 @@ bootstrap+template → runner. Two refinements, one demotion kept:
   valid signature, and owning a bespoke recipe is what put us there. Key-loss risk
   remains — WP-05 must document offline key backup in the strongest terms.
   Affects `taskfiles` release flow.
-- **OQ-5: locale sourcing on macOS.** Env-var detection (WP-10) is wrong for GUI-launched
-  apps on macOS (no `LANG`). Options: `defaults read -g AppleLocale`, cgo
-  `NSLocale`, or a `wailsbridge`-provided source. Ship env+option first; decide the
-  darwin-correct source before v2.0.0.
+- **OQ-5: locale sourcing on macOS. — DECIDED: env vars, then `defaults read -g
+  AppleLanguages` on darwin, resolved once and cached.**
+  Not cgo `NSLocale`: `i18n` is a leaf that Prune's CLI and TUI import, and putting
+  cgo in it complicates cross-compilation for every consumer to fix a
+  GUI-only problem. Not a `wailsbridge`-provided source either — that leaves the
+  CLI and TUI unlocalized, which is the exact reason AD-5 puts the catalog in Go
+  rather than the frontend. `defaults` ships with macOS, and `AppleLanguages`
+  returns the user's *ordered* language list, which is what a `language.Matcher`
+  wants; `AppleLocale` alone throws away the fallback chain.
+
+  Resolution order, highest wins: explicit `WithLocale` option → settings override →
+  `LC_ALL`/`LC_MESSAGES`/`LANG` → OS source → configured default. The OS source must
+  sit behind an unexported package-level func var so tests substitute it and never
+  shell out. Resolve once at construction and cache — do not exec per lookup.
+  Failure to read the OS source is not an error; fall through to the default.
+  **This lands in WP-10, not deferred** — it is a correctness hole in the package
+  every other Phase 1 package depends on.
 - **OQ-6: `diagnostics` webhook. — DECIDED: audit in Phase 0, and make it opt-in.**
   Both, not either. It uploads support bundles to a remote endpoint, and bundles
   contain logs — for Prune that means LLM prompt traffic, i.e. user content. That
