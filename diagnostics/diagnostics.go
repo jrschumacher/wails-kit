@@ -19,6 +19,8 @@ import (
 	"github.com/jrschumacher/wails-kit/v2/appdirs"
 	"github.com/jrschumacher/wails-kit/v2/errors"
 	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/firstrun"
+	"github.com/jrschumacher/wails-kit/v2/health"
 	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/jrschumacher/wails-kit/v2/settings"
 )
@@ -80,6 +82,8 @@ type Service struct {
 	logDir            string
 	dirs              *appdirs.Dirs
 	settings          *settings.Service
+	health            *health.Registry
+	firstrun          *firstrun.Service
 	emitter           *events.Emitter
 	maxLogSize        int64 // bytes; total cap for log files in bundle
 	collectors        map[string]CollectorFunc
@@ -228,7 +232,24 @@ func (s *Service) CreateBundle(ctx context.Context, outputDir string) (string, e
 		manifest = append(manifest, "settings.json")
 	}
 
-	// 3. Log files
+	// 3. Health snapshot (present only when WithHealth was given; Err text
+	// is omitted — see WithHealth's doc comment).
+	if s.health != nil {
+		if err := s.writeHealth(zw); err != nil {
+			return "", err
+		}
+		manifest = append(manifest, "health.json")
+	}
+
+	// 4. First-run transition info (present only when WithFirstRun was given).
+	if s.firstrun != nil {
+		if err := s.writeFirstRun(zw); err != nil {
+			return "", err
+		}
+		manifest = append(manifest, "firstrun.json")
+	}
+
+	// 5. Log files
 	if s.logDir != "" {
 		logFiles, err := s.writeLogs(zw)
 		if err != nil {
@@ -239,13 +260,13 @@ func (s *Service) CreateBundle(ctx context.Context, outputDir string) (string, e
 		}
 	}
 
-	// 4. Custom collectors
+	// 6. Custom collectors
 	if len(s.collectors) > 0 {
 		collectorFiles := s.writeCollectors(ctx, zw)
 		manifest = append(manifest, collectorFiles...)
 	}
 
-	// 5. Manifest
+	// 7. Manifest
 	if err := writeManifest(zw, manifest); err != nil {
 		return "", errors.Wrap(ErrBundleCreate, "write manifest", err)
 	}

@@ -28,6 +28,11 @@ func (s *Service) Submit(ctx context.Context, bundlePath, webhookURL string) err
 // error code diagnostics.ErrConsentRequired when consent is absent.
 
 func RecoverAndLog(svc *Service) func() // defer'd panic-to-crash-log helper
+
+// Optional bundle content (health.go, firstrun.go) — absent option means
+// the file is absent from the bundle, never present-but-empty.
+func WithHealth(r *health.Registry) ServiceOption   // -> health.json, Err field omitted
+func WithFirstRun(svc *firstrun.Service) ServiceOption // -> firstrun.json
 ```
 
 ## Invariants (do not break)
@@ -69,6 +74,21 @@ func RecoverAndLog(svc *Service) func() // defer'd panic-to-crash-log helper
   false sense of coverage. If you want broader redaction, it needs a
   deliberate design (e.g. a field-level "sensitive" flag in `settings`),
   not a heuristic bolted on here.
+- **`health.json` never includes `health.CheckStatus.Err`.** That string
+  frequently embeds the full probed URL — including any query string — via
+  net/http's raw `*url.Error` (see `health/httpprobe.go` +
+  `health/schedule.go`). `writeHealth` (health.go) maps `CheckStatus` to the
+  local `healthCheckSummary` type, which has no `Err`/error field at all —
+  only a `HadError bool`. Don't "restore" the error text by adding an `Err
+  string` field back, even redacted-looking (see README "Security" for why
+  a partial-redaction heuristic here would be the same false-coverage
+  mistake as `sanitizeSettings`'s scope, just unacknowledged).
+- **`WithHealth`/`WithFirstRun` are read-time, not cached.** `writeHealth`
+  calls `r.Snapshot()` and `writeFirstRun` calls `svc.Detect()` fresh on
+  every `CreateBundle`, not once at `NewService`/option-application time —
+  `firstrun.Service.Detect` in particular is documented read-only (no hooks
+  run, no stamp written), which is exactly why it's safe to call here
+  instead of threading a static `Info` value through.
 
 ## Dependencies & insulation
 
@@ -76,19 +96,27 @@ func RecoverAndLog(svc *Service) func() // defer'd panic-to-crash-log helper
 - `settings` — optional (`WithSettings`); source of both the sanitized
   `settings.json` in the bundle and the consent value `Submit` reads. This
   package must stay Wails-free (AD-4 allowlist) — no `wails/v3` import here.
+- `health` — optional (`WithHealth`); source of `health.json`
+  (`health.go`). Wails-free, like `settings` — safe to depend on.
+- `firstrun` — optional (`WithFirstRun`); source of `firstrun.json`
+  (`firstrun.go`). Also Wails-free.
 - `events` — optional (`WithEmitter`); emits `diagnostics:bundle_created` /
   `diagnostics:bundle_submitted`. Nil emitter is a no-op via `s.emit`.
 - `errors` — every failure is an `errors.Code`-tagged `*errors.UserError`,
   registered in `diagnostics.go`'s `init()`.
 - Stdlib only otherwise (`archive/zip`, `net/http`, `mime/multipart`, …) —
-  zero external dependencies is a stated property in the README; keep it.
+  zero *external* (non-kit) dependencies is a stated property in the
+  README; `health`/`firstrun` are in-repo kit packages, not external ones,
+  so this still holds.
 
 ## Extension points
 
 - New bundle content sources: `WithCustomCollector(name, fn)` — output lands
   at `collectors/{name}` in the zip; failures are skipped silently (that's
   existing, intentional behavior — collectors must not be able to abort
-  bundle creation).
+  bundle creation). Prefer this over a new dedicated `With*` option +
+  `write*` method unless the source is a first-class kit package the way
+  `health`/`firstrun` are.
 - New webhook behavior (headers, auth schemes): extend `ServiceOption`s in
   `diagnostics.go` (`WithWebhookToken` etc.) and thread through `doSubmit`,
   not by adding a second upload method.
@@ -96,16 +124,28 @@ func RecoverAndLog(svc *Service) func() // defer'd panic-to-crash-log helper
   `SubmissionConsent()`, don't re-read `SettingConsent` from
   `settings.GetValues()` directly — keep the "no settings service / bad
   value → false" logic in one place.
+- A new dedicated bundle-content option (like `WithHealth`/`WithFirstRun`):
+  give it its own `<concern>.go` file (mirroring `health.go`/`firstrun.go`),
+  a nil-checked field on `Service`, a numbered step in `CreateBundle`
+  (`diagnostics.go`) that only fires when the field is non-nil, and decide
+  redaction explicitly — don't assume a new source's serialized form is
+  automatically bundle-safe (see the `health.json` Err-omission precedent).
 
 ## Testing
 
 - Doubles: `events.NewMemoryEmitter()` + `events.NewEmitter(...)`,
   `keyring.NewMemoryStore()`, `settings.NewService(...)` against a
-  `t.TempDir()` store path, `httptest.NewServer` for every webhook test.
-  **No test may dial a real host** — `validateWebhookURL`-rejection tests
-  assert on the error before any request would be sent; redirect tests
-  redirect to an address (`127.0.0.1:1`) that must never actually be
-  dialed, verified by asserting exactly 1 attempt reached the origin server.
+  `t.TempDir()` store path, `httptest.NewServer` for every webhook test,
+  `health.New(health.WithoutDefaultConnectivityCheck())` + a local
+  `failingProbe`/no-network `Probe` for `health.json` tests,
+  `firstrun.New(firstrun.WithStoragePath(...), firstrun.WithVersion(...))`
+  for `firstrun.json` tests. **No test may dial a real host** —
+  `validateWebhookURL`-rejection tests assert on the error before any
+  request would be sent; redirect tests redirect to an address
+  (`127.0.0.1:1`) that must never actually be dialed, verified by asserting
+  exactly 1 attempt reached the origin server; health tests use a fake
+  `Probe` whose "error" is a synthetic string containing a URL/token, never
+  an actual dial.
 - `go test -race ./diagnostics/...` must stay green and cover: consent
   absent → refusal (`TestSubmitRefusesWithoutConsent`,
   `TestSubmitRefusesWithoutSettingsService`), consent present → success
@@ -113,8 +153,15 @@ func RecoverAndLog(svc *Service) func() // defer'd panic-to-crash-log helper
   rejection (`TestValidateWebhookURL`, `TestSubmitRejectsPlaintextEndpoint`),
   redirect refusal (`TestSubmitBundleDoesNotFollowRedirects`), upload-path
   redaction verified on the actual wire bytes, not the on-disk file
-  (`TestUploadPathRedactsSecrets`), and bundle file mode
-  (`TestCreateBundle/bundle_file_is_created_0600,_not_0644`).
+  (`TestUploadPathRedactsSecrets`), bundle file mode
+  (`TestCreateBundle/bundle_file_is_created_0600,_not_0644`),
+  `health.json` present with `WithHealth` and absent without it
+  (`TestBundleIncludesHealth`, `TestBundleWithoutHealth_OmitsFile`) —
+  including the negative assertion that a probe error's URL/query
+  string/host never appear anywhere in the bundle bytes — and
+  `firstrun.json` present with `WithFirstRun` and absent without it
+  (`TestBundleIncludesFirstrun`, `TestBundleIncludesFirstrun_Fresh`,
+  `TestBundleWithoutFirstrun_OmitsFile`).
 - Not automatable here: real crash-reporting-endpoint behavior (rate
   limiting, WAF quirks) — that's an integration concern for the consuming
   app, not this package's suite.
@@ -130,11 +177,16 @@ func RecoverAndLog(svc *Service) func() // defer'd panic-to-crash-log helper
   `webhookClient` (redirect policy), `validateWebhookURL`/`isLoopbackHost`
   (TLS/localhost policy).
 - `panic.go` — `RecoverAndLog`.
+- `health.go` — `WithHealth`, `healthSummary`/`healthCheckSummary` (the
+  Err-omitting bundle shape), `writeHealth`.
+- `firstrun.go` — `WithFirstRun`, `writeFirstRun`.
 - `*_test.go` — `diagnostics_test.go` (bundle assembly), `consent_test.go`
   (consent gate + `SettingsGroup`), `webhook_test.go` (retry/backoff/timeout
   transport mechanics via the unexported `submitBundle`),
   `webhook_security_test.go` (the audit regression suite: TLS, redirects,
-  upload-path redaction), `panic_test.go`.
+  upload-path redaction), `panic_test.go`, `health_test.go`
+  (`TestBundleIncludesHealth` + the Err-omission negative assertions),
+  `firstrun_test.go` (`TestBundleIncludesFirstrun` + fresh-install variant).
 
 ## Landmines
 

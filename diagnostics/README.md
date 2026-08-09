@@ -19,6 +19,8 @@ svc, err := diagnostics.NewService(
     diagnostics.WithWebhookToken("token"),      // optional: bearer auth for webhook
     diagnostics.WithWebhookTimeout(30*time.Second), // optional: webhook timeout (default 30s)
     diagnostics.WithWebhookMaxRetries(3),       // optional: webhook retries (default 3)
+    diagnostics.WithHealth(healthRegistry),     // optional: include health.json (see "Security" for what's omitted)
+    diagnostics.WithFirstRun(firstrunSvc),      // optional: include firstrun.json (version transition info)
 )
 ```
 
@@ -148,6 +150,31 @@ app := application.New(application.Options{
 
 The frontend can offer a "Create Support Bundle" button that calls `CreateBundle()`, and (once the user has opted in via the settings toggle) a "Send to support" button that calls `Submit()`. Unlike `settings.Service` (which splits off a `Binding` because `GetSecret` must never be webview-callable), `diagnostics.Service` has no method that reads or returns unmasked secrets, so registering the whole service is safe: `Submit` is already consent-gated, and `SubmissionConsent()` only returns a bool.
 
+### Health and first-run info
+
+Two more optional, additive sources of bundle content:
+
+```go
+svc, _ := diagnostics.NewService(
+    diagnostics.WithAppName("my-app"),
+    diagnostics.WithHealth(healthRegistry),   // health.json
+    diagnostics.WithFirstRun(firstrunSvc),    // firstrun.json
+)
+```
+
+- `WithHealth(*health.Registry)` writes `health.json`: the registry's
+  current `Snapshot()` at `CreateBundle` time — overall state, per-check
+  state/class/criticality/timing. **The per-check error text is
+  deliberately omitted** — see "Security" below.
+- `WithFirstRun(*firstrun.Service)` writes `firstrun.json`: a fresh,
+  side-effect-free `Detect()` call at `CreateBundle` time (no hooks run, no
+  stamp written) — the same `{kind, previous, current}` shape as
+  `firstrun.TransitionPayload`.
+
+Neither option is required. Without it, the corresponding file is simply
+absent from the bundle — never present-but-empty — matching how
+`settings.json` only appears when `WithSettings` is configured.
+
 ## Bundle contents
 
 ```
@@ -155,6 +182,8 @@ diagnostics-my-app-2026-03-08T12-00-00.zip
 ├── manifest.txt      # Lists all files in the bundle for user review
 ├── system.json       # OS, arch, Go version, app version, CPU count
 ├── settings.json     # Sanitized settings (passwords redacted)
+├── health.json        # Health snapshot (only with WithHealth; error text omitted)
+├── firstrun.json       # Version transition info (only with WithFirstRun)
 ├── collectors/
 │   └── db-version.json   # Output from custom collectors
 └── logs/
@@ -246,6 +275,34 @@ A consumer that treats "consent was granted" as "the bundle is automatically
 safe" will eventually be wrong. Treat consent as permission to send *the
 bundle this package built*, not as a claim that the bundle is free of
 sensitive content.
+
+**`health.json` (`WithHealth`) omits per-check error text, deliberately.**
+`health.CheckStatus.Err` is a Go error string, and for an HTTP-based probe
+(`health.HTTPProbe`, including the registry's default connectivity check)
+a failure surfaces net/http's raw `*url.Error` unmodified — its `Error()`
+string is `Get "<url>": <cause>`, i.e. **the full probed URL, including any
+query string**, verbatim. Apps commonly register checks against internal or
+semi-private endpoints (an internal API's health route, a licensing
+server), and a query string can carry a token (e.g. a signed status-page
+URL). Repeating that text in a bundle destined for a third-party support
+endpoint would leak it straight past every guarantee above — TLS
+enforcement and redirect refusal protect the *transport*, not the
+*payload*. There is no reliable way to redact an arbitrary Go error string
+down to "safe" without a heuristic that silently misses cases (the same
+reasoning behind the settings-redaction gap two bullets up), so `health.json`
+omits `Err` entirely rather than guess at scrubbing it, keeping only a
+`hadError` boolean plus `Name`/`Class`/`State`/`Critical`/`CheckedAt`/
+`Latency` (all developer-chosen labels or structural/timing data, never
+derived from a probed URL). If you need the actual error text for support
+purposes, that's a deliberate choice your app has to make explicitly — e.g.
+via `WithCustomCollector`, which makes the same "logs can contain
+whatever you put in them" tradeoff exceptions above already make you own.
+
+**`firstrun.json` (`WithFirstRun`) is comparatively low-risk** — it's a
+version number and a transition kind (fresh/upgrade/downgrade/same), not an
+endpoint or a credential. It is not redacted or gated behind any additional
+consent beyond the same `SubmissionConsent()` check that gates everything
+else `Submit` sends.
 
 ## Example: full integration
 

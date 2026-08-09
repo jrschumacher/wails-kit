@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/jrschumacher/wails-kit/v2/keyring"
@@ -373,7 +374,7 @@ func TestCoerceValue(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got, err := coerceValue(tt.field, tt.input)
+		got, err := coerceValue(nil, tt.field, tt.input)
 		if tt.err && err == nil {
 			t.Errorf("coerceValue(%s, %q): expected error", tt.field.Type, tt.input)
 		}
@@ -383,5 +384,192 @@ func TestCoerceValue(t *testing.T) {
 		if !tt.err && got != tt.want {
 			t.Errorf("coerceValue(%s, %q) = %v, want %v", tt.field.Type, tt.input, got, tt.want)
 		}
+	}
+}
+
+// frCLICatalog is a minimal WithCatalog source translating this package's
+// own strings into French, used by every test below that needs a locale
+// actually resolving through the catalog (as opposed to falling back to
+// Text.Other).
+func frCLICatalog() fstest.MapFS {
+	return fstest.MapFS{
+		"locales/fr.json": &fstest.MapFile{Data: []byte(`{
+			"wailskit.settingscli.value.not_set": "(non défini)",
+			"wailskit.settingscli.errors.unknown_setting": "paramètre inconnu",
+			"wailskit.settingscli.errors.cannot_set_computed": "champ calculé non modifiable",
+			"wailskit.settingscli.errors.invalid_toggle": "valeur de bascule invalide : %s (utilisez true/false)",
+			"wailskit.settingscli.errors.validation_failed": "échec de la validation"
+		}`)},
+	}
+}
+
+func frLocalizer(t *testing.T) *i18n.Localizer {
+	t.Helper()
+	l, err := i18n.New(i18n.WithCatalog(frCLICatalog()), i18n.WithLocale("fr"))
+	if err != nil {
+		t.Fatalf("i18n.New: %v", err)
+	}
+	return l
+}
+
+func TestWithLocalizer_Show_NotSetPlaceholder(t *testing.T) {
+	svc := testService(t, settings.Group{
+		Key:   "test",
+		Label: i18n.Text{Other: "Test"},
+		Fields: []settings.Field{
+			{Key: "optional", Type: settings.FieldText, Label: i18n.Text{Other: "Optional"}},
+		},
+	})
+
+	var buf bytes.Buffer
+	if err := Show(svc, WithOutput(&buf), WithLocalizer(frLocalizer(t))); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "(non défini)") {
+		t.Errorf("expected localized placeholder, got:\n%s", buf.String())
+	}
+	if strings.Contains(buf.String(), "(not set)") {
+		t.Error("expected English placeholder to be replaced by the localized one")
+	}
+}
+
+func TestWithLocalizer_Get_NotSetPlaceholder(t *testing.T) {
+	svc := testService(t, settings.Group{
+		Key:   "test",
+		Label: i18n.Text{Other: "Test"},
+		Fields: []settings.Field{
+			{Key: "optional", Type: settings.FieldText, Label: i18n.Text{Other: "Optional"}},
+		},
+	})
+
+	val, err := Get(svc, "optional", WithLocalizer(frLocalizer(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != "(non défini)" {
+		t.Errorf("expected localized placeholder, got %q", val)
+	}
+}
+
+func TestWithLocalizer_Get_UnknownKeyError(t *testing.T) {
+	svc := testService(t, basicGroup())
+	_, err := Get(svc, "nonexistent", WithLocalizer(frLocalizer(t)))
+	if err == nil || !strings.Contains(err.Error(), "paramètre inconnu") {
+		t.Errorf("expected localized unknown-setting error, got: %v", err)
+	}
+}
+
+func TestWithLocalizer_Set_ComputedFieldError(t *testing.T) {
+	svc := testService(t, settings.Group{
+		Key:   "info",
+		Label: i18n.Text{Other: "Info"},
+		Fields: []settings.Field{
+			{Key: "computed_field", Type: settings.FieldComputed, Label: i18n.Text{Other: "Computed"}},
+		},
+	})
+
+	err := Set(svc, "computed_field", "value", WithLocalizer(frLocalizer(t)))
+	if err == nil || !strings.Contains(err.Error(), "champ calculé non modifiable") {
+		t.Errorf("expected localized computed-field error, got: %v", err)
+	}
+}
+
+func TestWithLocalizer_Set_InvalidToggleError(t *testing.T) {
+	svc := testService(t, basicGroup())
+	err := Set(svc, "notifications", "not-a-bool", WithLocalizer(frLocalizer(t)))
+	if err == nil || !strings.Contains(err.Error(), "valeur de bascule invalide") {
+		t.Errorf("expected localized invalid-toggle error, got: %v", err)
+	}
+}
+
+func TestWithLocalizer_ValidationErrors_Prefix(t *testing.T) {
+	svc := testService(t, settings.Group{
+		Key:   "prefs",
+		Label: i18n.Text{Other: "Preferences"},
+		Fields: []settings.Field{
+			{Key: "theme", Type: settings.FieldSelect, Label: i18n.Text{Other: "Theme"}, Options: []settings.SelectOption{
+				{Label: i18n.Text{Other: "Dark"}, Value: "dark"},
+			}},
+		},
+	})
+
+	err := Set(svc, "theme", "invalid", WithLocalizer(frLocalizer(t)))
+	if err == nil || !strings.Contains(err.Error(), "échec de la validation") {
+		t.Errorf("expected localized validation-failed prefix, got: %v", err)
+	}
+}
+
+func TestNilLocalizer_FallsBackToEnglish(t *testing.T) {
+	// No WithLocalizer at all — every message must be exactly the English
+	// baked into this package's Text values, matching every pre-i18n test
+	// in this file (none of which pass WithLocalizer).
+	svc := testService(t, settings.Group{
+		Key:   "test",
+		Label: i18n.Text{Other: "Test"},
+		Fields: []settings.Field{
+			{Key: "optional", Type: settings.FieldText, Label: i18n.Text{Other: "Optional"}},
+		},
+	})
+
+	val, err := Get(svc, "optional")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != "(not set)" {
+		t.Errorf("expected English fallback placeholder, got %q", val)
+	}
+
+	_, err = Get(svc, "nonexistent")
+	if err == nil || !strings.Contains(err.Error(), "unknown setting") {
+		t.Errorf("expected English fallback error, got: %v", err)
+	}
+}
+
+// TestMachineValuesUnaffectedByLocalizer pins the WP-22 "machine output
+// must be unchanged" requirement. settings/cli has no --json mode of its
+// own to pin byte-for-byte, but formatValue's toggle/number tokens and
+// coerceValue's accepted input alphabet ARE the machine-readable surface
+// any consumer's own --json flag (or script piping settingscli.Get output)
+// would depend on — see the doc comments on formatValue/coerceValue. This
+// test proves configuring WithLocalizer with a real, actively-resolving
+// non-English catalog never changes any of that, for both directions
+// (format and parse).
+func TestMachineValuesUnaffectedByLocalizer(t *testing.T) {
+	l := frLocalizer(t)
+	toggleField := settings.ResolvedField{Type: settings.FieldToggle}
+	numberField := settings.ResolvedField{Type: settings.FieldNumber}
+
+	for _, want := range []bool{true, false} {
+		gotEN := formatValue(nil, toggleField, want)
+		gotFR := formatValue(l, toggleField, want)
+		if gotEN != gotFR {
+			t.Errorf("formatValue toggle %v: localizer changed output: %q (nil) vs %q (fr)", want, gotEN, gotFR)
+		}
+	}
+
+	for _, tok := range []string{"true", "false", "yes", "no", "1", "0", "on", "off"} {
+		gotEN, errEN := coerceValue(nil, toggleField, tok)
+		gotFR, errFR := coerceValue(l, toggleField, tok)
+		if errEN != nil || errFR != nil {
+			t.Fatalf("coerceValue(%q): unexpected error: nil-localizer=%v fr-localizer=%v", tok, errEN, errFR)
+		}
+		if gotEN != gotFR {
+			t.Errorf("coerceValue(%q): localizer changed parsed value: %v (nil) vs %v (fr)", tok, gotEN, gotFR)
+		}
+	}
+
+	gotEN := formatValue(nil, numberField, 42)
+	gotFR := formatValue(l, numberField, 42)
+	if gotEN != gotFR {
+		t.Errorf("formatValue number: localizer changed output: %q (nil) vs %q (fr)", gotEN, gotFR)
+	}
+
+	numEN, errEN := coerceValue(nil, numberField, "3.14")
+	numFR, errFR := coerceValue(l, numberField, "3.14")
+	if errEN != nil || errFR != nil {
+		t.Fatalf("coerceValue number: unexpected error: nil-localizer=%v fr-localizer=%v", errEN, errFR)
+	}
+	if numEN != numFR {
+		t.Errorf("coerceValue number: localizer changed parsed value: %v (nil) vs %v (fr)", numEN, numFR)
 	}
 }
