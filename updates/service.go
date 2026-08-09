@@ -14,6 +14,7 @@ import (
 	"github.com/jrschumacher/wails-kit/v2/appdirs"
 	"github.com/jrschumacher/wails-kit/v2/errors"
 	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/jrschumacher/wails-kit/v2/semver"
 	"github.com/jrschumacher/wails-kit/v2/settings"
 )
@@ -37,12 +38,12 @@ const (
 )
 
 func init() {
-	errors.RegisterMessages(map[errors.Code]string{
-		ErrUpdateCheck:    "Unable to check for updates. Please try again later.",
-		ErrUpdateDownload: "Failed to download the update. Please try again.",
-		ErrUpdateApply:    "Failed to install the update. Please try again.",
-		ErrUpdateVerify:   "Update signature verification failed. The download may be corrupted or tampered with.",
-		ErrUpdateManaged:  "This app is managed by a package manager. Please update through your package manager instead.",
+	errors.RegisterMessages(map[errors.Code]i18n.Text{
+		ErrUpdateCheck:    i18n.T("wailskit.updates.errors.check", "Unable to check for updates. Please try again later."),
+		ErrUpdateDownload: i18n.T("wailskit.updates.errors.download", "Failed to download the update. Please try again."),
+		ErrUpdateApply:    i18n.T("wailskit.updates.errors.apply", "Failed to install the update. Please try again."),
+		ErrUpdateVerify:   i18n.T("wailskit.updates.errors.verify", "Update signature verification failed. The download may be corrupted or tampered with."),
+		ErrUpdateManaged:  i18n.T("wailskit.updates.errors.managed", "This app is managed by a package manager. Please update through your package manager instead."),
 	})
 }
 

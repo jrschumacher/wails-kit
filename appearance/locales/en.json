@@ -4,5 +4,7 @@
   "wailskit.appearance.mode.description": "Choose how the app looks, or follow your system setting.",
   "wailskit.appearance.mode.option.system": "Follow system",
   "wailskit.appearance.mode.option.light": "Light",
-  "wailskit.appearance.mode.option.dark": "Dark"
+  "wailskit.appearance.mode.option.dark": "Dark",
+  "wailskit.appearance.errors.invalid_mode": "Invalid appearance setting. Please choose System, Light, or Dark.",
+  "wailskit.appearance.errors.persist": "Failed to save your appearance preference. Please try again."
 }

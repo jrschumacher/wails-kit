@@ -1,0 +1,17 @@
+{
+  "wailskit.errors.auth_invalid": "Authentication failed. Please check your credentials.",
+  "wailskit.errors.auth_expired": "Your session has expired. Please reconnect.",
+  "wailskit.errors.auth_missing": "Authentication is required. Please configure your credentials.",
+  "wailskit.errors.not_found": "The requested item was not found.",
+  "wailskit.errors.permission_denied": "You don't have permission to perform this action.",
+  "wailskit.errors.validation": "The input is invalid. Please check and try again.",
+  "wailskit.errors.rate_limited": "Too many requests. Please wait and try again.",
+  "wailskit.errors.timeout": "The operation timed out. Please try again.",
+  "wailskit.errors.cancelled": "The operation was cancelled.",
+  "wailskit.errors.internal": "An unexpected error occurred. Please try again.",
+  "wailskit.errors.storage_read": "Failed to read data. Please try again.",
+  "wailskit.errors.storage_write": "Failed to save data. Please try again.",
+  "wailskit.errors.config_invalid": "Configuration is invalid. Please check your settings.",
+  "wailskit.errors.config_missing": "Required configuration is missing. Please check your settings.",
+  "wailskit.errors.provider_error": "The service provider returned an error. Please try again."
+}

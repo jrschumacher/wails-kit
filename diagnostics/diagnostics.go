@@ -19,6 +19,7 @@ import (
 	"github.com/jrschumacher/wails-kit/v2/appdirs"
 	"github.com/jrschumacher/wails-kit/v2/errors"
 	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/jrschumacher/wails-kit/v2/settings"
 )
 
@@ -31,11 +32,11 @@ const (
 )
 
 func init() {
-	errors.RegisterMessages(map[errors.Code]string{
-		ErrBundleCreate:    "Failed to create the diagnostics bundle. Please try again.",
-		ErrBundleLogs:      "Failed to collect log files for the diagnostics bundle.",
-		ErrBundleSubmit:    "Failed to submit the diagnostics bundle. Please try again.",
-		ErrConsentRequired: "Diagnostics submission requires your consent. Enable it in Settings before sharing a bundle.",
+	errors.RegisterMessages(map[errors.Code]i18n.Text{
+		ErrBundleCreate:    i18n.T("wailskit.diagnostics.errors.bundle_create", "Failed to create the diagnostics bundle. Please try again."),
+		ErrBundleLogs:      i18n.T("wailskit.diagnostics.errors.bundle_logs", "Failed to collect log files for the diagnostics bundle."),
+		ErrBundleSubmit:    i18n.T("wailskit.diagnostics.errors.bundle_submit", "Failed to submit the diagnostics bundle. Please try again."),
+		ErrConsentRequired: i18n.T("wailskit.diagnostics.errors.consent_required", "Diagnostics submission requires your consent. Enable it in Settings before sharing a bundle."),
 	})
 }
 

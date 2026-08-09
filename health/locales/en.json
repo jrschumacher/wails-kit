@@ -7,5 +7,7 @@
   "wailskit.health.settings.interval.1m": "Every minute",
   "wailskit.health.settings.interval.2m": "Every 2 minutes",
   "wailskit.health.settings.interval.5m": "Every 5 minutes",
-  "wailskit.health.settings.interval.15m": "Every 15 minutes"
+  "wailskit.health.settings.interval.15m": "Every 15 minutes",
+  "wailskit.health.errors.duplicate_check": "This health check is already registered.",
+  "wailskit.health.errors.invalid_check": "This health check is missing required configuration."
 }

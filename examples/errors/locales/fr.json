@@ -1,0 +1,4 @@
+{
+  "wailskit.errors.not_found": "L'élément demandé est introuvable.",
+  "myapp.errors.sync_conflict": "Un conflit de synchronisation s'est produit."
+}

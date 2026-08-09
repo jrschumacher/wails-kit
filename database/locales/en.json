@@ -1,0 +1,8 @@
+{
+  "wailskit.database.errors.database_open": "Unable to open the database. Please check file permissions and try again.",
+  "wailskit.database.errors.database_migrate": "Database migration failed. Please contact support.",
+  "wailskit.database.errors.database_baseline": "Database baseline failed. Please contact support.",
+  "wailskit.database.errors.database_version_mismatch": "The database was created by a newer version of this app. Please update the app.",
+  "wailskit.database.errors.database_backup": "Failed to create a database backup before migration. Please check disk space and try again.",
+  "wailskit.database.errors.database_version": "Unable to determine the database schema version. Please contact support."
+}

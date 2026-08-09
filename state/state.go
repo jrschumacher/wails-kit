@@ -16,6 +16,7 @@ import (
 	"github.com/jrschumacher/wails-kit/v2/appdirs"
 	"github.com/jrschumacher/wails-kit/v2/errors"
 	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 )
 
 // Error codes for the state package.
@@ -26,10 +27,10 @@ const (
 )
 
 func init() {
-	errors.RegisterMessages(map[errors.Code]string{
-		ErrStateLoad:   "Failed to load application state. Please try again.",
-		ErrStateSave:   "Failed to save application state. Please try again.",
-		ErrStateConfig: "State store is misconfigured. Please contact support.",
+	errors.RegisterMessages(map[errors.Code]i18n.Text{
+		ErrStateLoad:   i18n.T("wailskit.state.errors.load", "Failed to load application state. Please try again."),
+		ErrStateSave:   i18n.T("wailskit.state.errors.save", "Failed to save application state. Please try again."),
+		ErrStateConfig: i18n.T("wailskit.state.errors.config", "State store is misconfigured. Please contact support."),
 	})
 }
 

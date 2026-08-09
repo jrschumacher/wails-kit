@@ -1,0 +1,7 @@
+{
+  "wailskit.keyring.errors.envelope_key_missing": "Your saved credentials are locked: the encryption key is missing from the system keychain. Your data has not been deleted. Restore the keychain entry, or reset stored credentials to start over.",
+  "wailskit.keyring.errors.envelope_key_invalid": "The credential encryption key in the system keychain is not valid. Your data has not been deleted.",
+  "wailskit.keyring.errors.envelope_corrupt": "The stored credentials file is damaged and could not be read. Your data has not been deleted.",
+  "wailskit.keyring.errors.envelope_decrypt": "A stored credential could not be decrypted. The encryption key may be from a different installation.",
+  "wailskit.keyring.errors.envelope_io": "Failed to read or write stored credentials. Please try again."
+}

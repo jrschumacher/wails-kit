@@ -16,6 +16,7 @@ import (
 
 	"github.com/jrschumacher/wails-kit/v2/errors"
 	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/jrschumacher/wails-kit/v2/state"
 )
 
@@ -27,10 +28,10 @@ const (
 )
 
 func init() {
-	errors.RegisterMessages(map[errors.Code]string{
-		ErrConfig: "Window state is misconfigured. Please contact support.",
-		ErrSave:   "Failed to save window position. Please try again.",
-		ErrLoad:   "Failed to restore window position. Please try again.",
+	errors.RegisterMessages(map[errors.Code]i18n.Text{
+		ErrConfig: i18n.T("wailskit.windowstate.errors.config", "Window state is misconfigured. Please contact support."),
+		ErrSave:   i18n.T("wailskit.windowstate.errors.save", "Failed to save window position. Please try again."),
+		ErrLoad:   i18n.T("wailskit.windowstate.errors.load", "Failed to restore window position. Please try again."),
 	})
 }
 

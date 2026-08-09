@@ -14,6 +14,7 @@ import (
 
 	"github.com/jrschumacher/wails-kit/v2/errors"
 	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 )
 
 // Error codes for lifecycle operations.
@@ -28,14 +29,14 @@ const (
 )
 
 func init() {
-	errors.RegisterMessages(map[errors.Code]string{
-		ErrCyclicDependency: "Service configuration error: circular dependency detected.",
-		ErrMissingDep:       "Service configuration error: a required dependency is missing.",
-		ErrStartup:          "Failed to start a required service. Please try restarting the application.",
-		ErrShutdown:         "An error occurred while shutting down. Some resources may not have been cleaned up.",
-		ErrTimeout:          "A service took too long to respond. Please try restarting the application.",
-		ErrDuplicateService: "Service configuration error: a service name is registered more than once.",
-		ErrInvalidState:     "The application's service manager is busy or already running. Please try again.",
+	errors.RegisterMessages(map[errors.Code]i18n.Text{
+		ErrCyclicDependency: i18n.T("wailskit.lifecycle.errors.cyclic_dependency", "Service configuration error: circular dependency detected."),
+		ErrMissingDep:       i18n.T("wailskit.lifecycle.errors.missing_dependency", "Service configuration error: a required dependency is missing."),
+		ErrStartup:          i18n.T("wailskit.lifecycle.errors.startup", "Failed to start a required service. Please try restarting the application."),
+		ErrShutdown:         i18n.T("wailskit.lifecycle.errors.shutdown", "An error occurred while shutting down. Some resources may not have been cleaned up."),
+		ErrTimeout:          i18n.T("wailskit.lifecycle.errors.timeout", "A service took too long to respond. Please try restarting the application."),
+		ErrDuplicateService: i18n.T("wailskit.lifecycle.errors.duplicate_service", "Service configuration error: a service name is registered more than once."),
+		ErrInvalidState:     i18n.T("wailskit.lifecycle.errors.invalid_state", "The application's service manager is busy or already running. Please try again."),
 	})
 }
 

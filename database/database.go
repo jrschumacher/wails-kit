@@ -17,6 +17,7 @@ import (
 	"github.com/jrschumacher/wails-kit/v2/appdirs"
 	"github.com/jrschumacher/wails-kit/v2/errors"
 	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 )
@@ -32,13 +33,13 @@ const (
 )
 
 func init() {
-	errors.RegisterMessages(map[errors.Code]string{
-		ErrDatabaseOpen:            "Unable to open the database. Please check file permissions and try again.",
-		ErrDatabaseMigrate:         "Database migration failed. Please contact support.",
-		ErrDatabaseBaseline:        "Database baseline failed. Please contact support.",
-		ErrDatabaseVersionMismatch: "The database was created by a newer version of this app. Please update the app.",
-		ErrDatabaseBackup:          "Failed to create a database backup before migration. Please check disk space and try again.",
-		ErrDatabaseVersion:         "Unable to determine the database schema version. Please contact support.",
+	errors.RegisterMessages(map[errors.Code]i18n.Text{
+		ErrDatabaseOpen:            i18n.T("wailskit.database.errors.database_open", "Unable to open the database. Please check file permissions and try again."),
+		ErrDatabaseMigrate:         i18n.T("wailskit.database.errors.database_migrate", "Database migration failed. Please contact support."),
+		ErrDatabaseBaseline:        i18n.T("wailskit.database.errors.database_baseline", "Database baseline failed. Please contact support."),
+		ErrDatabaseVersionMismatch: i18n.T("wailskit.database.errors.database_version_mismatch", "The database was created by a newer version of this app. Please update the app."),
+		ErrDatabaseBackup:          i18n.T("wailskit.database.errors.database_backup", "Failed to create a database backup before migration. Please check disk space and try again."),
+		ErrDatabaseVersion:         i18n.T("wailskit.database.errors.database_version", "Unable to determine the database schema version. Please contact support."),
 	})
 }
 

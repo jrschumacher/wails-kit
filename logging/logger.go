@@ -13,6 +13,7 @@ import (
 
 	"github.com/jrschumacher/wails-kit/v2/appdirs"
 	"github.com/jrschumacher/wails-kit/v2/errors"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -22,8 +23,8 @@ const (
 )
 
 func init() {
-	errors.RegisterMessages(map[errors.Code]string{
-		ErrLoggingInit: "Failed to initialize logging.",
+	errors.RegisterMessages(map[errors.Code]i18n.Text{
+		ErrLoggingInit: i18n.T("wailskit.logging.errors.init", "Failed to initialize logging."),
 	})
 }
 

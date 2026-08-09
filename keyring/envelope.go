@@ -61,6 +61,7 @@ import (
 
 	"github.com/jrschumacher/wails-kit/v2/appdirs"
 	kiterrors "github.com/jrschumacher/wails-kit/v2/errors"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 )
 
 // Error codes for the envelope store.
@@ -82,12 +83,12 @@ const (
 )
 
 func init() {
-	kiterrors.RegisterMessages(map[kiterrors.Code]string{
-		ErrEnvelopeKeyMissing: "Your saved credentials are locked: the encryption key is missing from the system keychain. Your data has not been deleted. Restore the keychain entry, or reset stored credentials to start over.",
-		ErrEnvelopeKeyInvalid: "The credential encryption key in the system keychain is not valid. Your data has not been deleted.",
-		ErrEnvelopeCorrupt:    "The stored credentials file is damaged and could not be read. Your data has not been deleted.",
-		ErrEnvelopeDecrypt:    "A stored credential could not be decrypted. The encryption key may be from a different installation.",
-		ErrEnvelopeIO:         "Failed to read or write stored credentials. Please try again.",
+	kiterrors.RegisterMessages(map[kiterrors.Code]i18n.Text{
+		ErrEnvelopeKeyMissing: i18n.T("wailskit.keyring.errors.envelope_key_missing", "Your saved credentials are locked: the encryption key is missing from the system keychain. Your data has not been deleted. Restore the keychain entry, or reset stored credentials to start over."),
+		ErrEnvelopeKeyInvalid: i18n.T("wailskit.keyring.errors.envelope_key_invalid", "The credential encryption key in the system keychain is not valid. Your data has not been deleted."),
+		ErrEnvelopeCorrupt:    i18n.T("wailskit.keyring.errors.envelope_corrupt", "The stored credentials file is damaged and could not be read. Your data has not been deleted."),
+		ErrEnvelopeDecrypt:    i18n.T("wailskit.keyring.errors.envelope_decrypt", "A stored credential could not be decrypted. The encryption key may be from a different installation."),
+		ErrEnvelopeIO:         i18n.T("wailskit.keyring.errors.envelope_io", "Failed to read or write stored credentials. Please try again."),
 	})
 }
 

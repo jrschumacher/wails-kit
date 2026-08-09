@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/jrschumacher/wails-kit/v2/errors"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 )
 
 // Class classifies what a failing check means for the user-facing remedy.
@@ -167,8 +168,8 @@ const (
 )
 
 func init() {
-	errors.RegisterMessages(map[errors.Code]string{
-		ErrDuplicateCheck: "This health check is already registered.",
-		ErrInvalidCheck:   "This health check is missing required configuration.",
+	errors.RegisterMessages(map[errors.Code]i18n.Text{
+		ErrDuplicateCheck: i18n.T("wailskit.health.errors.duplicate_check", "This health check is already registered."),
+		ErrInvalidCheck:   i18n.T("wailskit.health.errors.invalid_check", "This health check is missing required configuration."),
 	})
 }

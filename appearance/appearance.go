@@ -21,6 +21,7 @@ import (
 
 	"github.com/jrschumacher/wails-kit/v2/errors"
 	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/jrschumacher/wails-kit/v2/settings"
 )
 
@@ -60,9 +61,9 @@ const (
 )
 
 func init() {
-	errors.RegisterMessages(map[errors.Code]string{
-		ErrInvalidMode: "Invalid appearance setting. Please choose System, Light, or Dark.",
-		ErrPersist:     "Failed to save your appearance preference. Please try again.",
+	errors.RegisterMessages(map[errors.Code]i18n.Text{
+		ErrInvalidMode: i18n.T("wailskit.appearance.errors.invalid_mode", "Invalid appearance setting. Please choose System, Light, or Dark."),
+		ErrPersist:     i18n.T("wailskit.appearance.errors.persist", "Failed to save your appearance preference. Please try again."),
 	})
 }
 
