@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>kit-gui example</title>
+  <link rel="stylesheet" href="/app.css" />
+  <!--
+    Served by application.BundledAssetFileServer at /wails/runtime.js (see
+    main.go). This is what adds window.wails (Call, Events, ...) to the
+    global scope — everything app.js does goes through it. No generated
+    TS bindings and no bundler: this example is deliberately hand-rolled
+    so it stays readable without a build step. The real wails3 project
+    template (a later work package) generates type-safe bindings instead;
+    see that template once it exists for the recommended approach in a
+    real app.
+  -->
+  <script src="/wails/runtime.js"></script>
+</head>
+<body>
+  <main class="app">
+    <header class="app-header">
+      <h1>kit-gui example</h1>
+      <p class="subtitle">A miniature Wails v3 app wired entirely through wails-kit.</p>
+    </header>
+
+    <section class="panel" id="settings-panel">
+      <h2 id="settings-title">Settings</h2>
+      <p class="hint">
+        Press <kbd>&#8984;,</kbd> / <kbd>Ctrl+,</kbd>, or use the menu, to
+        focus this panel — it's already visible below for convenience.
+      </p>
+      <form id="settings-form">
+        <div id="settings-groups"></div>
+        <button type="submit">Save</button>
+        <span id="save-status" role="status"></span>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>Appearance</h2>
+      <p>
+        Resolved theme: <strong id="theme-value">…</strong> — this page's
+        <code>&lt;html data-theme&gt;</code> attribute and the Go-side
+        window background colour (<code>wailsbridge.ManageWindow</code>)
+        both come from the same <code>appearance.Resolved()</code> value,
+        which is the whole point of the <code>appearance</code> package:
+        one source of truth instead of three that can drift apart.
+      </p>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -4,9 +4,33 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"testing/fstest"
 
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
+
+// frenchCatalog is a minimal, hand-built catalog overriding just the two
+// labels apply.go resolves through a localizer — enough to prove Apply
+// actually threads Manager.localizer through to the menu items it builds,
+// without dragging in a full translation.
+func frenchCatalog(t *testing.T) *i18n.Localizer {
+	t.Helper()
+	fr := fstest.MapFS{
+		"locales/fr.json": &fstest.MapFile{Data: []byte(`{
+			"wailskit.shortcuts.settings.label": "Paramètres",
+			"wailskit.shortcuts.settings.label_darwin": "Paramètres…"
+		}`)},
+	}
+	loc, err := i18n.New(i18n.WithCatalog(fr))
+	if err != nil {
+		t.Fatalf("i18n.New: %v", err)
+	}
+	if err := loc.SetLocale("fr"); err != nil {
+		t.Fatalf("SetLocale: %v", err)
+	}
+	return loc
+}
 
 // Apply's menu-building logic sat behind an undocumented build tag
 // ((darwin||linux||windows) && wails) until WP-06 removed it. That meant no
@@ -205,5 +229,71 @@ func TestApply_MultipleCallsReplaceMenu(t *testing.T) {
 	}
 	if menu.FindByRole(application.ViewMenu) == nil {
 		t.Error("expected the second Apply call's View menu to be present")
+	}
+}
+
+// TestApply_SettingsItemWiring_Localized verifies WithLocalizer actually
+// changes the Settings item's label — proving Apply threads
+// Manager.localizer through to labels.go's resolveText calls, not just
+// that the option setter stores it (that part is covered by
+// TestWithLocalizer in shortcuts_test.go, which doesn't call Apply at
+// all). Standard-role items are untouched by this: About/Services/Hide/
+// Quit/Edit's role children keep rendering the OS's own localized text
+// regardless of Manager.localizer, per this package's Invariants.
+func TestApply_SettingsItemWiring_Localized(t *testing.T) {
+	app := testApp(t)
+	loc := frenchCatalog(t)
+	New(WithSettings(), WithLocalizer(loc)).Apply(app)
+
+	menu := app.Menu.GetApplicationMenu()
+	label := "Paramètres"
+	if runtime.GOOS == "darwin" {
+		label = "Paramètres…"
+	}
+	if menu.FindByLabel(label) == nil {
+		t.Errorf("expected a menu item labeled %q with a French localizer wired", label)
+	}
+	if menu.FindByLabel("Settings") != nil || menu.FindByLabel("Settings…") != nil {
+		t.Error("expected the English fallback label to be gone once a localizer resolves the key")
+	}
+}
+
+// TestAddEditMenuWithSettings_Direct exercises the non-darwin Settings
+// placement path on any host OS.
+//
+// TestApply_SettingsPlacement only reaches this code when GOOS != darwin, so
+// on a macOS dev machine it is never run — and CI runs on Linux, where a
+// failure would surface for the first time. That gap already hid a real bug:
+// the menu was built with AddSubmenu("Edit"), which produces a MenuItem with
+// no Role, so FindByRole(EditMenu) returned nil and the Linux branch of
+// TestApply_SettingsPlacement would have fataled. Calling the builder
+// directly removes the platform dependence from the assertion.
+func TestAddEditMenuWithSettings_Direct(t *testing.T) {
+	app := testApp(t)
+	_ = app // keep the application initialized for menu construction
+
+	m := New(WithSettings())
+	menu := application.NewMenu()
+	m.addEditMenuWithSettings(menu)
+
+	edit := menu.FindByRole(application.EditMenu)
+	if edit == nil {
+		t.Fatal("Edit menu is not discoverable by role; AddSubmenu does not assign one — use AddRole(EditMenu)")
+	}
+
+	sub := edit.GetSubmenu()
+	if sub == nil {
+		t.Fatal("Edit menu item has no submenu")
+	}
+	if sub.FindByLabel("Settings") == nil {
+		t.Error("Settings item missing from the Edit menu")
+	}
+
+	// The standard roles must still be present — the point of AddRole is
+	// getting the platform-correct set rather than a hand-rolled list.
+	for _, r := range []application.Role{application.Undo, application.Cut, application.Copy, application.Paste} {
+		if sub.FindByRole(r) == nil {
+			t.Errorf("standard Edit role %v missing", r)
+		}
 	}
 }

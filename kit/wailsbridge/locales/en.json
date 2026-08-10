@@ -1,0 +1,4 @@
+{
+  "wailskit.wailsbridge.errors.config": "This app was not wired up correctly. Please contact support.",
+  "wailskit.wailsbridge.errors.webhook_unconfigured": "Diagnostics submission is not configured for this app."
+}

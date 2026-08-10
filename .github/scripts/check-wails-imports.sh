@@ -27,21 +27,33 @@ permissions
 kit/wailsbridge
 "
 
-# Each allowlisted package's example is allowed too, derived rather than
-# listed: §4 requires a runnable example per package, and a meaningful example
-# for a GUI package must construct a real app/window, which means importing
-# wails directly. Crippling the example to satisfy this check would be the
-# wrong trade. Deriving these means the next GUI package (permissions,
-# wailsbridge) does not rediscover this the hard way.
 ALLOWED=""
 for p in $ALLOWED_PKGS; do
 	ALLOWED="${ALLOWED}
-${MODULE}/${p}
-${MODULE}/examples/${p}"
+${MODULE}/${p}"
 done
+
+# Everything under examples/ is exempt.
+#
+# AD-4's invariant is about *library* code: a consumer importing
+# wails-kit/v2/settings must not acquire Wails. Examples are main programs
+# that nobody imports, so an example importing Wails costs a consumer
+# nothing — and a meaningful example for a GUI package has to construct a
+# real app and window, so forbidding it would only produce examples that
+# don't demonstrate the thing.
+#
+# This previously derived "examples/<allowlisted-pkg>", which assumed example
+# directories mirror package import paths. They don't: examples/kit-gui
+# demonstrates kit/wailsbridge. That coupling made the check fail on a
+# correctly-written example, which is the wrong failure — a policy check that
+# blocks correct code trains people to weaken the policy.
+examples_prefix="${MODULE}/examples/"
 
 is_allowed() {
 	local pkg="$1" a
+	case "$pkg" in
+	"${examples_prefix}"*) return 0 ;;
+	esac
 	for a in $ALLOWED; do
 		[ "$pkg" = "$a" ] && return 0
 	done

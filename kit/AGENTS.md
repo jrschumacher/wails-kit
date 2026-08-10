@@ -133,14 +133,20 @@ func GetComponent(err error) (string, bool)            // which component failed
   `WithDirs`-equivalent option. Harmless for this package's tests (none
   call `DownloadUpdate`); real for a production consumer combining a
   custom `Dirs` with enabled updates.
-- **`kit.New` does not use `appearance`'s darwin-native default Source**,
-  even on darwin. Every platform gets light-until-wired via `dynamicSource`
-  uniformly, trading a macOS-only nicety for a `SetAppearanceSource` seam
-  that actually works for `kit/wailsbridge` (WP-31) — `appearance` exposes
-  no post-construction Source setter and its darwin constructor is
-  unexported, so there was no way to keep both. A consumer wanting real
-  darwin detection without attaching can pass `WithAppearanceSource` with
-  a Source built the way `appearance/os_source_darwin.go` does.
+- **The appearance Source goes through `dynamicSource`, and it is seeded.**
+  `appearance.Service` subscribes to its Source once at construction, and
+  `kit.New` runs before any `application.App` exists, so `kit/wailsbridge`
+  could not otherwise wire a live Wails-backed source afterwards — hence the
+  indirection and `SetAppearanceSource`.
+  It is seeded at construction with `appearance.NewOSSource()` (the real
+  darwin source; nil elsewhere). Do not remove that seeding: without it the
+  indirection reports light on every platform until something calls
+  `SetAppearanceSource`, which never happens in a headless CLI or TUI — i.e.
+  exactly the process shape `kit` exists to serve, so macOS terminal
+  consumers would silently lose theme detection.
+  `wailsbridge.Attach` replaces the seeded source, and
+  `TestAttach_WiresAppearanceSource` proves the replacement actually takes
+  effect rather than merely being added alongside.
 - **`logging.Init` and `errors.SetLocalizer` are process-global**, not
   per-`Kit`. Two `kit.New` calls in one process share one log destination
   and localizer; the second call wins. Fine for one `Kit` per process; a
