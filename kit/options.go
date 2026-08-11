@@ -44,6 +44,9 @@ type config struct {
 
 	appearanceSource    appearance.Source
 	appearanceSourceSet bool
+
+	appearanceDefaultMode    appearance.Mode
+	appearanceDefaultModeSet bool
 }
 
 func newConfig() *config { return &config{} }
@@ -191,4 +194,25 @@ func WithFirstRunBaseline(version string) Option {
 // appearance_source.go's doc comment for why.
 func WithAppearanceSource(s appearance.Source) Option {
 	return func(c *config) { c.appearanceSource = s; c.appearanceSourceSet = true }
+}
+
+// WithAppearanceDefaultMode overrides the default value of the built-in
+// appearance settings group's mode field.
+//
+// kit.New registers appearance.SettingsGroup(), which defaults to
+// ModeSystem — correct for a new app, wrong for one that previously shipped
+// a single fixed theme. Following the OS would change the appearance out
+// from under every existing user on upgrade without them asking, so such an
+// app wants ModeDark or ModeLight as its default and follow-OS as opt-in.
+//
+// This exists because the alternative was unreachable: WithSettingsGroup
+// appends, so passing a second group with the same key produces two
+// competing groups rather than an override. The first real adopter worked
+// around it by pre-seeding the settings file before calling kit.New, which
+// cost more code than the rest of its adoption combined.
+func WithAppearanceDefaultMode(mode appearance.Mode) Option {
+	return func(c *config) {
+		c.appearanceDefaultMode = mode
+		c.appearanceDefaultModeSet = true
+	}
 }

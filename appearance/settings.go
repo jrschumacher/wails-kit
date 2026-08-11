@@ -23,6 +23,26 @@ var (
 // settings.WithGroup — that is a separate step from WithSettings, which
 // only wires the *settings.Service reference this package reads/writes
 // through; SettingsGroup builds the schema, it does not register it.
+// SettingsGroupWithDefault is SettingsGroup with the mode field's default
+// replaced.
+//
+// SettingsGroup defaults to ModeSystem, which is the right default for a new
+// app. It is the wrong default for an app that previously shipped a single
+// fixed theme: following the OS would change the appearance out from under
+// every existing user on upgrade, without them asking. The first real adopter
+// hit exactly this — it had shipped dark-only — and had to work around the
+// hardcoded default by pre-seeding the settings file, which cost more code
+// than the rest of the adoption combined.
+func SettingsGroupWithDefault(mode Mode) settings.Group {
+	g := SettingsGroup()
+	for i := range g.Fields {
+		if g.Fields[i].Key == SettingMode {
+			g.Fields[i].Default = string(mode)
+		}
+	}
+	return g
+}
+
 func SettingsGroup() settings.Group {
 	return settings.Group{
 		Key:   "appearance",

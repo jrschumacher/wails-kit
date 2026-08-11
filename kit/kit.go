@@ -189,7 +189,7 @@ func New(info AppInfo, opts ...Option) (*Kit, error) {
 		settings.WithKeyring(k.Keyring),
 		settings.WithLocalizer(k.I18n),
 		settings.WithGroup(settings.LocaleGroup(k.I18n)),
-		settings.WithGroup(appearance.SettingsGroup()),
+		settings.WithGroup(appearanceGroup(cfg)),
 	}
 
 	if !cfg.withoutHealth {
@@ -255,7 +255,7 @@ func New(info AppInfo, opts ...Option) (*Kit, error) {
 	// Start.
 	firstrunOpts := []firstrun.Option{
 		firstrun.WithDirs(dirs),
-		firstrun.WithVersion(info.Version),
+		firstrun.WithVersion(normalizeVersion(info.Version)),
 		firstrun.WithEmitter(k.Events),
 	}
 	if cfg.firstRunBaseline != "" {
@@ -276,7 +276,7 @@ func New(info AppInfo, opts ...Option) (*Kit, error) {
 	if updatesEnabled {
 		updatesOpts := []updates.ServiceOption{
 			updates.WithGitHubRepo(cfg.githubOwner, cfg.githubRepo),
-			updates.WithCurrentVersion(info.Version),
+			updates.WithCurrentVersion(normalizeVersion(info.Version)),
 			updates.WithEmitter(k.Events),
 			updates.WithSettings(k.Settings),
 			updates.WithAppName(info.Name),
@@ -295,7 +295,7 @@ func New(info AppInfo, opts ...Option) (*Kit, error) {
 	if !cfg.withoutDiagnostics {
 		diagOpts := []diagnostics.ServiceOption{
 			diagnostics.WithAppName(info.Name),
-			diagnostics.WithVersion(info.Version),
+			diagnostics.WithVersion(normalizeVersion(info.Version)),
 			diagnostics.WithDirs(dirs),
 			diagnostics.WithSettings(k.Settings),
 			diagnostics.WithEmitter(k.Events),
@@ -392,4 +392,34 @@ func (k *Kit) SetEventsBackend(b events.Backend) {
 func (k *Kit) SetAppearanceSource(s appearance.Source) {
 	k.appearanceSource.setReal(s)
 	k.Appearance.Refresh()
+}
+
+// appearanceGroup returns the built-in appearance settings group, honouring
+// WithAppearanceDefaultMode if the caller set one.
+func appearanceGroup(cfg *config) settings.Group {
+	if cfg.appearanceDefaultModeSet {
+		return appearance.SettingsGroupWithDefault(cfg.appearanceDefaultMode)
+	}
+	return appearance.SettingsGroup()
+}
+
+// normalizeVersion maps the conventional unset/dev version markers to a
+// valid prerelease semver, and passes everything else through untouched.
+//
+// firstrun (and updates) require parseable semver, but the near-universal
+// Go convention is a version variable defaulting to "dev" and overridden by
+// ldflags at release time. Left alone, that hard-fails kit.New for every
+// `go run`, `go build` without flags, and `go test` — i.e. the entire
+// development loop, which is the worst possible place to fail. The first
+// adopter hit this immediately.
+//
+// Only the two explicit markers are rewritten. Any other unparseable value
+// is still a real misconfiguration and is left to fail loudly rather than
+// silently becoming 0.0.0.
+func normalizeVersion(v string) string {
+	switch v {
+	case "", "dev":
+		return "0.0.0-dev"
+	}
+	return v
 }

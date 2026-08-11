@@ -14,10 +14,15 @@ import (
 // colours ManageWindow applies from appearance.Resolved() — the same
 // values appearance/README.md's own recommended snippet uses, so a
 // ManageWindow caller and a caller following that README by hand land on
-// identical colours. Override by calling win.SetBackgroundColour yourself
-// after ManageWindow returns; there is no Option for this because it is a
-// window-specific value most apps should derive from their own CSS
-// variables, not a wailsbridge concept.
+// identical colours. Apps whose CSS uses different values should pass
+// WithWindowBackground — calling win.SetBackgroundColour after ManageWindow
+// returns does NOT work, because the subscription below re-applies these
+// defaults on the next theme change. Worse, registering a competing
+// app.Event.On handler cannot win either: Emitter.rawEmit calls
+// backend.Emit (which drives app.Event.On) before notify (which drives
+// events.On, where the handler below lives), so an app.Event.On listener
+// always runs first and is always overwritten, regardless of registration
+// order.
 var (
 	backgroundLight = application.NewRGB(255, 255, 255)
 	backgroundDark  = application.NewRGB(23, 23, 23)
@@ -49,7 +54,36 @@ func backgroundFor(theme appearance.Theme) application.RGBA {
 // Call this after Attach and before win.Show(): Restore runs synchronously
 // inside this call, and a caller that shows the window first will see it
 // jump when the saved geometry is applied.
-func ManageWindow(k *kit.Kit, app *application.App, win *application.WebviewWindow, opts ...windowstate.Option) error {
+// WindowOption configures ManageWindow.
+type WindowOption func(*windowConfig)
+
+type windowConfig struct {
+	wsOpts     []windowstate.Option
+	bgLight    application.RGBA
+	bgDark     application.RGBA
+	bgOverride bool
+}
+
+// WithWindowBackground sets the window background colours ManageWindow
+// applies and keeps in sync as the resolved theme changes.
+//
+// Use this when the app's CSS background is not the kit's default. Keeping
+// the Wails window frame and the page background identical is what prevents
+// a visible seam between chrome and content; passing the app's real
+// --color-bg values here is the only way to get that, since the sync
+// handler cannot be overridden from outside (see the note above).
+func WithWindowBackground(light, dark application.RGBA) WindowOption {
+	return func(c *windowConfig) {
+		c.bgLight, c.bgDark, c.bgOverride = light, dark, true
+	}
+}
+
+// WithWindowStateOptions passes options through to windowstate.Manage.
+func WithWindowStateOptions(opts ...windowstate.Option) WindowOption {
+	return func(c *windowConfig) { c.wsOpts = append(c.wsOpts, opts...) }
+}
+
+func ManageWindow(k *kit.Kit, app *application.App, win *application.WebviewWindow, opts ...WindowOption) error {
 	if k == nil {
 		return errors.New(ErrConfig, "wailsbridge: k must not be nil", nil)
 	}
@@ -60,16 +94,27 @@ func ManageWindow(k *kit.Kit, app *application.App, win *application.WebviewWind
 		return errors.New(ErrConfig, "wailsbridge: win must not be nil", nil)
 	}
 
-	wsOpts := append([]windowstate.Option{windowstate.WithEmitter(k.Events)}, opts...)
+	cfg := &windowConfig{bgLight: backgroundLight, bgDark: backgroundDark}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	background := func(theme appearance.Theme) application.RGBA {
+		if theme == appearance.ThemeDark {
+			return cfg.bgDark
+		}
+		return cfg.bgLight
+	}
+
+	wsOpts := append([]windowstate.Option{windowstate.WithEmitter(k.Events)}, cfg.wsOpts...)
 	mgr, err := windowstate.Manage(app, win, wsOpts...)
 	if err != nil {
 		return err
 	}
 	mgr.Restore()
 
-	win.SetBackgroundColour(backgroundFor(k.Appearance.Resolved()))
+	win.SetBackgroundColour(background(k.Appearance.Resolved()))
 	cancelBG := events.On(k.Events, appearance.EventChanged, func(p appearance.ChangedPayload) {
-		win.SetBackgroundColour(backgroundFor(p.Resolved))
+		win.SetBackgroundColour(background(p.Resolved))
 	})
 
 	app.OnShutdown(func() {

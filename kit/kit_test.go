@@ -302,3 +302,22 @@ func TestCloseWithoutStart(t *testing.T) {
 		t.Errorf("Close without Start: %v", err)
 	}
 }
+
+// TestNormalizeVersion covers the dev-build case. "dev" is the conventional
+// default for an un-ldflagged Go binary, and firstrun requires parseable
+// semver — so without this, kit.New fails for every `go run` and `go test`,
+// which is exactly where it must not fail. A genuinely malformed version is
+// still passed through to fail loudly.
+func TestNormalizeVersion(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"", "0.0.0-dev"},
+		{"dev", "0.0.0-dev"},
+		{"1.4.0", "1.4.0"},
+		{"v1.4.0", "v1.4.0"},
+		{"nonsense", "nonsense"},
+	} {
+		if got := normalizeVersion(tc.in); got != tc.want {
+			t.Errorf("normalizeVersion(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
