@@ -1,0 +1,9 @@
+{
+  "wailskit.lifecycle.errors.cyclic_dependency": "Service configuration error: circular dependency detected.",
+  "wailskit.lifecycle.errors.missing_dependency": "Service configuration error: a required dependency is missing.",
+  "wailskit.lifecycle.errors.startup": "Failed to start a required service. Please try restarting the application.",
+  "wailskit.lifecycle.errors.shutdown": "An error occurred while shutting down. Some resources may not have been cleaned up.",
+  "wailskit.lifecycle.errors.timeout": "A service took too long to respond. Please try restarting the application.",
+  "wailskit.lifecycle.errors.duplicate_service": "Service configuration error: a service name is registered more than once.",
+  "wailskit.lifecycle.errors.invalid_state": "The application's service manager is busy or already running. Please try again."
+}

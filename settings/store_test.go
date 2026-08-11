@@ -2,8 +2,10 @@ package settings
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -284,4 +286,124 @@ func isJSONSyntaxError(err error, target **json.SyntaxError) bool {
 	default:
 		return false
 	}
+}
+
+// --- Durability (fsync) regression tests — defect #5 ---
+
+// recordingFile wraps a real *os.File so tests can observe or fail the
+// Sync() call without simulating an actual OS crash. Write/Close/Chmod/Name
+// delegate to the embedded file; only Sync is intercepted.
+type recordingFile struct {
+	*os.File
+	onSync   func()
+	failSync bool
+}
+
+func (f *recordingFile) Sync() error {
+	if f.onSync != nil {
+		f.onSync()
+	}
+	if f.failSync {
+		return errors.New("simulated fsync failure")
+	}
+	return f.File.Sync()
+}
+
+// TestSaveDurability pins defect #5: Save must fsync the temp file before
+// renaming it into place. The previous implementation did WriteFile+Rename
+// with no Sync() at all, so a crash between write and the OS's own
+// background flush could leave the rename's winner truncated or
+// zero-length. Run against the pre-fix Save (WriteFile+Rename, no
+// writeTempFile/createTempFile hook), the first subtest fails with
+// syncCalls==0 — that's the demonstration that the bug existed.
+func TestSaveDurability(t *testing.T) {
+	t.Run("syncs before rename", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "settings.json")
+		s := NewStore("app", WithPath(path))
+
+		var syncCalls int
+		orig := createTempFile
+		defer func() { createTempFile = orig }()
+		createTempFile = func(d, pattern string) (fileHandle, error) {
+			f, err := os.CreateTemp(d, pattern)
+			if err != nil {
+				return nil, err
+			}
+			return &recordingFile{File: f, onSync: func() { syncCalls++ }}, nil
+		}
+
+		if err := s.Save(map[string]any{"key": "value"}); err != nil {
+			t.Fatalf("save error: %v", err)
+		}
+		if syncCalls != 1 {
+			t.Errorf("expected exactly 1 Sync() call before rename, got %d", syncCalls)
+		}
+
+		values, err := s.Load()
+		if err != nil {
+			t.Fatalf("load error: %v", err)
+		}
+		if values["key"] != "value" {
+			t.Errorf("expected key=value after sync+rename, got %v", values["key"])
+		}
+	})
+
+	t.Run("sync failure aborts rename and leaves no temp file", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "settings.json")
+		s := NewStore("app", WithPath(path))
+
+		orig := createTempFile
+		defer func() { createTempFile = orig }()
+		createTempFile = func(d, pattern string) (fileHandle, error) {
+			f, err := os.CreateTemp(d, pattern)
+			if err != nil {
+				return nil, err
+			}
+			return &recordingFile{File: f, failSync: true}, nil
+		}
+
+		err := s.Save(map[string]any{"key": "value"})
+		if err == nil {
+			t.Fatal("expected Save to fail when fsync fails")
+		}
+
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Error("expected no settings file to be written when fsync fails — a rename must never happen without a successful sync")
+		}
+
+		entries, readErr := os.ReadDir(dir)
+		if readErr != nil {
+			t.Fatalf("readdir error: %v", readErr)
+		}
+		for _, e := range entries {
+			if strings.HasPrefix(e.Name(), ".settings-") {
+				t.Errorf("expected temp file to be cleaned up after a sync failure, found %s", e.Name())
+			}
+		}
+	})
+
+	t.Run("real fsync round-trips correctly (no mock)", func(t *testing.T) {
+		// Sanity check against the real filesystem path (no createTempFile
+		// override), since the two subtests above only exercise the mock.
+		dir := t.TempDir()
+		path := filepath.Join(dir, "settings.json")
+		s := NewStore("app", WithPath(path))
+
+		if err := s.Save(map[string]any{"a": "1"}); err != nil {
+			t.Fatalf("save error: %v", err)
+		}
+		if err := s.Save(map[string]any{"b": "2"}); err != nil {
+			t.Fatalf("save error: %v", err)
+		}
+
+		values, err := s.Load()
+		if err != nil {
+			t.Fatalf("load error: %v", err)
+		}
+		if values["a"] != "1" || values["b"] != "2" {
+			t.Errorf("expected a=1 b=2 after two durable saves, got %v", values)
+		}
+	})
 }

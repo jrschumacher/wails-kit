@@ -1,1 +1,4 @@
 node_modules/
+
+# Workspace checksum db — regenerates on build
+go.work.sum

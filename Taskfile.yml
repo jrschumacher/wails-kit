@@ -5,6 +5,7 @@ tasks:
     desc: Run all checks (same as CI)
     cmds:
       - task: lint
+      - task: wails-imports
       - task: test
       - task: ts:check
 
@@ -12,6 +13,11 @@ tasks:
     desc: Run golangci-lint
     cmds:
       - golangci-lint run ./...
+
+  wails-imports:
+    desc: Enforce the AD-4 Wails import allowlist
+    cmds:
+      - ./.github/scripts/check-wails-imports.sh
 
   test:
     desc: Run all Go tests

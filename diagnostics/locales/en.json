@@ -1,0 +1,9 @@
+{
+  "wailskit.diagnostics.group": "Diagnostics",
+  "wailskit.diagnostics.consent.label": "Share diagnostic bundles with support",
+  "wailskit.diagnostics.consent.description": "When enabled, you can submit diagnostics bundles (logs and system info) to support. Nothing is sent automatically or without this being on.",
+  "wailskit.diagnostics.errors.bundle_create": "Failed to create the diagnostics bundle. Please try again.",
+  "wailskit.diagnostics.errors.bundle_logs": "Failed to collect log files for the diagnostics bundle.",
+  "wailskit.diagnostics.errors.bundle_submit": "Failed to submit the diagnostics bundle. Please try again.",
+  "wailskit.diagnostics.errors.consent_required": "Diagnostics submission requires your consent. Enable it in Settings before sharing a bundle."
+}

@@ -1,7 +1,35 @@
 {
   "name": "@wails-kit/settings",
-  "private": true,
+  "version": "2.0.0",
+  "description": "Headless TypeScript logic for wails-kit's settings schema: condition evaluation, dynamic option resolution, and client-side validation mirroring settings/validate.go.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./index.ts",
+  "exports": {
+    ".": {
+      "types": "./index.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "*.ts",
+    "!*.test.ts"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jrschumacher/wails-kit.git",
+    "directory": "frontend/settings"
+  },
+  "homepage": "https://github.com/jrschumacher/wails-kit/tree/main/frontend/settings#readme",
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",

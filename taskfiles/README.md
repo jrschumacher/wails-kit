@@ -20,7 +20,7 @@ macOS signing also requires Xcode command-line tools (`xcode-select --install`).
 
 ```sh
 mkdir -p taskfiles
-cp "$(go env GOMODCACHE)/github.com/jrschumacher/wails-kit@<version>/taskfiles/release.yml" taskfiles/release.yml
+cp "$(go env GOMODCACHE)/github.com/jrschumacher/wails-kit/v2@<version>/taskfiles/release.yml" taskfiles/release.yml
 ```
 
 > **Note:** `wails3 task` uses an embedded Task runner that does not support remote taskfiles. You must copy the file locally.

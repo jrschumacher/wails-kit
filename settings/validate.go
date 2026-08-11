@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"unicode/utf8"
+
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 )
 
 // Validation error codes returned in ValidationError.Code.
@@ -18,19 +20,41 @@ const (
 	CodeInvalidOption = "invalid_option"
 )
 
-// ValidationError represents a field-level validation failure.
+// Validation message templates (settings/locales/en.json). Each is a %s
+// (field label) plus, where relevant, one more verb — resolved through the
+// same localizer as field labels, so "Foo is required" is fully localized,
+// not just the field name.
+var (
+	msgRequired        = i18n.T("wailskit.settings.validation.required", "%s is required")
+	msgPattern         = i18n.T("wailskit.settings.validation.pattern", "%s has invalid format")
+	msgMinLen          = i18n.T("wailskit.settings.validation.min_length", "%s must be at least %d characters")
+	msgMaxLen          = i18n.T("wailskit.settings.validation.max_length", "%s must be at most %d characters")
+	msgMin             = i18n.T("wailskit.settings.validation.min", "%s must be at least %d")
+	msgMax             = i18n.T("wailskit.settings.validation.max", "%s must be at most %d")
+	msgInvalidToggle   = i18n.T("wailskit.settings.validation.invalid_type_toggle", "%s must be true or false")
+	msgInvalidPassword = i18n.T("wailskit.settings.validation.invalid_type_password", "%s must be a string")
+	msgInvalidOption   = i18n.T("wailskit.settings.validation.invalid_option", "%s has an invalid option")
+)
+
+// ValidationError represents a field-level validation failure. Message is
+// already resolved to a plain string (via localizer, or the built-in
+// English fallback when localizer is nil) — like Field.Label on the wire,
+// this is never an i18n.Text on the JSON/Go-caller surface.
 type ValidationError struct {
 	Field   string `json:"field"`
 	Message string `json:"message"`
 	Code    string `json:"code"`
 }
 
-func Validate(schema Schema, values map[string]any) []ValidationError {
+// Validate checks values against schema, returning one ValidationError per
+// failed rule (nil if none). localizer resolves field labels and message
+// templates; pass nil for the built-in English messages — see resolveText.
+func Validate(schema Schema, values map[string]any, localizer *i18n.Localizer) []ValidationError {
 	var errs []ValidationError
 
 	for _, group := range schema.Groups {
 		for _, field := range group.Fields {
-			if field.Validation == nil && field.Type != FieldSelect && field.Type != FieldToggle {
+			if field.Validation == nil && field.Type != FieldSelect && field.Type != FieldToggle && field.Type != FieldPassword {
 				continue
 			}
 
@@ -40,7 +64,7 @@ func Validate(schema Schema, values map[string]any) []ValidationError {
 			}
 
 			val := values[field.Key]
-			fieldErrs := validateField(field, val, values)
+			fieldErrs := validateField(field, val, values, localizer)
 			errs = append(errs, fieldErrs...)
 		}
 	}
@@ -61,9 +85,10 @@ func conditionMet(c *Condition, values map[string]any) bool {
 	return false
 }
 
-func validateField(field Field, val any, values map[string]any) []ValidationError {
+func validateField(field Field, val any, values map[string]any, l *i18n.Localizer) []ValidationError {
 	var errs []ValidationError
 	v := field.Validation
+	label := resolveText(field.Label, l)
 
 	str, isStr := val.(string)
 	num := toFloat64(val)
@@ -71,7 +96,7 @@ func validateField(field Field, val any, values map[string]any) []ValidationErro
 
 	if v != nil && v.Required {
 		if val == nil || (isStr && str == "") {
-			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s is required", field.Label), Code: CodeRequired})
+			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf(resolveText(msgRequired, l), label), Code: CodeRequired})
 			return errs
 		}
 	}
@@ -79,36 +104,46 @@ func validateField(field Field, val any, values map[string]any) []ValidationErro
 	// Toggle type validation: must be a bool if provided
 	if field.Type == FieldToggle && val != nil {
 		if _, ok := val.(bool); !ok {
-			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s must be true or false", field.Label), Code: CodeInvalidType})
+			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf(resolveText(msgInvalidToggle, l), label), Code: CodeInvalidType})
+		}
+	}
+
+	// Password type validation: must be a string if provided. A non-string
+	// value (e.g. a stray number) must be rejected here rather than falling
+	// through to a raw type assertion that silently treats it as "" and
+	// deletes the stored secret.
+	if field.Type == FieldPassword && val != nil {
+		if _, ok := val.(string); !ok {
+			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf(resolveText(msgInvalidPassword, l), label), Code: CodeInvalidType})
 		}
 	}
 
 	if isStr && str != "" && v != nil {
 		if v.Pattern != "" {
 			if matched, _ := regexp.MatchString(v.Pattern, str); !matched {
-				errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s has invalid format", field.Label), Code: CodePattern})
+				errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf(resolveText(msgPattern, l), label), Code: CodePattern})
 			}
 		}
 		if v.MinLen > 0 && utf8.RuneCountInString(str) < v.MinLen {
-			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s must be at least %d characters", field.Label, v.MinLen), Code: CodeMinLen})
+			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf(resolveText(msgMinLen, l), label, v.MinLen), Code: CodeMinLen})
 		}
 		if v.MaxLen > 0 && utf8.RuneCountInString(str) > v.MaxLen {
-			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s must be at most %d characters", field.Label, v.MaxLen), Code: CodeMaxLen})
+			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf(resolveText(msgMaxLen, l), label, v.MaxLen), Code: CodeMaxLen})
 		}
 	}
 
 	if isNum && v != nil {
 		n := *num
 		if v.Min != nil && n < float64(*v.Min) {
-			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s must be at least %d", field.Label, *v.Min), Code: CodeMin})
+			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf(resolveText(msgMin, l), label, *v.Min), Code: CodeMin})
 		}
 		if v.Max != nil && n > float64(*v.Max) {
-			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s must be at most %d", field.Label, *v.Max), Code: CodeMax})
+			errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf(resolveText(msgMax, l), label, *v.Max), Code: CodeMax})
 		}
 	}
 
 	if field.Type == FieldSelect && isStr && str != "" && hasSelectableOptions(field, values) && !selectOptionAllowed(field, str, values) {
-		errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf("%s has an invalid option", field.Label), Code: CodeInvalidOption})
+		errs = append(errs, ValidationError{Field: field.Key, Message: fmt.Sprintf(resolveText(msgInvalidOption, l), label), Code: CodeInvalidOption})
 	}
 
 	return errs

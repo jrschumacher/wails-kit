@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -9,7 +10,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/jrschumacher/wails-kit/events"
+	"github.com/jrschumacher/wails-kit/v2/events"
 )
 
 func testMigrations() *fstest.MapFS {
@@ -730,5 +731,214 @@ DROP TABLE users;
 	matches, _ := filepath.Glob(dbPath + ".backup-v*")
 	if len(matches) > 2 {
 		t.Errorf("expected at most 2 backup files, found %d: %v", len(matches), matches)
+	}
+}
+
+// TestForeignKeysEveryConnection is the regression test for the pool-vs-
+// per-connection pragma defect: PRAGMA foreign_keys and busy_timeout are
+// per-connection in SQLite, but the old implementation Exec'd them once
+// against the *sql.DB pool. That only reliably reaches whichever connection
+// happens to be idle at the time — TestNew_ForeignKeys passed only because
+// it never forced the pool to grow past one connection.
+//
+// This test holds one connection open in a transaction, then explicitly
+// requests a second connection from the pool (which must be a brand-new
+// physical connection, since the first is pinned by the open transaction)
+// and asserts the pragmas hold there too.
+func TestForeignKeysEveryConnection(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := New(WithPath(dbPath))
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	db.DB().SetMaxOpenConns(2)
+
+	ctx := context.Background()
+
+	// Pin the first physical connection with an open transaction.
+	tx, err := db.DB().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("BeginTx error: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Force the pool to open a second physical connection.
+	conn2, err := db.DB().Conn(ctx)
+	if err != nil {
+		t.Fatalf("Conn() error: %v", err)
+	}
+	defer func() { _ = conn2.Close() }()
+
+	var fk int
+	if err := conn2.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&fk); err != nil {
+		t.Fatalf("PRAGMA foreign_keys error: %v", err)
+	}
+	if fk != 1 {
+		t.Errorf("foreign_keys on second pooled connection = %d, want 1", fk)
+	}
+
+	var busyTimeout int
+	if err := conn2.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&busyTimeout); err != nil {
+		t.Fatalf("PRAGMA busy_timeout error: %v", err)
+	}
+	if busyTimeout != 5000 {
+		t.Errorf("busy_timeout on second pooled connection = %d, want 5000", busyTimeout)
+	}
+}
+
+// TestNew_WithExternalDB_PragmasAppliedToEveryQuery covers the WithDB path:
+// since the caller opened the *sql.DB (we don't control its DSN), we can't
+// bake pragmas into the connection string. New() instead forces
+// SetMaxOpenConns(1) on the external DB before Exec-ing pragmas so the one
+// pooled connection that ever exists keeps them.
+func TestNew_WithExternalDB_PragmasAppliedToEveryQuery(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	extDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open error: %v", err)
+	}
+	defer func() { _ = extDB.Close() }()
+
+	// Give the pool room to grow so the test would fail if New() didn't
+	// clamp it back down to 1.
+	extDB.SetMaxOpenConns(10)
+
+	db, err := New(WithDB(extDB))
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	if stats := extDB.Stats(); stats.MaxOpenConnections != 1 {
+		t.Errorf("MaxOpenConnections = %d, want 1 (New() must clamp external DBs to guarantee pragma consistency)", stats.MaxOpenConnections)
+	}
+
+	var fk int
+	if err := db.DB().QueryRow("PRAGMA foreign_keys").Scan(&fk); err != nil {
+		t.Fatalf("PRAGMA foreign_keys error: %v", err)
+	}
+	if fk != 1 {
+		t.Errorf("foreign_keys = %d, want 1", fk)
+	}
+}
+
+// TestVersion_PropagatesScanErrors is the regression test for Version()
+// collapsing every query/scan failure into "version 0, no error". A closed
+// database produces a real error on every query, not a "table doesn't
+// exist" condition, and Version() must surface it rather than reporting a
+// misleadingly clean zero.
+func TestVersion_PropagatesScanErrors(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := New(WithPath(dbPath))
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close() error: %v", err)
+	}
+
+	_, err = db.Version()
+	if err == nil {
+		t.Fatal("expected Version() to return an error on a closed database, got nil")
+	}
+}
+
+// TestVersion_FreshDatabaseReturnsZeroNoError verifies the legitimate zero
+// case (no goose_db_version table yet) still returns (0, nil), distinct
+// from the real-error case exercised by TestVersion_PropagatesScanErrors.
+func TestVersion_FreshDatabaseReturnsZeroNoError(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	db, err := New(WithPath(dbPath))
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	version, err := db.Version()
+	if err != nil {
+		t.Fatalf("Version() error: %v", err)
+	}
+	if version != 0 {
+		t.Errorf("Version() = %d, want 0 for a fresh database", version)
+	}
+}
+
+// TestNew_WithBaselineVersion_TransactionalOnFailure is the regression test
+// for non-transactional baseline stamping: a failure partway through the
+// stamp loop must not leave goose_db_version half-populated, because the
+// early-exit check in baseline() ("table already exists -> no-op") would
+// otherwise treat that half-stamped table as a completed baseline on the
+// next run and silently skip the remaining versions forever.
+//
+// The failure is forced deterministically via PRAGMA max_page_count: the
+// pre-existing database is capped at (current pages + 1), which lets
+// CREATE TABLE goose_db_version succeed but starves the INSERT loop of
+// room partway through (empirically verified: dozens of rows succeed
+// before SQLITE_FULL), exercising a genuine mid-transaction failure rather
+// than one that fails before any progress is made.
+func TestNew_WithBaselineVersion_TransactionalOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+
+	preDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open error: %v", err)
+	}
+	_, err = preDB.Exec(`
+		CREATE TABLE users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			email TEXT NOT NULL UNIQUE
+		)
+	`)
+	if err != nil {
+		t.Fatalf("CREATE TABLE error: %v", err)
+	}
+	var pageCount int
+	if err := preDB.QueryRow("PRAGMA page_count").Scan(&pageCount); err != nil {
+		t.Fatalf("PRAGMA page_count error: %v", err)
+	}
+	if err := preDB.Close(); err != nil {
+		t.Fatalf("close preDB error: %v", err)
+	}
+
+	_, err = New(
+		WithPath(dbPath),
+		WithMigrations(testMigrations()),
+		WithBaselineVersion(2000),
+		WithPragmas(map[string]string{
+			"max_page_count": fmt.Sprintf("%d", pageCount+1),
+		}),
+	)
+	if err == nil {
+		t.Fatal("expected baseline to fail when the database runs out of room mid-stamp")
+	}
+
+	// The table must not exist at all — a rolled-back transaction, not a
+	// half-stamped one.
+	verifyDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen error: %v", err)
+	}
+	defer func() { _ = verifyDB.Close() }()
+
+	var exists bool
+	err = verifyDB.QueryRow(
+		"SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='goose_db_version'",
+	).Scan(&exists)
+	if err != nil {
+		t.Fatalf("check table existence error: %v", err)
+	}
+	if exists {
+		t.Fatal("goose_db_version should not exist after a failed (rolled-back) baseline transaction")
 	}
 }

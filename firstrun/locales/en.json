@@ -1,0 +1,6 @@
+{
+  "wailskit.firstrun.errors.config": "First-run detection is misconfigured. Please contact support.",
+  "wailskit.firstrun.errors.stamp_invalid": "The recorded application version could not be read.",
+  "wailskit.firstrun.errors.hook_failed": "An update step failed to complete. Please try relaunching the app.",
+  "wailskit.firstrun.errors.downgrade_refused": "This version can't open data saved by a newer version of the app."
+}

@@ -1,0 +1,5 @@
+{
+  "wailskit.runner.sqlitestore.errors.open": "Unable to open the background job database. Please check file permissions and try again.",
+  "wailskit.runner.sqlitestore.errors.migrate": "Background job database migration failed. Please contact support.",
+  "wailskit.runner.sqlitestore.errors.query": "A background job database operation failed. Please try again."
+}

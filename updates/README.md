@@ -1,25 +1,29 @@
 # updates
 
-GitHub Releases-based auto-update mechanism for Wails v3 desktop apps. Zero external dependencies — uses only the Go standard library with an inline semver parser.
+GitHub Releases-based auto-update mechanism for Wails v3 desktop apps. This package replaces the user's running binary — it is the highest-stakes package in the kit. Signature verification uses [minisign](https://jedisct1.github.io/minisign/) via the pure-Go [`github.com/jedisct1/go-minisign`](https://github.com/jedisct1/go-minisign) verifier (see "Signature verification" below for why).
+
+Backwards compatibility with wails-kit v1.x is **not** provided — the public key type on `WithPublicKey` and the signature file extension (`.sig` → `.minisig`) both changed. See "Migrating from v1" at the bottom.
 
 ## Usage
 
 ```go
-import "github.com/jrschumacher/wails-kit/updates"
+import "github.com/jrschumacher/wails-kit/v2/updates"
 
 svc, err := updates.NewService(
-    updates.WithCurrentVersion("v1.0.0"),      // required
-    updates.WithGitHubRepo("myorg", "myapp"),   // required
-    updates.WithEmitter(emitter),               // optional: event notifications
-    updates.WithSettings(settingsSvc),          // optional: reads include_prereleases from settings
+    updates.WithCurrentVersion("v1.0.0"),          // required
+    updates.WithGitHubRepo("myorg", "myapp"),      // required
+    updates.WithEmitter(emitter),                  // optional: event notifications
+    updates.WithSettings(settingsSvc),             // optional: reads include_prereleases from settings
     updates.WithAssetPattern("myapp_{os}_{arch}"), // optional: asset name pattern
-    updates.WithBinaryName("myapp"),            // optional: binary name inside archive
-    updates.WithGitHubToken(token),             // optional: for private repos
-    updates.WithHTTPClient(client),             // optional: custom HTTP client
-    updates.WithApplier(customApplier),         // optional: custom binary replacement
-    updates.WithIncludePrereleases(false),      // optional: static fallback if no settings
-    updates.WithPublicKey(publicKey),           // optional: Ed25519 key for signature verification
-    updates.WithSkipVerification(),             // optional: skip verification (dev only)
+    updates.WithBinaryName("myapp"),               // optional: binary name inside archive
+    updates.WithGitHubToken(token),                // optional: for private repos
+    updates.WithGitHubAPIURL(url),                 // optional: GitHub Enterprise Server, or a test double
+    updates.WithHTTPClient(client),                // optional: custom HTTP client
+    updates.WithApplier(customApplier),            // optional: custom binary replacement
+    updates.WithIncludePrereleases(false),         // optional: static fallback if no settings
+    updates.WithPublicKey(publicKeyText),          // optional: minisign public key for signature verification
+    updates.WithSkipVerification(),                // optional: skip verification (dev only)
+    updates.WithAllowDowngrade(),                  // optional: permit installing an older release (see "Downgrade protection")
 )
 ```
 
@@ -51,7 +55,7 @@ The updates service can optionally integrate with the settings package. When a s
 The `check_frequency` and `auto_download` settings are for the **app's** use — the library doesn't poll or auto-download. Your app reads those values and decides when to call `CheckForUpdate` and `DownloadUpdate`.
 
 ```go
-import "github.com/jrschumacher/wails-kit/settings"
+import "github.com/jrschumacher/wails-kit/v2/settings"
 
 settingsSvc := settings.NewService(
     settings.WithAppName("my-app"),
@@ -119,42 +123,96 @@ if method := updates.DetectInstallMethod(); method != updates.InstallDirect {
 | `update_verify` | Update signature verification failed. The download may be corrupted or tampered with. |
 | `update_managed` | This app is managed by a package manager. Please update through your package manager instead. |
 
+## Security model
+
+Summary of the defenses this package implements against a compromised/rolled-back release feed and against a local attacker on the same machine:
+
+- **Downgrade protection.** `CheckForUpdate` never caches a release that is not strictly newer than the current version — a rolled-back or compromised feed cannot silently poison a previously cached, genuinely newer release with an older one. `DownloadUpdate` and `ApplyUpdate` each independently re-check newness again before acting, rather than trusting a single check performed earlier. A valid signature does not imply a *current* build: an attacker who can make the feed serve an old, legitimately-signed release with known, already-patched vulnerabilities can trick a user into "upgrading" backwards. Opt out only for an explicit, user-initiated reinstall/downgrade flow via `WithAllowDowngrade()`.
+- **Private staging directory.** Downloads are staged under the app's private cache directory (`appdirs.Cache()/updates/`, under the user's home directory — e.g. `~/Library/Caches/<app>` on macOS, `~/.cache/<app>` on Linux) rather than the shared OS temp directory. On Linux, `/tmp` is world-writable (mode `1777`); a local attacker can pre-create a subdirectory there and own it before this process ever runs, and `os.MkdirAll` succeeds silently against a directory that already exists regardless of who created it or with what permissions. This package additionally verifies (on POSIX) that the staging directory is owned by the current user and not group/world-accessible, both when it's created for a download and again for archive extraction.
+- **Re-verify immediately before extract.** `DownloadUpdate` and `ApplyUpdate` are separate, user-triggered steps with an unbounded gap between them. `ApplyUpdate` re-verifies the staged file's signature immediately before extracting it, not just once at download time — closing the window where a local attacker who gains write access to the staging directory between the two calls could swap the file.
+- **Fail-loud, not fail-open, key handling.** A public key passed to `WithPublicKey` is parsed and validated when you call `NewService`, not lazily on first use — a malformed or wrong-length key is rejected immediately with a clear error instead of surfacing later (or, with the previous raw-`ed25519.PublicKey` implementation, **panicking** on a key of the wrong length, since `ed25519.Verify` panics rather than errors on a bad key length). Verification cannot be silently absent, either: `NewService` **requires** either `WithPublicKey` or `WithSkipVerification` and returns an error at construction time if neither is set. A constructor that already hard-fails on a missing repo or version treating "no verification configured" as a soft, ignorable warning would be inconsistent — and indefensible for the package that replaces the user's binary. `WithSkipVerification` still logs a warning on every use, since it remains an explicit, dev-only opt-out.
+- **Staging directory cleanup.** A previous `DownloadUpdate` call's staging directory is removed before a new one is created (so an app that downloads without ever applying doesn't leak a directory per call), and `NewService` sweeps any staging directories left behind by a crashed prior process. Staging directories are per-app, under `appdirs.Cache()/updates/` — see "Private staging directory" above.
+- **Download size cap.** The GitHub API reports each asset's size in the release metadata (`asset.Size`) before any bytes are downloaded. `DownloadAsset` caps the read at that size; a compromised or malicious feed that tries to stream more than it declared is cut off instead of being buffered to disk indefinitely. (Archive decompression is separately capped at 1 GiB.)
+- **Private repos use the API asset endpoint.** Confirmed bug, now fixed: `browser_download_url` requires a browser session and returns 404 for API/token-authenticated requests against a private repository. `DownloadAsset` now uses the GitHub API asset endpoint (`Asset.URL`, present on every asset the API returns) with an `Accept: application/octet-stream` header instead, which works for both private and public repos. `Authorization` is safe to send on that request unconditionally: `net/http` strips it automatically when the API 302-redirects to the actual (unauthenticated, signed, short-lived) storage URL.
+
+None of this protects against a compromised *signing key* — see "Generating a keypair" below for what that means in practice.
+
 ## Signature verification
 
-The updates service supports Ed25519 signature verification to ensure downloaded binaries haven't been tampered with. When a public key is configured, each release asset must have a corresponding `.sig` file (e.g., `myapp_darwin_arm64.tar.gz.sig`) containing the raw Ed25519 signature.
+Release assets are verified with [minisign](https://jedisct1.github.io/minisign/).
+Each asset must have a matching `.minisig` file in the release — for
+`myapp_darwin_arm64.tar.gz`, that is `myapp_darwin_arm64.tar.gz.minisig`.
+
+minisign is Ed25519 underneath, but unlike a hand-rolled scheme it has a defined
+file format, a maintained CLI, and a signing procedure that is documented
+upstream and can be verified independently of this package. That matters: the
+previous version of this section documented an `openssl pkeyutl` recipe that
+**could not produce a valid signature** — `$(cat …)` mangles binary data, and
+OpenSSL 3.x Ed25519 requires `-rawin`. Nobody noticed because nobody ran it. The
+recipe below was executed end to end against minisign 0.12, and there is an
+interoperability test (`TestVerifySignatureRealMinisignCLI`) pinning a real
+CLI-produced signature so this package can never silently drift from the tool.
 
 ```go
-import "crypto/ed25519"
-
-// Embed or load your Ed25519 public key
-var publicKey ed25519.PublicKey = ...
+//go:embed minisign.pub
+var minisignPublicKey string
 
 svc, err := updates.NewService(
     updates.WithCurrentVersion(version),
     updates.WithGitHubRepo("myorg", "myapp"),
-    updates.WithPublicKey(publicKey),
+    updates.WithPublicKey(minisignPublicKey),
 )
 ```
 
+`WithPublicKey` accepts either the full `.pub` file contents or the bare base64
+key line.
+
 **Behavior:**
-- Verification happens after download, before the update is marked ready
-- If the `.sig` asset is missing from the release, the download fails
-- If the signature is invalid, the downloaded file is deleted and an `update_verify` error is emitted
-- Without `WithPublicKey`, verification is skipped (backward compatible)
+- Verification happens after download and again immediately before extraction,
+  so a file swapped in between the two steps is still caught
+- A missing `.minisig` asset fails the download; it is never treated as "unsigned, therefore fine"
+- An invalid signature deletes the downloaded file and emits an `update_verify` error
+- `NewService` requires either `WithPublicKey` or `WithSkipVerification` — construction
+  fails immediately if neither is set, rather than silently applying unverified updates
 
-**Signing in CI:**
-
-Generate a keypair and sign assets in your release workflow:
+### Generating a keypair
 
 ```bash
-# Generate keypair (one-time)
-go run crypto/ed25519/cmd/generate.go  # or use any Ed25519 tool
-
-# Sign an asset
-echo -n "$(cat myapp_darwin_arm64.tar.gz)" | \
-  openssl pkeyutl -sign -inkey private.pem | \
-  dd of=myapp_darwin_arm64.tar.gz.sig
+minisign -G -p minisign.pub -s minisign.key
 ```
+
+Commit `minisign.pub` (it is public, and embedding it is the point). Store
+`minisign.key` offline — a password manager, or an encrypted backup you actually
+test restoring.
+
+> **The private key is a one-way door.** Lose it and you cannot ship another
+> update to anyone who already installed the app: their copy will reject every
+> future release, and there is no remote fix, because the fix would itself need
+> to be signed. Ship the wrong public key and the same thing happens
+> immediately. Back it up before you cut a single release.
+
+### Signing a release
+
+```bash
+minisign -S -s minisign.key -m myapp_darwin_arm64.tar.gz -t "myapp 2.0.0"
+```
+
+`-t` sets the trusted comment, which minisign signs separately and this package
+verifies. It is authenticated data, so it is safe to display; the *untrusted*
+comment is not, and must never be shown as though it were.
+
+Verified output:
+
+```
+$ minisign -V -p minisign.pub -m myapp_darwin_arm64.tar.gz
+Signature and comment signature verified
+Trusted comment: myapp 2.0.0
+```
+
+In CI, keep the secret key in a repository secret and write it to a file for the
+signing step. A key with no password (`minisign -G -W`) is appropriate for
+unattended CI; the protection then comes from the secret store, not the
+passphrase.
 
 **Development mode:**
 
@@ -205,7 +263,56 @@ The default applier replaces the binary using an atomic rename strategy:
 2. Rename new binary to the current path
 3. Clean up the `.old` file
 
-If the rename of the new binary fails, the old binary is restored. You can provide a custom `Applier` implementation via `WithApplier` for platform-specific needs (e.g., macOS `.app` bundle replacement).
+If the rename of the new binary fails, the old binary is restored.
+
+**This only replaces a single executable file.** It is correct for a plain
+binary (Linux, Windows, or a macOS binary run outside a `.app` bundle). It is
+**not** sufficient for a macOS `.app` bundle — see the next section.
+
+## macOS `.app` bundles
+
+The default applier does not support `.app` bundles, and this is intentional,
+not an oversight.
+
+Inside a bundle, `os.Executable()` resolves to
+`Foo.app/Contents/MacOS/Foo` — one file among many (`Info.plist`,
+`Resources/`, `Frameworks/`, the code signature under `_CodeSignature/`). The
+default applier would rename over just that one file and leave the rest of
+the bundle at the old version. Worse: **`.app` bundles are code-signed as a
+unit**, and replacing any single file inside a signed bundle invalidates that
+signature. On Apple Silicon, Gatekeeper enforces the seal at launch — the
+next time the user opens the app, macOS kills it. A self-updater that bricks
+a signed app on every install is strictly worse than shipping no
+self-updater at all.
+
+If your app ships as a `.app` bundle, you must provide your own `Applier` via
+`WithApplier` that:
+
+- Downloads/stages the new bundle (or the pieces needed to construct one)
+- Replaces the *entire* bundle directory in one atomic operation (e.g. build
+  the new bundle alongside the old one, then swap directory entries — not a
+  file-by-file copy into the running bundle)
+- Re-signs the bundle as part of your release process so the swapped-in
+  bundle carries a valid signature (the signing step happens when you *build*
+  the release asset, not inside the applier — the applier just needs to not
+  disturb it)
+
+This package does not ship a bundle-swap `Applier` itself. Doing so correctly
+requires verifying the result against a real signed-and-notarized build under
+Gatekeeper — including how the quarantine extended attribute behaves after
+the swap — which cannot be validated in this repository's test environment.
+Shipping an untested bundle-swap implementation as the default would be
+worse than the honest limitation described here.
+
+## Restart/relaunch
+
+This package does not include a process-relaunch helper. `ApplyUpdate`
+replaces the file(s) on disk; it does not restart the app. Wiring up the
+common flow — check on launch, notify the user, apply on quit, relaunch — is
+your app's responsibility today. If you need it, `os.Executable()` plus
+`exec.Command` (spawn the new binary, then exit the current process) is the
+usual pattern; on macOS, relaunching a bundle means opening the `.app` again
+(e.g. via `open` or `NSWorkspace`), not just re-exec'ing the inner binary.
 
 ## Version comparison
 

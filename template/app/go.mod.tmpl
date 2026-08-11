@@ -1,0 +1,24 @@
+module {{.ModulePath}}
+
+go 1.24
+
+require (
+	github.com/jrschumacher/wails-kit/v2 v2.0.0
+	github.com/wailsapp/wails/v3 v3.0.0-beta.4
+)
+
+// wails-kit v2 is not yet tagged/published while docs/v2-roadmap.md's Phase 3
+// checkpoint (IC-3) is in flight — see that repo's OQ-1. Until a v2.0.0 tag
+// exists, github.com/jrschumacher/wails-kit/v2 above cannot be fetched from a
+// module proxy. Point it at a local checkout instead:
+//
+//   go mod edit -replace github.com/jrschumacher/wails-kit/v2=../path/to/wails-kit
+//   go mod tidy
+//
+// (This is also why generating this app with `wails3 init` needs
+// -skipgomodtidy — see this project's own README.md, "Before your first
+// build".)
+//
+// Once v2.0.0 is tagged, delete the replace directive and run
+// `go get github.com/jrschumacher/wails-kit/v2@v2.0.0` to pin the real
+// version.

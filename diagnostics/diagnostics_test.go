@@ -10,9 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jrschumacher/wails-kit/events"
-	"github.com/jrschumacher/wails-kit/keyring"
-	"github.com/jrschumacher/wails-kit/settings"
+	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
+	"github.com/jrschumacher/wails-kit/v2/keyring"
+	"github.com/jrschumacher/wails-kit/v2/settings"
 )
 
 func TestNewService(t *testing.T) {
@@ -168,10 +169,10 @@ func TestCreateBundle(t *testing.T) {
 			settings.WithKeyring(keyring.NewMemoryStore()),
 			settings.WithGroup(settings.Group{
 				Key:   "general",
-				Label: "General",
+				Label: i18n.Text{Other: "General"},
 				Fields: []settings.Field{
-					{Key: "general.name", Type: settings.FieldText, Label: "Name"},
-					{Key: "general.api_key", Type: settings.FieldPassword, Label: "API Key"},
+					{Key: "general.name", Type: settings.FieldText, Label: i18n.Text{Other: "Name"}},
+					{Key: "general.api_key", Type: settings.FieldPassword, Label: i18n.Text{Other: "API Key"}},
 				},
 			}),
 		)
@@ -293,6 +294,32 @@ func TestCreateBundle(t *testing.T) {
 		}
 	})
 
+	t.Run("bundle file is created 0600, not 0644", func(t *testing.T) {
+		// Audit finding: the output directory is 0700, but users are told
+		// the bundle path and will move the file elsewhere (e.g. into
+		// Downloads) or attach it somewhere, at which point the directory's
+		// protection no longer applies — the file's own mode is what
+		// matters from that point on.
+		outputDir := t.TempDir()
+		svc, err := NewService(WithAppName("test-app"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		path, err := svc.CreateBundle(context.Background(), outputDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fi.Mode().Perm(); got != 0o600 {
+			t.Errorf("expected bundle file mode 0600, got %#o", got)
+		}
+	})
+
 	t.Run("nonexistent log dir is not an error", func(t *testing.T) {
 		outputDir := t.TempDir()
 		svc, err := NewService(
@@ -380,12 +407,14 @@ func TestCustomCollectors(t *testing.T) {
 }
 
 func TestSanitizeSettings(t *testing.T) {
-	schema := settings.Schema{
-		Groups: []settings.Group{
+	// sanitizeSettings consumes the resolved wire shape, which is what
+	// Service.GetSchema returns — labels are already strings by then.
+	schema := settings.ResolvedSchema{
+		Groups: []settings.ResolvedGroup{
 			{
 				Key:   "test",
 				Label: "Test",
-				Fields: []settings.Field{
+				Fields: []settings.ResolvedField{
 					{Key: "name", Type: settings.FieldText, Label: "Name"},
 					{Key: "secret", Type: settings.FieldPassword, Label: "Secret"},
 					{Key: "toggle", Type: settings.FieldToggle, Label: "Toggle"},

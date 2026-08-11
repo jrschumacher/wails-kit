@@ -19,6 +19,24 @@ type Store interface {
 	Has(key string) bool
 }
 
+// KeyLister is an optional extension for Store implementations that can
+// enumerate the keys they hold. It is deliberately not part of Store: the OS
+// keyring backends (macOS Keychain, Windows Credential Manager, Linux Secret
+// Service) do not offer a portable "list items for this service" operation
+// through the underlying go-keyring API, so requiring enumeration on every
+// Store would make Store impossible to implement against the OS keyring.
+//
+// EnvelopeStore implements KeyLister because its entries live in a single
+// file it fully controls. Callers that need enumeration type-assert:
+//
+//	if lister, ok := store.(keyring.KeyLister); ok {
+//	    keys, err := lister.Keys()
+//	}
+type KeyLister interface {
+	// Keys returns the names of the entries currently in the store.
+	Keys() ([]string, error)
+}
+
 // SetJSON marshals value as JSON and stores it.
 func SetJSON(s Store, key string, value any) error {
 	data, err := json.Marshal(value)

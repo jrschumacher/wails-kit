@@ -1,5 +1,3 @@
-//go:build (darwin || linux || windows) && wails
-
 package shortcuts
 
 import (
@@ -52,7 +50,7 @@ func (m *Manager) addDarwinAppMenuWithSettings(parent *application.Menu, appName
 	sub.AddRole(application.About)
 	sub.AddSeparator()
 
-	sub.Add("Settings\u2026").
+	sub.Add(resolveText(labelSettingsDarwin, m.localizer)).
 		SetAccelerator("CmdOrCtrl+,").
 		OnClick(func(_ *application.Context) {
 			m.emit(EventSettingsOpen, nil)
@@ -71,19 +69,37 @@ func (m *Manager) addDarwinAppMenuWithSettings(parent *application.Menu, appName
 // addEditMenuWithSettings builds an Edit menu with a Settings item appended,
 // used on non-macOS platforms where Settings goes in Edit > Preferences.
 func (m *Manager) addEditMenuWithSettings(parent *application.Menu) {
-	sub := parent.AddSubmenu("Edit")
-	sub.AddRole(application.Undo)
-	sub.AddRole(application.Redo)
-	sub.AddSeparator()
-	sub.AddRole(application.Cut)
-	sub.AddRole(application.Copy)
-	sub.AddRole(application.Paste)
-	sub.AddRole(application.Delete)
-	sub.AddSeparator()
-	sub.AddRole(application.SelectAll)
-	sub.AddSeparator()
+	// AddRole(EditMenu) rather than AddSubmenu("Edit") + hand-rolled items.
+	// Two reasons, both load-bearing:
+	//
+	// AddSubmenu produces a NewSubMenuItem, which carries no Role, so the
+	// resulting menu is invisible to FindByRole(EditMenu) — including to the
+	// OS on platforms that identify the Edit menu that way, and to any test
+	// asserting the menu exists.
+	//
+	// It also gets the platform-correct item set for free: NewEditMenu adds
+	// PasteAndMatchStyle and a Speech submenu on darwin and orders SelectAll
+	// differently elsewhere, none of which a hand-rolled list tracks as Wails
+	// evolves.
+	parent.AddRole(application.EditMenu)
 
-	sub.Add("Settings").
+	edit := parent.FindByRole(application.EditMenu)
+	if edit == nil {
+		// AddRole logs and skips on an unsupported role rather than
+		// returning an error. Losing Settings entirely is worse than a
+		// misplaced Settings, so fall back to a plain submenu.
+		sub := parent.AddSubmenu("Edit")
+		m.addSettingsItem(sub)
+		return
+	}
+	m.addSettingsItem(edit.GetSubmenu())
+}
+
+// addSettingsItem appends the app-specific Settings entry. Standard roles keep
+// their OS-supplied labels; only this one comes from our catalog.
+func (m *Manager) addSettingsItem(sub *application.Menu) {
+	sub.AddSeparator()
+	sub.Add(resolveText(labelSettings, m.localizer)).
 		SetAccelerator("Ctrl+,").
 		OnClick(func(_ *application.Context) {
 			m.emit(EventSettingsOpen, nil)

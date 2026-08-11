@@ -8,7 +8,8 @@
 package shortcuts
 
 import (
-	"github.com/jrschumacher/wails-kit/events"
+	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 )
 
 // Event names emitted by the shortcuts manager.
@@ -25,6 +26,7 @@ type Option func(*Manager)
 // to set the menu on the Wails app.
 type Manager struct {
 	emitter    *events.Emitter
+	localizer  *i18n.Localizer
 	appMenu    bool
 	editMenu   bool
 	viewMenu   bool
@@ -37,6 +39,16 @@ type Manager struct {
 // such as EventSettingsOpen.
 func WithEmitter(e *events.Emitter) Option {
 	return func(m *Manager) { m.emitter = e }
+}
+
+// WithLocalizer sets the localizer used to resolve app-specific menu item
+// labels (currently just Settings; standard roles like About/Services/
+// Hide/Quit render whatever label the OS itself supplies and are never
+// passed through a localizer — see labels.go). A Manager built without
+// WithLocalizer resolves those labels to their literal English fallback
+// (i18n.Text.Other), identical to pre-WP-31 behavior.
+func WithLocalizer(l *i18n.Localizer) Option {
+	return func(m *Manager) { m.localizer = l }
 }
 
 // WithAppMenu enables the application menu. On macOS this includes About,

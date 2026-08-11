@@ -1,0 +1,45 @@
+version: '3'
+
+vars:
+  APP_NAME: "{{.BinaryName}}"
+  BIN_DIR: "bin"
+  PACKAGE_MANAGER: '{{.Opn}}.PACKAGE_MANAGER | default "npm"{{.Cls}}'
+  VITE_PORT: '{{.Opn}}.WAILS_VITE_PORT | default 9245{{.Cls}}'
+  # Target OS for build/package/run. Defaults to the host OS, and is
+  # overridden by `wails3 build GOOS=...` (or the GOOS env var) for
+  # cross-compilation.
+  GOOS: '{{.Opn}}.GOOS | default OS{{.Cls}}'
+
+includes:
+  # Wails-generated platform Taskfiles (regenerate via `wails3 generate
+  # build-assets` if you ever need to refresh them).
+  common: ./build/Taskfile.yml
+  darwin: ./build/darwin/Taskfile.yml
+  linux: ./build/linux/Taskfile.yml
+  windows: ./build/windows/Taskfile.yml
+
+  # wails-kit's shared build-sign-archive-upload release workflow — see
+  # taskfiles/release.yml's header comment and .wails-kit.yml.
+  release:
+    taskfile: ./taskfiles/release.yml
+
+tasks:
+  build:
+    summary: Builds the application
+    cmds:
+      - task: "{{.Opn}}.GOOS{{.Cls}}:build"
+
+  package:
+    summary: Packages a production build of the application
+    cmds:
+      - task: "{{.Opn}}.GOOS{{.Cls}}:package"
+
+  run:
+    summary: Runs the application
+    cmds:
+      - task: "{{.Opn}}.GOOS{{.Cls}}:run"
+
+  dev:
+    summary: Runs the application in development mode
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.Opn}}.VITE_PORT{{.Cls}}

@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://v3.wails.io/schemas/template.v3.json
+#
+# Consumed by the wails3 CLI (internal/templates) when a user runs
+# `wails3 init -t <path-to-this-dir>`. See ../AGENTS.md before editing
+# anything in this directory — every file here is copied byte-for-byte (or
+# run through Go's text/template if its name contains ".tmpl") into every
+# app generated from this template.
+name: "wails-kit"
+shortname: wails-kit
+author: jrschumacher
+description: "wails-kit v2 starter: kit.New + wailsbridge composition root, vanilla TS + Vite frontend with settings/health/appearance/updates already wired in"
+helpurl: https://github.com/jrschumacher/wails-kit
+version: v2.0.0
+wailsVersion: 3
+typescript: true

@@ -5,7 +5,7 @@ OS-standard application directory paths for config, data, cache, log, and temp c
 ## Usage
 
 ```go
-import "github.com/jrschumacher/wails-kit/appdirs"
+import "github.com/jrschumacher/wails-kit/v2/appdirs"
 
 dirs := appdirs.New("my-app")
 

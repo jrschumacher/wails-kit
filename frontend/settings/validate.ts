@@ -1,5 +1,5 @@
 import type { Field, Schema, SelectOption } from "@wails-kit/types";
-import { conditionMet } from "./conditions";
+import { conditionMet } from "./conditions.js";
 
 /** Validation error codes matching settings/validate.go constants. */
 export const CodeRequired = "required" as const;
@@ -42,7 +42,8 @@ export function validate(
       if (
         !field.validation &&
         field.type !== "select" &&
-        field.type !== "toggle"
+        field.type !== "toggle" &&
+        field.type !== "password"
       ) {
         continue;
       }
@@ -88,6 +89,20 @@ function validateField(
       errs.push({
         field: field.key,
         message: `${field.label} must be true or false`,
+        code: CodeInvalidType,
+      });
+    }
+  }
+
+  // Password type validation: must be a string if provided. Mirrors
+  // settings/validate.go's defect fix (WP-03 #3) — a non-string value here
+  // must be rejected rather than silently coerced, since the backend
+  // treats a coerced "" as "clear the secret".
+  if (field.type === "password" && val != null) {
+    if (typeof val !== "string") {
+      errs.push({
+        field: field.key,
+        message: `${field.label} must be a string`,
         code: CodeInvalidType,
       });
     }

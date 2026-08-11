@@ -7,7 +7,7 @@ export type {
   Field,
   Group,
   Schema,
-} from "./settings";
+} from "./settings.js";
 
 export {
   SettingsChanged,
@@ -15,7 +15,17 @@ export {
   UpdateDownloading,
   UpdateReady,
   UpdateError,
-} from "./events";
+  UpdateManaged,
+  HealthChanged,
+  AppearanceChanged,
+  I18nChanged,
+  PermissionsChanged,
+  FirstrunTransition,
+  WindowstateRestored,
+  WindowstateError,
+  DiagnosticsBundleCreated,
+  DiagnosticsBundleSubmitted,
+} from "./events.js";
 
 export type {
   SettingsChangedPayload,
@@ -23,7 +33,50 @@ export type {
   UpdateDownloadingPayload,
   UpdateReadyPayload,
   UpdateErrorPayload,
+  UpdateManagedPayload,
+  InstallMethod,
   EventMap,
-} from "./events";
+} from "./events.js";
 
-export type { ErrorCode, UserError } from "./errors";
+export type { ErrorCode, UserError } from "./errors.js";
+
+export type {
+  HealthClass,
+  HealthState,
+  CheckStatus,
+  Snapshot,
+  HealthChangedPayload,
+} from "./health.js";
+
+export type {
+  AppearanceMode,
+  Theme,
+  AppearanceChangedPayload,
+} from "./appearance.js";
+
+export type {
+  CatalogPluralEntry,
+  CatalogEntry,
+  Catalog,
+  I18nChangedPayload,
+} from "./i18n.js";
+
+export type {
+  PermissionKind,
+  PermissionStatus,
+  PermissionsChangedPayload,
+} from "./permissions.js";
+
+export type { FirstrunKind, FirstrunTransitionPayload } from "./firstrun.js";
+
+export type {
+  Geometry,
+  WindowstateRestoredPayload,
+  WindowstateErrorPayload,
+} from "./windowstate.js";
+
+export type {
+  SystemInfo,
+  DiagnosticsBundleCreatedPayload,
+  DiagnosticsBundleSubmittedPayload,
+} from "./diagnostics.js";

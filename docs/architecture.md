@@ -159,16 +159,16 @@ svc := settings.NewService(
 
 The settings service owns persistence and validation. Packages read values from settings at call time rather than caching them, so changes take effect immediately.
 
-## Split module publishing
+## Module structure
 
-Development uses a single `go.mod` monorepo. On release, a CI pipeline publishes per-package Go modules to [`jrschumacher/wails-kit-pub`](https://github.com/jrschumacher/wails-kit-pub) with vanity import paths:
+The repo is a single Go module, `github.com/jrschumacher/wails-kit/v2`, with a committed
+`go.work` at the root for local development.
 
-```go
-import "abnl.dev/wails-kit/appdirs"    // only pulls appdirs — no SQLite, no SDKs
-import "abnl.dev/wails-kit/database"   // pulls goose + sqlite, nothing else
-```
-
-Each package gets its own `go.mod` with only its direct dependencies, tagged as `{pkg}/v{version}` (e.g., `appdirs/v1.2.0`). The publish pipeline is defined in `.github/scripts/publish-split-modules.sh`. Packages and their dependencies are auto-detected from the source code at publish time — `split-modules.json` only contains the vanity domain and pub repo config.
+Per-package split publishing to vanity import paths was removed in v2: Go's module
+pruning already keeps unimported packages' dependencies out of consumer builds, so the
+scheme bought nothing it claimed to. The one dependency heavy enough to matter
+(`any-llm-go` and its transitive SDK set) is isolated in a nested module at
+`settings/templates/anyllm` instead, so apps that don't import it never pay for it.
 
 ## Adding a new package
 
@@ -181,4 +181,4 @@ When adding a new package to wails-kit:
 5. **Update the root README** with a summary section linking to the package README
 6. **Update this architecture doc** with the new package's position in the dependency graph
 7. **Add the package name as a conventional commit scope** in `.github/workflows/ci.yml` and `CLAUDE.md`
-8. **No config needed for split modules** — packages and deps are auto-detected at publish time
+8. **Respect the Wails-import policy** — only `shortcuts`, `windowstate`, `permissions`, and `kit/wailsbridge` may import `github.com/wailsapp/wails/v3`; CI enforces this

@@ -1,0 +1,9 @@
+{
+  "wailskit.settingscli.value.not_set": "(not set)",
+  "wailskit.settingscli.errors.unknown_setting": "unknown setting",
+  "wailskit.settingscli.errors.loading_values": "loading values",
+  "wailskit.settingscli.errors.cannot_set_computed": "cannot set computed field",
+  "wailskit.settingscli.errors.invalid_toggle": "invalid toggle value: %s (use true/false)",
+  "wailskit.settingscli.errors.invalid_number": "invalid number: %s",
+  "wailskit.settingscli.errors.validation_failed": "validation failed"
+}

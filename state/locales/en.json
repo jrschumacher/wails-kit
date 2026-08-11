@@ -1,0 +1,5 @@
+{
+  "wailskit.state.errors.load": "Failed to load application state. Please try again.",
+  "wailskit.state.errors.save": "Failed to save application state. Please try again.",
+  "wailskit.state.errors.config": "State store is misconfigured. Please contact support."
+}

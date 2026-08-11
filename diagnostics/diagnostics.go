@@ -16,24 +16,29 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jrschumacher/wails-kit/appdirs"
-	"github.com/jrschumacher/wails-kit/errors"
-	"github.com/jrschumacher/wails-kit/events"
-	"github.com/jrschumacher/wails-kit/settings"
+	"github.com/jrschumacher/wails-kit/v2/appdirs"
+	"github.com/jrschumacher/wails-kit/v2/errors"
+	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/firstrun"
+	"github.com/jrschumacher/wails-kit/v2/health"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
+	"github.com/jrschumacher/wails-kit/v2/settings"
 )
 
 // Error codes.
 const (
-	ErrBundleCreate errors.Code = "diagnostics_bundle"
-	ErrBundleLogs   errors.Code = "diagnostics_logs"
-	ErrBundleSubmit errors.Code = "diagnostics_submit"
+	ErrBundleCreate    errors.Code = "diagnostics_bundle"
+	ErrBundleLogs      errors.Code = "diagnostics_logs"
+	ErrBundleSubmit    errors.Code = "diagnostics_submit"
+	ErrConsentRequired errors.Code = "diagnostics_consent_required"
 )
 
 func init() {
-	errors.RegisterMessages(map[errors.Code]string{
-		ErrBundleCreate: "Failed to create the diagnostics bundle. Please try again.",
-		ErrBundleLogs:   "Failed to collect log files for the diagnostics bundle.",
-		ErrBundleSubmit: "Failed to submit the diagnostics bundle. Please try again.",
+	errors.RegisterMessages(map[errors.Code]i18n.Text{
+		ErrBundleCreate:    i18n.T("wailskit.diagnostics.errors.bundle_create", "Failed to create the diagnostics bundle. Please try again."),
+		ErrBundleLogs:      i18n.T("wailskit.diagnostics.errors.bundle_logs", "Failed to collect log files for the diagnostics bundle."),
+		ErrBundleSubmit:    i18n.T("wailskit.diagnostics.errors.bundle_submit", "Failed to submit the diagnostics bundle. Please try again."),
+		ErrConsentRequired: i18n.T("wailskit.diagnostics.errors.consent_required", "Diagnostics submission requires your consent. Enable it in Settings before sharing a bundle."),
 	})
 }
 
@@ -72,18 +77,20 @@ type SystemInfo struct {
 
 // Service creates diagnostics bundles from application state.
 type Service struct {
-	appName    string
-	appVersion string
-	logDir     string
-	dirs       *appdirs.Dirs
-	settings   *settings.Service
-	emitter    *events.Emitter
-	maxLogSize       int64 // bytes; total cap for log files in bundle
-	collectors       map[string]CollectorFunc
-	webhookToken     string
-	webhookTimeout   time.Duration
+	appName           string
+	appVersion        string
+	logDir            string
+	dirs              *appdirs.Dirs
+	settings          *settings.Service
+	health            *health.Registry
+	firstrun          *firstrun.Service
+	emitter           *events.Emitter
+	maxLogSize        int64 // bytes; total cap for log files in bundle
+	collectors        map[string]CollectorFunc
+	webhookToken      string
+	webhookTimeout    time.Duration
 	webhookMaxRetries int
-	httpClient       *http.Client
+	httpClient        *http.Client
 }
 
 // ServiceOption configures a Service.
@@ -196,7 +203,11 @@ func (s *Service) CreateBundle(ctx context.Context, outputDir string) (string, e
 		return "", errors.Wrap(ErrBundleCreate, "create output directory", err)
 	}
 
-	f, err := os.Create(outputPath)
+	// 0600, not the 0644 os.Create would give: the output directory is 0700,
+	// but users are told the bundle path and will move the file out of it
+	// (e.g. into Downloads) or attach it somewhere, at which point the
+	// directory's protection no longer applies.
+	f, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return "", errors.Wrap(ErrBundleCreate, "create bundle file", err)
 	}
@@ -221,7 +232,24 @@ func (s *Service) CreateBundle(ctx context.Context, outputDir string) (string, e
 		manifest = append(manifest, "settings.json")
 	}
 
-	// 3. Log files
+	// 3. Health snapshot (present only when WithHealth was given; Err text
+	// is omitted — see WithHealth's doc comment).
+	if s.health != nil {
+		if err := s.writeHealth(zw); err != nil {
+			return "", err
+		}
+		manifest = append(manifest, "health.json")
+	}
+
+	// 4. First-run transition info (present only when WithFirstRun was given).
+	if s.firstrun != nil {
+		if err := s.writeFirstRun(zw); err != nil {
+			return "", err
+		}
+		manifest = append(manifest, "firstrun.json")
+	}
+
+	// 5. Log files
 	if s.logDir != "" {
 		logFiles, err := s.writeLogs(zw)
 		if err != nil {
@@ -232,13 +260,13 @@ func (s *Service) CreateBundle(ctx context.Context, outputDir string) (string, e
 		}
 	}
 
-	// 4. Custom collectors
+	// 6. Custom collectors
 	if len(s.collectors) > 0 {
 		collectorFiles := s.writeCollectors(ctx, zw)
 		manifest = append(manifest, collectorFiles...)
 	}
 
-	// 5. Manifest
+	// 7. Manifest
 	if err := writeManifest(zw, manifest); err != nil {
 		return "", errors.Wrap(ErrBundleCreate, "write manifest", err)
 	}
@@ -332,7 +360,7 @@ func (s *Service) writeSettings(zw *zip.Writer) error {
 }
 
 // sanitizeSettings replaces password field values with "[REDACTED]".
-func sanitizeSettings(schema settings.Schema, values map[string]any) map[string]any {
+func sanitizeSettings(schema settings.ResolvedSchema, values map[string]any) map[string]any {
 	passwordKeys := make(map[string]bool)
 	for _, group := range schema.Groups {
 		for _, field := range group.Fields {

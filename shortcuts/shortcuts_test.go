@@ -3,8 +3,26 @@ package shortcuts
 import (
 	"testing"
 
-	"github.com/jrschumacher/wails-kit/events"
+	"github.com/jrschumacher/wails-kit/v2/events"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
 )
+
+func TestWithLocalizer(t *testing.T) {
+	loc, err := i18n.New()
+	if err != nil {
+		t.Fatalf("i18n.New: %v", err)
+	}
+	m := New(WithLocalizer(loc))
+	if m.localizer != loc {
+		t.Fatal("expected localizer to be set")
+	}
+}
+
+func TestResolveTextNilLocalizerFallsBackToOther(t *testing.T) {
+	if got := resolveText(labelSettings, nil); got != labelSettings.Other {
+		t.Errorf("resolveText with nil localizer = %q, want %q", got, labelSettings.Other)
+	}
+}
 
 func TestNew(t *testing.T) {
 	m := New()
@@ -72,8 +90,8 @@ func TestEmitWithEmitter(t *testing.T) {
 
 func TestIndividualOptions(t *testing.T) {
 	tests := []struct {
-		name string
-		opt  Option
+		name  string
+		opt   Option
 		check func(*Manager) bool
 	}{
 		{"AppMenu", WithAppMenu(), func(m *Manager) bool { return m.appMenu }},

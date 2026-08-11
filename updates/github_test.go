@@ -289,3 +289,140 @@ func TestBuildCandidateNamesNoPattern(t *testing.T) {
 		t.Error("missing linux_x86_64")
 	}
 }
+
+// TestDownloadAssetRejectsOversizedResponse is the regression test for the
+// missing download size cap: a compromised or malicious feed that streams
+// more bytes than the release metadata declared must be cut off rather than
+// buffered to EOF, which would let it fill the disk before signature
+// verification ever runs.
+func TestDownloadAssetRejectsOversizedResponse(t *testing.T) {
+	// The server ignores the declared size and just keeps writing.
+	oversized := bytes.Repeat([]byte("x"), 1024)
+	srv := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(oversized)
+	})
+	defer srv.Close()
+
+	g := &GitHubSource{apiURL: srv.URL}
+	asset := &Asset{
+		Name:               "app",
+		Size:               100, // much smaller than what the server actually sends
+		BrowserDownloadURL: srv.URL + "/download",
+	}
+
+	var buf bytes.Buffer
+	err := g.DownloadAsset(context.Background(), asset, &buf, nil)
+	if err == nil {
+		t.Fatal("expected error when the response exceeds the declared asset size")
+	}
+	if buf.Len() > int(asset.Size)+1 {
+		t.Errorf("wrote %d bytes to dest, expected at most %d (size cap + 1 to detect overflow)", buf.Len(), asset.Size+1)
+	}
+}
+
+func TestDownloadAssetAcceptsExactDeclaredSize(t *testing.T) {
+	content := bytes.Repeat([]byte("y"), 256)
+	srv := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(content)
+	})
+	defer srv.Close()
+
+	g := &GitHubSource{apiURL: srv.URL}
+	asset := &Asset{
+		Name:               "app",
+		Size:               int64(len(content)),
+		BrowserDownloadURL: srv.URL + "/download",
+	}
+
+	var buf bytes.Buffer
+	if err := g.DownloadAsset(context.Background(), asset, &buf, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !bytes.Equal(buf.Bytes(), content) {
+		t.Error("content mismatch for a download exactly matching the declared size")
+	}
+}
+
+// TestDownloadAssetPrefersAPIURLForPrivateRepos confirms the fix for the
+// suspected private-repo bug: browser_download_url requires a browser
+// session and 404s for API/token-authenticated requests against a private
+// repo, so DownloadAsset must use the API asset endpoint (Asset.URL) with
+// an "Accept: application/octet-stream" header and the configured token
+// whenever the release metadata provides it.
+func TestDownloadAssetPrefersAPIURLForPrivateRepos(t *testing.T) {
+	content := []byte("private-repo-binary")
+	var hitAPIEndpoint, hitBrowserURL bool
+
+	srv := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/repo/releases/assets/12345":
+			hitAPIEndpoint = true
+			if got := r.Header.Get("Accept"); got != "application/octet-stream" {
+				t.Errorf("missing/wrong Accept header on API asset endpoint: %q", got)
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer priv-token" {
+				t.Errorf("missing/wrong Authorization header on API asset endpoint: %q", got)
+			}
+			_, _ = w.Write(content)
+		case "/download/should-not-be-used":
+			hitBrowserURL = true
+			http.NotFound(w, r) // simulates the real-world 404 for private repos
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	defer srv.Close()
+
+	g := &GitHubSource{apiURL: srv.URL, token: "priv-token"}
+	asset := &Asset{
+		Name:               "app",
+		Size:               int64(len(content)),
+		BrowserDownloadURL: srv.URL + "/download/should-not-be-used",
+		URL:                srv.URL + "/repos/owner/repo/releases/assets/12345",
+	}
+
+	var buf bytes.Buffer
+	if err := g.DownloadAsset(context.Background(), asset, &buf, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !bytes.Equal(buf.Bytes(), content) {
+		t.Error("content mismatch")
+	}
+	if !hitAPIEndpoint {
+		t.Error("expected DownloadAsset to use the API asset endpoint (Asset.URL)")
+	}
+	if hitBrowserURL {
+		t.Error("expected DownloadAsset not to fall back to BrowserDownloadURL when Asset.URL is set")
+	}
+}
+
+// TestDownloadAssetFallsBackToBrowserURLWhenAPIURLUnset covers
+// hand-constructed Asset values (as used throughout the rest of this test
+// suite, and plausible for a custom Source implementation) that never set
+// URL — DownloadAsset must still work against BrowserDownloadURL alone.
+func TestDownloadAssetFallsBackToBrowserURLWhenAPIURLUnset(t *testing.T) {
+	content := []byte("public-repo-binary")
+	srv := newTestServer(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/download" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(content)
+	})
+	defer srv.Close()
+
+	g := &GitHubSource{apiURL: srv.URL}
+	asset := &Asset{
+		Name:               "app",
+		Size:               int64(len(content)),
+		BrowserDownloadURL: srv.URL + "/download",
+	}
+
+	var buf bytes.Buffer
+	if err := g.DownloadAsset(context.Background(), asset, &buf, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !bytes.Equal(buf.Bytes(), content) {
+		t.Error("content mismatch")
+	}
+}

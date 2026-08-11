@@ -1,0 +1,23 @@
+{
+  "name": "{{.BinaryName}}-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build --mode production",
+    "build:dev": "vite build --minify false --mode development",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@wailsio/runtime": "3.0.0-beta.1",
+    "@wails-kit/types": "^2.0.0",
+    "@wails-kit/settings": "^2.0.0",
+    "@wails-kit/i18n": "^2.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}

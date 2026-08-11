@@ -1,0 +1,101 @@
+// Command {{.BinaryName}} is a Wails v3 desktop app built on wails-kit:
+// kit.New wires the app-agnostic spine (settings, appearance, health,
+// updates, diagnostics, i18n, keyring); wailsbridge.Attach connects it to a
+// real *application.App (events, appearance, the application menu, and the
+// frontend-safe settings/health/updates bindings); wailsbridge.ManageWindow
+// adds window-geometry persistence and background-colour sync for this
+// window. See https://github.com/jrschumacher/wails-kit for what each piece
+// does and how to extend it (add your own settings.Group via
+// kit.WithSettingsGroup, your own health.Check via kit.WithHealthCheck, ...).
+package main
+
+import (
+	"context"
+	"embed"
+	"io/fs"
+	"log"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"github.com/jrschumacher/wails-kit/v2/kit"
+	"github.com/jrschumacher/wails-kit/v2/kit/wailsbridge"
+)
+
+// The "all:" prefix is required: without it, Vite's dot/underscore-prefixed
+// build output is silently excluded from the embed and the app ships with a
+// missing frontend in production — go build gives no error, `wails3 dev`
+// masks it because dev mode doesn't use this embed at all.
+//
+//go:embed all:frontend/dist
+var assets embed.FS
+
+func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
+	k, err := kit.New(kit.AppInfo{
+		Name:    "{{.BinaryName}}",
+		ID:      "{{.ProductIdentifier}}",
+		Version: "{{.ProductVersion}}",
+	},
+	// Uncomment to enable auto-updates against GitHub releases (see
+	// updates/README.md for the required release-asset naming and
+	// minisign signing convention before shipping this to real users):
+	// kit.WithGitHubRepo("your-org", "your-repo"),
+	)
+	if err != nil {
+		if comp, ok := kit.GetComponent(err); ok {
+			log.Fatalf("kit.New: component %q failed: %v", comp, err)
+		}
+		return err
+	}
+
+	frontendFS, err := fs.Sub(assets, "frontend/dist")
+	if err != nil {
+		return err
+	}
+
+	app := application.New(application.Options{
+		Name: "{{.ProductName}}",
+		Assets: application.AssetOptions{
+			Handler: application.BundledAssetFileServer(frontendFS),
+		},
+	})
+
+	// Wires events, the live OS theme source, the application menu (incl. a
+	// Settings… item — see shortcuts/README.md), and the settings/health/
+	// updates/diagnostics/permissions bindings the frontend calls into.
+	if err := wailsbridge.Attach(k, app); err != nil {
+		return err
+	}
+
+	win := app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:  "{{.ProductName}}",
+		Width:  1024,
+		Height: 768,
+		// Corrected immediately by ManageWindow to appearance.Resolved();
+		// this is only what's visible for the first frame before that runs.
+		BackgroundColour: application.NewRGB(255, 255, 255),
+	})
+
+	// Restores saved geometry (clamped to an attached display) and keeps the
+	// window background in sync with the resolved theme from here on.
+	if err := wailsbridge.ManageWindow(k, app, win); err != nil {
+		return err
+	}
+
+	if err := k.Start(context.Background()); err != nil {
+		return err
+	}
+	defer func() {
+		if err := k.Close(); err != nil {
+			log.Printf("k.Close: %v", err)
+		}
+	}()
+
+	win.Show()
+	return app.Run()
+}

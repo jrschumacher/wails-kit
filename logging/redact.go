@@ -59,14 +59,28 @@ func (h *RedactingHandler) WithGroup(name string) slog.Handler {
 }
 
 func (h *RedactingHandler) redactAttr(a slog.Attr) slog.Attr {
+	// Resolve the value to get the actual underlying value, avoiding
+	// slog's quoting behavior on Value.String() and unwrapping LogValuer
+	// implementations before inspecting the kind.
+	resolved := a.Value.Resolve()
+
+	// Groups (slog.Group("session", "token", tok)) are a normal slog idiom.
+	// Recurse into their members so redaction applies at any nesting depth;
+	// otherwise an attr placed inside a group silently bypasses redaction
+	// because only the group's own key ("session") is visible to the caller,
+	// never the member keys ("token").
+	if resolved.Kind() == slog.KindGroup {
+		members := resolved.Group()
+		redacted := make([]slog.Attr, len(members))
+		for i, m := range members {
+			redacted[i] = h.redactAttr(m)
+		}
+		return slog.Attr{Key: a.Key, Value: slog.GroupValue(redacted...)}
+	}
+
 	if h.sensitiveKeys[a.Key] {
-		// Resolve the value to get the actual underlying value, avoiding
-		// slog's quoting behavior on Value.String().
-		resolved := a.Value.Resolve()
-		if resolved.Kind() == slog.KindString {
-			if resolved.String() == "" {
-				return a
-			}
+		if resolved.Kind() == slog.KindString && resolved.String() == "" {
+			return a
 		}
 		// Use a fixed redaction marker that does not leak secret length.
 		return slog.String(a.Key, "[REDACTED]")

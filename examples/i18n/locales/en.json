@@ -1,0 +1,7 @@
+{
+  "myapp.example.greeting": "Hello, %s!",
+  "myapp.example.file_count": {
+    "one": "%d file",
+    "other": "%d files"
+  }
+}

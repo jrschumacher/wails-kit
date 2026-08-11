@@ -6,8 +6,8 @@ Package `shortcuts` builds native application menus with standard keyboard short
 
 ```go
 import (
-    "github.com/jrschumacher/wails-kit/events"
-    "github.com/jrschumacher/wails-kit/shortcuts"
+    "github.com/jrschumacher/wails-kit/v2/events"
+    "github.com/jrschumacher/wails-kit/v2/shortcuts"
     "github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -21,9 +21,16 @@ mgr := shortcuts.New(
     shortcuts.WithDefaults(),   // App, File, Edit, View, Window menus
     shortcuts.WithSettings(),   // ⌘, / Ctrl+, → emits "settings:open"
     shortcuts.WithEmitter(emitter),
+    shortcuts.WithLocalizer(localizer), // optional — see Localization below
 )
 mgr.Apply(app)
 ```
+
+A `kit/wailsbridge.Attach` call builds and applies a `Manager` for you
+(wired to the same `*kit.Kit`'s emitter and localizer) unless you pass
+`wailsbridge.WithShortcuts` with your own pre-built `Manager` or
+`wailsbridge.WithoutMenu()` to skip menu wiring entirely — see that
+package's README.
 
 ## Options
 
@@ -37,6 +44,7 @@ mgr.Apply(app)
 | `WithWindowMenu()` | Window menu (Minimize, Zoom) |
 | `WithSettings()` | Settings shortcut (⌘, / Ctrl+,) |
 | `WithEmitter(e)` | Event emitter for shortcut events |
+| `WithLocalizer(l)` | Localizer for app-specific item labels (Settings only — see Localization) |
 
 ## Platform behavior
 
@@ -57,6 +65,32 @@ mgr.Apply(app)
 | Event | Trigger | Payload |
 |---|---|---|
 | `settings:open` | Settings shortcut activated | `nil` |
+
+## Localization
+
+Only the Settings item's label is ours to translate. Every other label in
+the menus this package builds comes from `application.Menu.AddRole`, which
+renders whatever localized text the OS itself supplies for that role
+(About, Services, Hide, Quit, Edit's individual Undo/Redo/Cut/Copy/Paste/
+Delete/Select All entries, ...) — passing those through our own catalog
+would replace a correctly-localized native label with a worse one, so
+`WithLocalizer` deliberately never touches them.
+
+Wire a localizer to translate "Settings…" / "Settings":
+
+```go
+mgr := shortcuts.New(
+    shortcuts.WithSettings(),
+    shortcuts.WithLocalizer(localizer), // *i18n.Localizer
+)
+```
+
+Without `WithLocalizer`, labels resolve to their literal English fallback —
+identical to pre-WP-31 behavior, so existing `FindByLabel("Settings…")`-
+style lookups in your own tests keep working unless you wire a localizer.
+The catalog keys are `wailskit.shortcuts.settings.label` (non-macOS) and
+`wailskit.shortcuts.settings.label_darwin` (macOS, with the HIG-standard
+trailing ellipsis) — see `locales/en.json`.
 
 ## Pairing with settings
 

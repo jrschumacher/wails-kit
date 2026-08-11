@@ -1,0 +1,48 @@
+{
+  "name": "@wails-kit/i18n",
+  "version": "2.0.0",
+  "description": "Headless TypeScript client for wails-kit's i18n bridge: catalog consumption, CLDR plural resolution via Intl.PluralRules, and an i18n:changed refetch helper.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./index.ts",
+  "exports": {
+    ".": {
+      "types": "./index.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "*.ts",
+    "!*.test.ts"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jrschumacher/wails-kit.git",
+    "directory": "frontend/i18n"
+  },
+  "homepage": "https://github.com/jrschumacher/wails-kit/tree/main/frontend/i18n#readme",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^3.0.0"
+  },
+  "dependencies": {
+    "@wails-kit/types": "file:../types"
+  }
+}

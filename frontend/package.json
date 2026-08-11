@@ -1,4 +1,10 @@
 {
+  "private": true,
+  "workspaces": [
+    "types",
+    "settings",
+    "i18n"
+  ],
   "devDependencies": {
     "typescript": "^5.9.3"
   }

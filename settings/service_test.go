@@ -1,11 +1,17 @@
 package settings
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
-	"github.com/jrschumacher/wails-kit/keyring"
+	"github.com/jrschumacher/wails-kit/v2/i18n"
+	"github.com/jrschumacher/wails-kit/v2/keyring"
 )
 
 func TestNewService_WithAppName(t *testing.T) {
@@ -28,9 +34,9 @@ func TestNewService_WithStoragePath(t *testing.T) {
 		WithStoragePath(path),
 		WithGroup(Group{
 			Key:   "general",
-			Label: "General",
+			Label: i18n.Text{Other: "General"},
 			Fields: []Field{
-				{Key: "name", Type: FieldText, Label: "Name", Default: "default"},
+				{Key: "name", Type: FieldText, Label: i18n.Text{Other: "Name"}, Default: "default"},
 			},
 		}),
 	)
@@ -79,10 +85,10 @@ func TestWithStoragePath_PasswordNeverInFile(t *testing.T) {
 		WithKeyring(secrets),
 		WithGroup(Group{
 			Key:   "auth",
-			Label: "Auth",
+			Label: i18n.Text{Other: "Auth"},
 			Fields: []Field{
-				{Key: "token", Type: FieldPassword, Label: "Token"},
-				{Key: "host", Type: FieldText, Label: "Host"},
+				{Key: "token", Type: FieldPassword, Label: i18n.Text{Other: "Token"}},
+				{Key: "host", Type: FieldText, Label: i18n.Text{Other: "Host"}},
 			},
 		}),
 	)
@@ -116,11 +122,11 @@ func TestNewService_RegistersDefaults(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "general",
-			Label: "General",
+			Label: i18n.Text{Other: "General"},
 			Fields: []Field{
-				{Key: "theme", Type: FieldSelect, Label: "Theme", Default: "dark"},
-				{Key: "lang", Type: FieldSelect, Label: "Language", Default: "en"},
-				{Key: "notes", Type: FieldText, Label: "Notes"},
+				{Key: "theme", Type: FieldSelect, Label: i18n.Text{Other: "Theme"}, Default: "dark"},
+				{Key: "lang", Type: FieldSelect, Label: i18n.Text{Other: "Language"}, Default: "en"},
+				{Key: "notes", Type: FieldText, Label: i18n.Text{Other: "Notes"}},
 			},
 		}),
 	)
@@ -141,8 +147,8 @@ func TestNewService_RegistersDefaults(t *testing.T) {
 }
 
 func TestGetSchema_ReturnsAllGroups(t *testing.T) {
-	g1 := Group{Key: "g1", Label: "Group 1", Fields: []Field{{Key: "f1", Type: FieldText, Label: "F1"}}}
-	g2 := Group{Key: "g2", Label: "Group 2", Fields: []Field{{Key: "f2", Type: FieldToggle, Label: "F2"}}}
+	g1 := Group{Key: "g1", Label: i18n.Text{Other: "Group 1"}, Fields: []Field{{Key: "f1", Type: FieldText, Label: i18n.Text{Other: "F1"}}}}
+	g2 := Group{Key: "g2", Label: i18n.Text{Other: "Group 2"}, Fields: []Field{{Key: "f2", Type: FieldToggle, Label: i18n.Text{Other: "F2"}}}}
 
 	svc := NewService(WithGroup(g1), WithGroup(g2))
 	schema := svc.GetSchema()
@@ -166,11 +172,11 @@ func TestGetValues_AppliesComputeFuncs(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "info",
-			Label: "Info",
+			Label: i18n.Text{Other: "Info"},
 			Fields: []Field{
-				{Key: "first", Type: FieldText, Label: "First", Default: "John"},
-				{Key: "last", Type: FieldText, Label: "Last", Default: "Doe"},
-				{Key: "full_name", Type: FieldComputed, Label: "Full Name"},
+				{Key: "first", Type: FieldText, Label: i18n.Text{Other: "First"}, Default: "John"},
+				{Key: "last", Type: FieldText, Label: i18n.Text{Other: "Last"}, Default: "Doe"},
+				{Key: "full_name", Type: FieldComputed, Label: i18n.Text{Other: "Full Name"}},
 			},
 			ComputeFuncs: map[string]ComputeFunc{
 				"full_name": func(values map[string]any) any {
@@ -199,9 +205,9 @@ func TestSetValues_ValidatesAndSaves(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "config",
-			Label: "Config",
+			Label: i18n.Text{Other: "Config"},
 			Fields: []Field{
-				{Key: "name", Type: FieldText, Label: "Name", Validation: &Validation{Required: true}},
+				{Key: "name", Type: FieldText, Label: i18n.Text{Other: "Name"}, Validation: &Validation{Required: true}},
 			},
 		}),
 	)
@@ -233,9 +239,9 @@ func TestSetValues_ReturnsValidationErrors(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "config",
-			Label: "Config",
+			Label: i18n.Text{Other: "Config"},
 			Fields: []Field{
-				{Key: "name", Type: FieldText, Label: "Name", Validation: &Validation{Required: true}},
+				{Key: "name", Type: FieldText, Label: i18n.Text{Other: "Name"}, Validation: &Validation{Required: true}},
 			},
 		}),
 	)
@@ -265,10 +271,10 @@ func TestSetValues_StripsComputedFields(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "info",
-			Label: "Info",
+			Label: i18n.Text{Other: "Info"},
 			Fields: []Field{
-				{Key: "first", Type: FieldText, Label: "First"},
-				{Key: "display", Type: FieldComputed, Label: "Display"},
+				{Key: "first", Type: FieldText, Label: i18n.Text{Other: "First"}},
+				{Key: "display", Type: FieldComputed, Label: i18n.Text{Other: "Display"}},
 			},
 			ComputeFuncs: map[string]ComputeFunc{
 				"display": func(values map[string]any) any {
@@ -308,9 +314,9 @@ func TestWithOnChange_CalledAfterSave(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "config",
-			Label: "Config",
+			Label: i18n.Text{Other: "Config"},
 			Fields: []Field{
-				{Key: "key", Type: FieldText, Label: "Key"},
+				{Key: "key", Type: FieldText, Label: i18n.Text{Other: "Key"}},
 			},
 		}),
 		WithOnChange(func(values map[string]any) {
@@ -341,9 +347,9 @@ func TestWithOnChange_NotCalledOnValidationFailure(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "config",
-			Label: "Config",
+			Label: i18n.Text{Other: "Config"},
 			Fields: []Field{
-				{Key: "name", Type: FieldText, Label: "Name", Validation: &Validation{Required: true}},
+				{Key: "name", Type: FieldText, Label: i18n.Text{Other: "Name"}, Validation: &Validation{Required: true}},
 			},
 		}),
 		WithOnChange(func(values map[string]any) {
@@ -365,17 +371,17 @@ func TestMultipleGroups_Compose(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "appearance",
-			Label: "Appearance",
+			Label: i18n.Text{Other: "Appearance"},
 			Fields: []Field{
-				{Key: "theme", Type: FieldSelect, Label: "Theme", Default: "light"},
+				{Key: "theme", Type: FieldSelect, Label: i18n.Text{Other: "Theme"}, Default: "light"},
 			},
 		}),
 		WithGroup(Group{
 			Key:   "connection",
-			Label: "Connection",
+			Label: i18n.Text{Other: "Connection"},
 			Fields: []Field{
-				{Key: "url", Type: FieldText, Label: "URL", Default: "https://example.com"},
-				{Key: "timeout", Type: FieldNumber, Label: "Timeout", Default: float64(30)},
+				{Key: "url", Type: FieldText, Label: i18n.Text{Other: "URL"}, Default: "https://example.com"},
+				{Key: "timeout", Type: FieldNumber, Label: i18n.Text{Other: "Timeout"}, Default: float64(30)},
 			},
 		}),
 	)
@@ -433,10 +439,10 @@ func TestPasswordField_StoredInKeyring(t *testing.T) {
 		WithKeyring(secrets),
 		WithGroup(Group{
 			Key:   "auth",
-			Label: "Auth",
+			Label: i18n.Text{Other: "Auth"},
 			Fields: []Field{
-				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
-				{Key: "host", Type: FieldText, Label: "Host"},
+				{Key: "api_key", Type: FieldPassword, Label: i18n.Text{Other: "API Key"}},
+				{Key: "host", Type: FieldText, Label: i18n.Text{Other: "Host"}},
 			},
 		}),
 	)
@@ -478,9 +484,9 @@ func TestPasswordField_MaskedInGetValues(t *testing.T) {
 		WithKeyring(secrets),
 		WithGroup(Group{
 			Key:   "auth",
-			Label: "Auth",
+			Label: i18n.Text{Other: "Auth"},
 			Fields: []Field{
-				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+				{Key: "api_key", Type: FieldPassword, Label: i18n.Text{Other: "API Key"}},
 			},
 		}),
 	)
@@ -505,9 +511,9 @@ func TestPasswordField_MaskSentinelIsNoOp(t *testing.T) {
 		WithKeyring(secrets),
 		WithGroup(Group{
 			Key:   "auth",
-			Label: "Auth",
+			Label: i18n.Text{Other: "Auth"},
 			Fields: []Field{
-				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+				{Key: "api_key", Type: FieldPassword, Label: i18n.Text{Other: "API Key"}},
 			},
 		}),
 	)
@@ -535,9 +541,9 @@ func TestPasswordField_EmptyClearsSecret(t *testing.T) {
 		WithKeyring(secrets),
 		WithGroup(Group{
 			Key:   "auth",
-			Label: "Auth",
+			Label: i18n.Text{Other: "Auth"},
 			Fields: []Field{
-				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+				{Key: "api_key", Type: FieldPassword, Label: i18n.Text{Other: "API Key"}},
 			},
 		}),
 	)
@@ -561,9 +567,9 @@ func TestPasswordField_UnsetReturnsEmpty(t *testing.T) {
 		WithStorePath(path),
 		WithGroup(Group{
 			Key:   "auth",
-			Label: "Auth",
+			Label: i18n.Text{Other: "Auth"},
 			Fields: []Field{
-				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+				{Key: "api_key", Type: FieldPassword, Label: i18n.Text{Other: "API Key"}},
 			},
 		}),
 	)
@@ -584,9 +590,9 @@ func TestGetSecret_ReturnsActualValue(t *testing.T) {
 		WithKeyring(secrets),
 		WithGroup(Group{
 			Key:   "auth",
-			Label: "Auth",
+			Label: i18n.Text{Other: "Auth"},
 			Fields: []Field{
-				{Key: "api_key", Type: FieldPassword, Label: "API Key"},
+				{Key: "api_key", Type: FieldPassword, Label: i18n.Text{Other: "API Key"}},
 			},
 		}),
 	)
@@ -602,5 +608,496 @@ func TestGetSecret_ReturnsActualValue(t *testing.T) {
 	}
 	if val != "real-secret" {
 		t.Errorf("expected real-secret, got %s", val)
+	}
+}
+
+// --- Defect regression tests (WP-03) ---
+
+// TestValidateEffectiveState pins defect #2: validation must run against
+// effective state (defaults + persisted + submission), not the raw
+// submitted payload. Before the fix, omitting a condition's controlling
+// field from a partial update made conditionMet see "" and treat the
+// dependent field as hidden, skipping its validation even though the
+// field's real (persisted) controlling value would have required it.
+func TestValidateEffectiveState(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	secrets := keyring.NewMemoryStore()
+
+	svc := NewService(
+		WithStoragePath(path),
+		WithKeyring(secrets),
+		WithGroup(Group{
+			Key:   "llm",
+			Label: i18n.Text{Other: "LLM"},
+			Fields: []Field{
+				{
+					Key:   "provider",
+					Type:  FieldSelect,
+					Label: i18n.Text{Other: "Provider"},
+					Options: []SelectOption{
+						{Label: i18n.Text{Other: "OpenAI"}, Value: "openai"},
+						{Label: i18n.Text{Other: "Local"}, Value: "local"},
+					},
+				},
+				{
+					Key:        "api_key",
+					Type:       FieldPassword,
+					Label:      i18n.Text{Other: "API Key"},
+					Validation: &Validation{Required: true},
+					Condition:  &Condition{Field: "provider", Equals: []string{"openai"}},
+				},
+			},
+		}),
+	)
+
+	// Establish persisted state: provider=openai with a real api_key.
+	if _, err := svc.SetValues(map[string]any{"provider": "openai", "api_key": "sk-real"}); err != nil {
+		t.Fatalf("setup save error: %v", err)
+	}
+
+	// Submit an update that only touches api_key and omits "provider"
+	// entirely. Before the fix, Validate ran on this partial payload alone:
+	// values["provider"] is absent, conditionMet sees "" != "openai",
+	// treats api_key as hidden, skips Required entirely, and the empty
+	// value is accepted — silently deleting a secret that's still required
+	// under the persisted provider=openai.
+	errs, err := svc.SetValues(map[string]any{"api_key": ""})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(errs) != 1 || errs[0].Field != "api_key" {
+		t.Fatalf("expected a required-field error for api_key using the persisted provider=openai, got %v", errs)
+	}
+	if errs[0].Code != CodeRequired {
+		t.Errorf("expected code=%s, got %s", CodeRequired, errs[0].Code)
+	}
+
+	// The secret must remain untouched — the rejected submission must not
+	// have reached the keyring-deletion branch.
+	val, err := secrets.Get("api_key")
+	if err != nil || val != "sk-real" {
+		t.Fatalf("expected api_key to remain sk-real, got %q, err=%v", val, err)
+	}
+}
+
+// TestValidateEffectiveState_DynamicSelectUsesPersistedParent covers the
+// "same class of bug" the WP-03 review called out: a dynamic-select field
+// accepting an arbitrary value when its parent (DependsOn) field isn't part
+// of the submission.
+func TestValidateEffectiveState_DynamicSelectUsesPersistedParent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	svc := NewService(
+		WithStoragePath(path),
+		WithGroup(Group{
+			Key:   "llm",
+			Label: i18n.Text{Other: "LLM"},
+			Fields: []Field{
+				{
+					Key:   "provider",
+					Type:  FieldSelect,
+					Label: i18n.Text{Other: "Provider"},
+					Options: []SelectOption{
+						{Label: i18n.Text{Other: "Anthropic"}, Value: "anthropic"},
+						{Label: i18n.Text{Other: "OpenAI"}, Value: "openai"},
+					},
+				},
+				{
+					Key:   "model",
+					Type:  FieldSelect,
+					Label: i18n.Text{Other: "Model"},
+					DynamicOptions: &DynamicOptions{
+						DependsOn: "provider",
+						Options: map[string][]SelectOption{
+							"anthropic": {{Label: i18n.Text{Other: "Claude"}, Value: "claude"}},
+							"openai":    {{Label: i18n.Text{Other: "GPT-4o"}, Value: "gpt-4o"}},
+						},
+					},
+				},
+			},
+		}),
+	)
+
+	// Establish persisted state: provider=anthropic.
+	if _, err := svc.SetValues(map[string]any{"provider": "anthropic", "model": "claude"}); err != nil {
+		t.Fatalf("setup save error: %v", err)
+	}
+
+	// Submit a model value that is only valid for "openai", without
+	// resubmitting "provider". Before the fix, Validate saw only
+	// {"model": "gpt-4o"}: DependsOn lookup on the submitted payload found
+	// no "provider" key, hasSelectableOptions returned false for the
+	// missing dependency, and the value was accepted outright — an
+	// unvalidated write of an option that doesn't belong to the persisted
+	// provider.
+	errs, err := svc.SetValues(map[string]any{"model": "gpt-4o"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(errs) != 1 || errs[0].Field != "model" {
+		t.Fatalf("expected invalid-option error for model using persisted provider=anthropic, got %v", errs)
+	}
+}
+
+// TestSetValues_DynamicOptionParentChangeResetsStrandedDependent pins H2: a
+// submission that changes only a DynamicOptions parent field must not be
+// rejected because a dependent field's stale value (persisted or default,
+// from the *previous* parent value) is no longer a valid option for the new
+// parent value. Before the fix, `{"llm.provider": "openai"}` alone — the
+// single most likely thing a real app submits — failed validation with an
+// invalid-option error on "llm.model", a field the caller never touched.
+func TestSetValues_DynamicOptionParentChangeResetsStrandedDependent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	svc := NewService(
+		WithStoragePath(path),
+		WithGroup(Group{
+			Key:   "llm",
+			Label: i18n.Text{Other: "LLM"},
+			Fields: []Field{
+				{
+					Key:     "llm.provider",
+					Type:    FieldSelect,
+					Label:   i18n.Text{Other: "Provider"},
+					Default: "anthropic",
+					Options: []SelectOption{
+						{Label: i18n.Text{Other: "Anthropic"}, Value: "anthropic"},
+						{Label: i18n.Text{Other: "OpenAI"}, Value: "openai"},
+					},
+				},
+				{
+					Key:     "llm.model",
+					Type:    FieldSelect,
+					Label:   i18n.Text{Other: "Model"},
+					Default: "claude-sonnet-4-6",
+					DynamicOptions: &DynamicOptions{
+						DependsOn: "llm.provider",
+						Options: map[string][]SelectOption{
+							"anthropic": {{Label: i18n.Text{Other: "Claude Sonnet 4.6"}, Value: "claude-sonnet-4-6"}},
+							"openai":    {{Label: i18n.Text{Other: "GPT-4o"}, Value: "gpt-4o"}, {Label: i18n.Text{Other: "GPT-4o Mini"}, Value: "gpt-4o-mini"}},
+						},
+					},
+				},
+			},
+		}),
+	)
+
+	// Defaults alone give provider=anthropic, model=claude-sonnet-4-6 —
+	// nothing persisted yet, matching the reproduction in the defect report.
+	values, err := svc.GetValues()
+	if err != nil {
+		t.Fatalf("GetValues: %v", err)
+	}
+	if values["llm.provider"] != "anthropic" || values["llm.model"] != "claude-sonnet-4-6" {
+		t.Fatalf("unexpected starting defaults: %v", values)
+	}
+
+	// Submit only the provider switch — exactly the H2 reproduction.
+	errs, err := svc.SetValues(map[string]any{"llm.provider": "openai"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("expected the provider-only switch to succeed, got validation errors: %v", errs)
+	}
+
+	values, err = svc.GetValues()
+	if err != nil {
+		t.Fatalf("GetValues: %v", err)
+	}
+	if values["llm.provider"] != "openai" {
+		t.Errorf("expected llm.provider=openai, got %v", values["llm.provider"])
+	}
+	if values["llm.model"] != "gpt-4o" {
+		t.Errorf("expected llm.model reset to the first openai option gpt-4o, got %v", values["llm.model"])
+	}
+}
+
+// TestSetValues_DynamicOptionExplicitMismatchStillRejected is the guard rail
+// for the H2 fix: if the caller explicitly submits both the parent and an
+// invalid dependent value in the same call, that is a genuinely inconsistent
+// submission and effective-state validation must still catch it — only a
+// value the caller didn't touch this call gets auto-corrected.
+func TestSetValues_DynamicOptionExplicitMismatchStillRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	svc := NewService(
+		WithStoragePath(path),
+		WithGroup(Group{
+			Key:   "llm",
+			Label: i18n.Text{Other: "LLM"},
+			Fields: []Field{
+				{
+					Key:     "llm.provider",
+					Type:    FieldSelect,
+					Label:   i18n.Text{Other: "Provider"},
+					Default: "anthropic",
+					Options: []SelectOption{
+						{Label: i18n.Text{Other: "Anthropic"}, Value: "anthropic"},
+						{Label: i18n.Text{Other: "OpenAI"}, Value: "openai"},
+					},
+				},
+				{
+					Key:     "llm.model",
+					Type:    FieldSelect,
+					Label:   i18n.Text{Other: "Model"},
+					Default: "claude-sonnet-4-6",
+					DynamicOptions: &DynamicOptions{
+						DependsOn: "llm.provider",
+						Options: map[string][]SelectOption{
+							"anthropic": {{Label: i18n.Text{Other: "Claude Sonnet 4.6"}, Value: "claude-sonnet-4-6"}},
+							"openai":    {{Label: i18n.Text{Other: "GPT-4o"}, Value: "gpt-4o"}},
+						},
+					},
+				},
+			},
+		}),
+	)
+
+	// Both provider and an invalid model for that provider submitted
+	// together — this is a real inconsistency, not a stranded default.
+	errs, err := svc.SetValues(map[string]any{"llm.provider": "openai", "llm.model": "claude-sonnet-4-6"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(errs) != 1 || errs[0].Field != "llm.model" {
+		t.Fatalf("expected an explicit mismatch to still be rejected, got %v", errs)
+	}
+}
+
+// TestPasswordNonString pins defect #3: a non-string value submitted for a
+// password field must be rejected as a validation error, never coerced to
+// "" via a failed type assertion and used to delete the stored secret.
+func TestPasswordNonString(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	secrets := keyring.NewMemoryStore()
+	if err := secrets.Set("api_key", "original-secret"); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := NewService(
+		WithStoragePath(path),
+		WithKeyring(secrets),
+		WithGroup(Group{
+			Key:   "auth",
+			Label: i18n.Text{Other: "Auth"},
+			Fields: []Field{
+				{Key: "api_key", Type: FieldPassword, Label: i18n.Text{Other: "API Key"}},
+			},
+		}),
+	)
+
+	errs, err := svc.SetValues(map[string]any{"api_key": 42})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(errs) != 1 || errs[0].Field != "api_key" {
+		t.Fatalf("expected 1 validation error for non-string password, got %v", errs)
+	}
+	if errs[0].Code != CodeInvalidType {
+		t.Errorf("expected code=%s, got %s", CodeInvalidType, errs[0].Code)
+	}
+
+	val, err := secrets.Get("api_key")
+	if err != nil || val != "original-secret" {
+		t.Fatalf("expected secret to remain untouched, got %q, err=%v", val, err)
+	}
+}
+
+// TestOnChangeNoLock pins defect #4: onChange callbacks must run after the
+// Service's internal mutex is released. A callback that calls back into the
+// Service (a very natural thing to do — e.g. re-reading values, or writing
+// a derived setting) must not deadlock. This test fails by timeout rather
+// than hanging the suite if the bug regresses.
+func TestOnChangeNoLock(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	var svc *Service
+	var reentering atomic.Bool
+	reentered := make(chan struct{})
+
+	svc = NewService(
+		WithStoragePath(path),
+		WithGroup(Group{
+			Key:   "config",
+			Label: i18n.Text{Other: "Config"},
+			Fields: []Field{
+				{Key: "key", Type: FieldText, Label: i18n.Text{Other: "Key"}},
+				{Key: "other", Type: FieldText, Label: i18n.Text{Other: "Other"}},
+			},
+		}),
+		WithOnChange(func(values map[string]any) {
+			// Re-entrant call into the service from inside the callback.
+			// Guarded with an atomic CAS (not sync.Once — Once.Do is not
+			// reentrant and deadlocks if called again from within its own
+			// function) because this same callback fires again for the
+			// reentrant SetValues call below; without the guard it would
+			// recurse forever instead of deadlocking, which would defeat
+			// the test.
+			if reentering.CompareAndSwap(false, true) {
+				if _, err := svc.SetValues(map[string]any{"other": "reentrant"}); err != nil {
+					t.Errorf("reentrant SetValues failed: %v", err)
+				}
+				close(reentered)
+			}
+		}),
+	)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := svc.SetValues(map[string]any{"key": "value"}); err != nil {
+			t.Errorf("SetValues error: %v", err)
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("deadlock: SetValues did not return — onChange callback likely still held s.mu while calling back into the service")
+	}
+
+	select {
+	case <-reentered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("deadlock: reentrant SetValues from within the onChange callback never completed")
+	}
+
+	values, err := svc.GetValues()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if values["key"] != "value" || values["other"] != "reentrant" {
+		t.Errorf("expected key=value, other=reentrant, got %v", values)
+	}
+}
+
+// TestNewService_MemoryKeyringDefaultWarns pins the "loud, not silent"
+// fix for the memory-keyring default: forgetting WithKeyring must not
+// silently lose API keys on restart without at least a visible warning.
+func TestNewService_MemoryKeyringDefaultWarns(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	_ = NewService(WithGroup(Group{
+		Key:    "auth",
+		Label:  i18n.Text{Other: "Auth"},
+		Fields: []Field{{Key: "api_key", Type: FieldPassword, Label: i18n.Text{Other: "API Key"}}},
+	}))
+
+	if !strings.Contains(buf.String(), "keyring") {
+		t.Errorf("expected a warning about the default in-memory keyring, got: %q", buf.String())
+	}
+}
+
+// TestNewService_ExplicitKeyringNoWarning is the counterpart to the above:
+// an explicitly configured keyring must not trigger the warning.
+func TestNewService_ExplicitKeyringNoWarning(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	_ = NewService(WithKeyring(keyring.NewMemoryStore()))
+
+	if buf.Len() != 0 {
+		t.Errorf("expected no warning when a keyring is explicitly configured, got: %q", buf.String())
+	}
+}
+
+// TestServiceOptions_StoragePathSurvivesAppNameAfter pins the
+// option-ordering fix: WithStoragePath must win over WithAppName
+// regardless of which is passed first. Before the fix, WithAppName
+// unconditionally reconstructed s.store, discarding a storage path set by
+// an earlier WithStoragePath call.
+func TestServiceOptions_StoragePathSurvivesAppNameAfter(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "custom.json")
+
+	svc := NewService(
+		WithStoragePath(path),
+		WithAppName("myapp"),
+	)
+
+	if svc.store.Path() != path {
+		t.Errorf("expected WithStoragePath to survive a later WithAppName, got %q", svc.store.Path())
+	}
+}
+
+// TestAddOnChange covers the post-construction hook. Packages that compose
+// with settings are usually built after the Service (they need it to exist),
+// so WithOnChange alone forces a forward-declared-closure dance at every such
+// call site. appearance hit this first.
+func TestAddOnChange(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewService(
+		WithStoragePath(filepath.Join(dir, "settings.json")),
+		WithKeyring(keyring.NewMemoryStore()),
+		WithGroup(Group{
+			Key:   "g",
+			Label: i18n.Text{Other: "G"},
+			Fields: []Field{
+				{Key: "g.name", Type: FieldText, Label: i18n.Text{Other: "Name"}},
+			},
+		}),
+	)
+
+	var got map[string]any
+	svc.AddOnChange(func(values map[string]any) { got = values })
+	svc.AddOnChange(nil) // must be ignored, not panic
+
+	if _, err := svc.SetValues(map[string]any{"g.name": "hello"}); err != nil {
+		t.Fatalf("SetValues: %v", err)
+	}
+	if got == nil {
+		t.Fatal("callback registered after construction was never invoked")
+	}
+	if got["g.name"] != "hello" {
+		t.Errorf("callback saw %v, want hello", got["g.name"])
+	}
+}
+
+// TestAddOnChangeNoDeadlock pins the same guarantee WithOnChange has: the
+// callback runs with the lock released, so re-entering the Service is safe.
+func TestAddOnChangeNoDeadlock(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewService(
+		WithStoragePath(filepath.Join(dir, "settings.json")),
+		WithKeyring(keyring.NewMemoryStore()),
+		WithGroup(Group{
+			Key:   "g",
+			Label: i18n.Text{Other: "G"},
+			Fields: []Field{
+				{Key: "g.name", Type: FieldText, Label: i18n.Text{Other: "Name"}},
+			},
+		}),
+	)
+
+	svc.AddOnChange(func(map[string]any) {
+		if _, err := svc.GetValues(); err != nil {
+			t.Errorf("re-entrant GetValues: %v", err)
+		}
+	})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := svc.SetValues(map[string]any{"g.name": "x"}); err != nil {
+			t.Errorf("SetValues: %v", err)
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("deadlock: callback re-entered the Service while the lock was held")
 	}
 }

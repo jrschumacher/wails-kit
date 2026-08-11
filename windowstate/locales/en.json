@@ -1,0 +1,5 @@
+{
+  "wailskit.windowstate.errors.config": "Window state is misconfigured. Please contact support.",
+  "wailskit.windowstate.errors.save": "Failed to save window position. Please try again.",
+  "wailskit.windowstate.errors.load": "Failed to restore window position. Please try again."
+}
