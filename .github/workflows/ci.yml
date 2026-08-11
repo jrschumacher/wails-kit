@@ -69,19 +69,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Required since WP-06 removed the `wails` build tag from shortcuts/apply.go.
+      # Required since WP-06 removed the `wails` build tag from shortcuts/apply.go:
       # wails/v3/pkg/application is now in the default build graph, and its Linux
-      # implementation is cgo with `#cgo linux pkg-config: gtk+-3.0 webkit2gtk-4.1
-      # gdk-3.0`. Without these, `go build ./...` fails on a bare runner.
+      # implementation is cgo.
+      #
+      # beta.4's DEFAULT Linux backend is GTK4 (linux_cgo.go, `#cgo linux
+      # pkg-config: gtk4 webkitgtk-6.0`). The GTK3 backend still exists but sits
+      # behind a `gtk3` build tag (linux_cgo_gtk3.go, `//go:build ... && gtk3`).
+      # Installing the GTK3 packages therefore satisfies a variant nothing builds
+      # by default — which is exactly how this job failed on its first real run.
       - name: Install Wails Linux build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+            build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: test
 
+  # Uses golangci-lint-action directly rather than the go-actions wrapper.
+  # The wrapper resolves golangci-lint "latest" at run time and verifies a
+  # checksum against it; on this repo's first CI run that fetch produced a
+  # checksum mismatch and failed the job outright. An unpinned third-party
+  # download is not something a lint job should be able to break on, so the
+  # version is pinned here to match what developers run locally.
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -91,10 +102,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
-      - uses: jrschumacher/go-actions/ci@v3
+            build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+      - uses: actions/setup-go@v5
         with:
-          job: lint
+          go-version-file: go.mod
+          cache: true
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.10.1
 
   wails-imports:
     name: Wails Import Policy (AD-4)
@@ -128,7 +143,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+            build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
       - run: go build ./...
       - run: go mod tidy -diff
 
@@ -176,7 +191,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+            build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: security
@@ -278,7 +293,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+            build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
