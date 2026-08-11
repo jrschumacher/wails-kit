@@ -1,0 +1,33 @@
+# .wails-kit.yml — project configuration for wails-kit's shared release
+# Taskfile (taskfiles/release.yml). See that file's header comment and
+# https://github.com/jrschumacher/wails-kit/tree/main/taskfiles for the full
+# release workflow this drives.
+
+app:
+  # Display name of the application (used in archives, release titles, etc.)
+  name: {{.ProductName}}
+
+  # macOS bundle identifier
+  bundle_id: {{.ProductIdentifier}}
+
+release:
+  # GitHub owner/repo for this app's releases (used by the `updates` package
+  # and the release tasks below). Fill this in before running `task release`.
+  github_repo: owner/{{.BinaryName}}
+
+  # GitHub owner/repo for the Homebrew tap (receives release assets and cask
+  # updates).
+  tap_github_repo: owner/homebrew-tap
+
+signing:
+  # macOS Developer ID for codesigning (e.g. "Developer ID Application: Your Name (TEAMID)")
+  # Leave empty to skip signing.
+  developer_id: ""
+
+  # Notarytool keychain profile name (created via `xcrun notarytool store-credentials`)
+  # Leave empty to skip notarization.
+  keychain_profile: ""
+
+  # Path to entitlements plist for hardened runtime (e.g. "build/darwin/entitlements.plist")
+  # Leave empty to sign without entitlements.
+  entitlements: ""

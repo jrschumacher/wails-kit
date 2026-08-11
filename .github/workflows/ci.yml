@@ -263,3 +263,71 @@ jobs:
         working-directory: frontend/settings
       - run: npm run test
         working-directory: frontend/settings
+
+  # WP-32: generates a real app from template/app via the wails3 CLI, points
+  # it at this checkout (kit not yet tagged — see template/app/go.mod.tmpl and
+  # README.md), and builds both the Go binary and the Vite frontend. A
+  # template that doesn't build is worse than no template, and templates rot
+  # silently unless something actually generates from them on every change.
+  template-smoke:
+    name: Template Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Wails Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Pinned to the exact wails/v3 version this repo targets (AD-2) — the
+      # CLI's project-scaffolding logic (internal/templates, internal/gosod)
+      # is independent of that pin, but the generated go.mod requires this
+      # exact SDK version, so generating with a mismatched CLI would be
+      # testing a combination no consumer actually has.
+      - name: Install wails3 CLI
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.4
+
+      - name: Generate app from template
+        run: |
+          wails3 init -t ./template/app -n kit-smoke-app -d "$RUNNER_TEMP" \
+            -mod github.com/wails-kit/kit-smoke-app -skipgomodtidy -s -q
+        # -skipgomodtidy is required: wails-kit v2 has no tagged release yet
+        # (OQ-1), so the automatic `go mod tidy` init() would otherwise run
+        # fails trying to fetch an unpublished module — verified locally,
+        # see template/AGENTS.md, "Landmines".
+
+      - name: Point generated app at this checkout (Go)
+        working-directory: ${{ runner.temp }}/kit-smoke-app
+        run: |
+          go mod edit -replace github.com/jrschumacher/wails-kit/v2="$GITHUB_WORKSPACE"
+          go mod tidy
+
+      - name: Point generated app at this checkout (npm) and build frontend
+        working-directory: ${{ runner.temp }}/kit-smoke-app/frontend
+        run: |
+          npm pkg set dependencies.@wails-kit/types="file:$GITHUB_WORKSPACE/frontend/types"
+          npm pkg set dependencies.@wails-kit/settings="file:$GITHUB_WORKSPACE/frontend/settings"
+          npm pkg set dependencies.@wails-kit/i18n="file:$GITHUB_WORKSPACE/frontend/i18n"
+          # No lockfile exists yet — this is a freshly generated project, not
+          # a cloned one — so `npm ci` (which requires one) does not apply.
+          npm install
+          npm run typecheck
+          npm run build
+
+      - name: Build the Go binary
+        working-directory: ${{ runner.temp }}/kit-smoke-app
+        run: |
+          # Not `go build ./...`: wails3's own auto-generated build/ios
+          # scaffold (build/config.yml-driven, unrelated to this template)
+          # does not compile standalone on a non-ios host — verified locally.
+          # The app itself is the root package.
+          go build .
+          go vet ./...
