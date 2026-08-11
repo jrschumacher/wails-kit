@@ -18,6 +18,57 @@ import (
 func Run(t *testing.T, newStore func(t *testing.T) runner.Store) {
 	t.Helper()
 
+	t.Run("DueOrderingIsDeterministic", func(t *testing.T) {
+		// runner.go's Store contract requires "earliest NextRunAt, then
+		// EnqueuedAt, then ID". The suite previously did not check ordering
+		// at all, and the two shipped stores diverged as a result: flatfile
+		// sorted by EnqueuedAt then ID and ignored NextRunAt entirely, while
+		// the memory store followed the contract. Two stores that each pass
+		// their own tests and disagree on semantics is precisely what this
+		// package exists to prevent, so the gap is closed here rather than
+		// in any one store's tests.
+		s := newStore(t)
+		defer func() { _ = s.Close() }()
+
+		base := time.Now().Truncate(time.Second)
+		// Deliberately appended in an order matching none of the sort keys.
+		jobs := []runner.Job{
+			// Latest NextRunAt, earliest EnqueuedAt — must sort last.
+			{ID: "c", Type: "t", State: runner.JobStatePending,
+				EnqueuedAt: base, NextRunAt: base.Add(2 * time.Second)},
+			// Same NextRunAt as "b", later EnqueuedAt — tie broken by EnqueuedAt.
+			{ID: "a", Type: "t", State: runner.JobStatePending,
+				EnqueuedAt: base.Add(2 * time.Second), NextRunAt: base},
+			{ID: "b", Type: "t", State: runner.JobStatePending,
+				EnqueuedAt: base.Add(time.Second), NextRunAt: base},
+		}
+		for _, j := range jobs {
+			if err := s.Append(j); err != nil {
+				t.Fatalf("Append(%s): %v", j.ID, err)
+			}
+		}
+
+		due, err := s.Due(base.Add(time.Hour), 10)
+		if err != nil {
+			t.Fatalf("Due: %v", err)
+		}
+		got := make([]string, len(due))
+		for i, j := range due {
+			got[i] = j.ID
+		}
+		// b and a share NextRunAt; b enqueued earlier so it precedes a.
+		// c has the latest NextRunAt despite the earliest EnqueuedAt.
+		want := []string{"b", "a", "c"}
+		if len(got) != len(want) {
+			t.Fatalf("Due returned %v, want %v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("Due order = %v, want %v (contract: NextRunAt, then EnqueuedAt, then ID)", got, want)
+			}
+		}
+	})
+
 	t.Run("AppendThenDue", func(t *testing.T) {
 		s := newStore(t)
 		defer func() { _ = s.Close() }()

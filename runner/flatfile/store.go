@@ -337,8 +337,16 @@ func (s *Store) List(state runner.JobState) ([]runner.Job, error) {
 func (s *Store) Close() error { return nil }
 
 func sortByEnqueuedThenID(jobs []runner.Job) {
+	// Contract order is NextRunAt, then EnqueuedAt, then ID (see the Store
+	// docs in runner.go). NextRunAt was previously omitted here, so a job
+	// scheduled far in the future but enqueued early sorted ahead of one
+	// due immediately — a real divergence from the memory store that went
+	// unnoticed because the shared contract suite did not assert ordering.
 	sort.Slice(jobs, func(i, j int) bool {
 		a, b := jobs[i], jobs[j]
+		if !a.NextRunAt.Equal(b.NextRunAt) {
+			return a.NextRunAt.Before(b.NextRunAt)
+		}
 		if !a.EnqueuedAt.Equal(b.EnqueuedAt) {
 			return a.EnqueuedAt.Before(b.EnqueuedAt)
 		}
