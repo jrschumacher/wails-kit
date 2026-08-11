@@ -5,6 +5,7 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"github.com/jrschumacher/wails-kit/v2/appearance"
 	"github.com/jrschumacher/wails-kit/v2/diagnostics"
 	"github.com/jrschumacher/wails-kit/v2/errors"
 	"github.com/jrschumacher/wails-kit/v2/health"
@@ -52,6 +53,8 @@ func bindingServices(k *kit.Kit, cfg *config) []application.Service {
 			out = append(out, application.NewService(v))
 		case *permissions.Binding:
 			out = append(out, application.NewService(v))
+		case *appearance.Binding:
+			out = append(out, application.NewService(v))
 		case *UpdatesBinding:
 			out = append(out, application.NewService(v))
 		case *DiagnosticsBinding:
@@ -70,6 +73,12 @@ func bindingInstances(k *kit.Kit, cfg *config) []any {
 	out := []any{
 		k.Settings.Binding(),
 		k.I18n.Binding(),
+		// appearance was missing here until a consumer generated bindings
+		// and found the import unresolvable. A theme toggle in the UI is
+		// the primary reason appearance has a Binding at all, so leaving it
+		// unregistered made the package unreachable from the frontend
+		// through the standard wiring.
+		k.Appearance.Binding(),
 	}
 
 	if k.Health != nil {

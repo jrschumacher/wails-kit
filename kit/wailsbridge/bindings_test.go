@@ -3,6 +3,7 @@ package wailsbridge
 import (
 	"testing"
 
+	"github.com/jrschumacher/wails-kit/v2/appearance"
 	"github.com/jrschumacher/wails-kit/v2/diagnostics"
 	"github.com/jrschumacher/wails-kit/v2/health"
 	"github.com/jrschumacher/wails-kit/v2/i18n"
@@ -48,7 +49,7 @@ func TestBindingInstancesNeverRegisterRawService(t *testing.T) {
 			t.Error("bindingInstances contains a raw *updates.Service")
 		case *diagnostics.Service:
 			t.Error("bindingInstances contains a raw *diagnostics.Service — would publish Submit(url) with a caller-chosen URL")
-		case *settings.Binding, *i18n.Binding, *health.Binding, *permissions.Binding, *UpdatesBinding, *DiagnosticsBinding:
+		case *settings.Binding, *i18n.Binding, *appearance.Binding, *health.Binding, *permissions.Binding, *UpdatesBinding, *DiagnosticsBinding:
 			// expected — the narrow surface.
 		default:
 			t.Errorf("bindingInstances contains an unrecognized type %T — update this test's allowlist", inst)
@@ -64,8 +65,8 @@ func TestBindingInstances_CountsMatchEnabledComponents(t *testing.T) {
 	t.Run("defaults (health+diagnostics on, updates off)", func(t *testing.T) {
 		k := newTestKit(t)
 		instances := bindingInstances(k, newConfig())
-		// settings, i18n, health, permissions, diagnostics — no updates.
-		want := 5
+		// settings, i18n, appearance, health, permissions, diagnostics — no updates.
+		want := 6
 		if len(instances) != want {
 			t.Errorf("len(instances) = %d, want %d", len(instances), want)
 		}
@@ -75,7 +76,7 @@ func TestBindingInstances_CountsMatchEnabledComponents(t *testing.T) {
 	t.Run("updates enabled", func(t *testing.T) {
 		k := newTestKit(t, kit.WithGitHubRepo("acme", "widget"), kit.WithUpdatesSkipVerification())
 		instances := bindingInstances(k, newConfig())
-		want := 6
+		want := 7
 		if len(instances) != want {
 			t.Errorf("len(instances) = %d, want %d", len(instances), want)
 		}
@@ -84,8 +85,8 @@ func TestBindingInstances_CountsMatchEnabledComponents(t *testing.T) {
 	t.Run("health and diagnostics disabled", func(t *testing.T) {
 		k := newTestKit(t, kit.WithoutHealth(), kit.WithoutDiagnostics())
 		instances := bindingInstances(k, newConfig())
-		// settings, i18n, permissions.
-		want := 3
+		// settings, i18n, appearance, permissions.
+		want := 4
 		if len(instances) != want {
 			t.Errorf("len(instances) = %d, want %d", len(instances), want)
 		}
