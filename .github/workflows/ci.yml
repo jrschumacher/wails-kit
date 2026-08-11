@@ -107,7 +107,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v7
         with:
           version: v2.10.1
 
@@ -324,6 +324,18 @@ jobs:
         run: |
           go mod edit -replace github.com/jrschumacher/wails-kit/v2="$GITHUB_WORKSPACE"
           go mod tidy
+
+      # The kit's TS packages are unpublished, so the generated app consumes
+      # them by file: ref. Those refs symlink into this checkout, and Node and
+      # TypeScript resolve from the real path — so @wails-kit/settings looks
+      # for its own @wails-kit/types dependency inside the checkout, not in
+      # the generated app's node_modules. Installing the frontend workspace
+      # first materialises frontend/node_modules/@wails-kit/types, which the
+      # linked package then resolves by walking up. Without this the smoke
+      # fails with TS2307 on a package that is right there on disk.
+      - name: Materialise kit frontend workspace links
+        working-directory: ${{ github.workspace }}/frontend
+        run: npm ci
 
       - name: Point generated app at this checkout (npm) and build frontend
         working-directory: ${{ runner.temp }}/kit-smoke-app/frontend
