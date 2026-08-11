@@ -3,6 +3,8 @@ package wailsbridge
 import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
+
+	"github.com/jrschumacher/wails-kit/v2/appearance"
 )
 
 // themeSource implements appearance.Source over a live Wails app: IsDark
@@ -28,6 +30,26 @@ type themeSource struct {
 
 func newThemeSource(app *application.App) *themeSource {
 	return &themeSource{app: app}
+}
+
+// NewThemeSource returns an appearance.Source backed by a live Wails app:
+// IsDark reads the OS theme and Subscribe follows OS theme flips while the
+// app is running.
+//
+// Attach wires this automatically, so an app built on kit.New never needs
+// it. It is exported for apps that compose the kit's packages by hand
+// rather than through kit.New — they cannot reach Attach (which requires a
+// *kit.Kit), and without this the only way to get live theme-follow is to
+// hand-roll the same adapter over app.Env.IsDarkMode() and
+// events.Common.ThemeChanged. The first real consumer had to do exactly
+// that, which is why this is exported.
+//
+//	svc := appearance.NewService(
+//		appearance.WithSource(wailsbridge.NewThemeSource(app)),
+//		appearance.WithSettings(settingsSvc),
+//	)
+func NewThemeSource(app *application.App) appearance.Source {
+	return newThemeSource(app)
 }
 
 // IsDark implements appearance.Source.

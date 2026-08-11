@@ -64,10 +64,16 @@ func WithStorePath(path string) ServiceOption {
 //
 // If omitted, secrets default to an in-memory store: they work for the
 // life of the process but are lost on restart. NewService logs a warning
-// (slog.Warn) when this happens, because losing a user's saved API keys on
-// every relaunch is a bad-enough surprise that it must never be silent —
-// pass a persistent keyring.Store (e.g. keyring.NewEnvelopeStore or
+// (slog.Warn) when this happens *and the schema actually declares a
+// password field*, because losing a user's saved API keys on every
+// relaunch is a bad-enough surprise that it must never be silent — pass a
+// persistent keyring.Store (e.g. keyring.NewEnvelopeStore or
 // keyring.NewOSStore) in any app that isn't a short-lived test.
+//
+// A schema with no password field has nothing a keyring would persist, so
+// it warns about nothing. Warning there would only teach consumers to pass
+// a MemoryStore reflexively to quiet it, which is exactly what would make
+// them ignore the real case.
 func WithKeyring(store keyring.Store) ServiceOption {
 	return func(s *Service) {
 		s.secrets = store
@@ -138,7 +144,14 @@ func NewService(opts ...ServiceOption) *Service {
 	}
 
 	if s.secrets == nil {
-		slog.Warn("settings: no keyring configured — secret/password fields are stored in memory and will be lost on restart; pass settings.WithKeyring(...) to persist them")
+		// Only warn if the schema actually has a secret to lose. A schema of
+		// plain selects and toggles — an appearance or update-preferences
+		// group, say — has nothing a keyring would persist, and warning
+		// there just teaches consumers to pass a MemoryStore to silence it,
+		// which is noise that hides the real case.
+		if schemaHasSecrets(s.schema) {
+			slog.Warn("settings: no keyring configured — secret/password fields are stored in memory and will be lost on restart; pass settings.WithKeyring(...) to persist them")
+		}
 		s.secrets = keyring.NewMemoryStore()
 	}
 
@@ -357,4 +370,17 @@ func (s *Service) passwordKeys() map[string]bool {
 		}
 	}
 	return keys
+}
+
+// schemaHasSecrets reports whether any registered field stores a secret,
+// i.e. whether a missing keyring would actually lose user data.
+func schemaHasSecrets(schema Schema) bool {
+	for _, g := range schema.Groups {
+		for _, f := range g.Fields {
+			if f.Type == FieldPassword {
+				return true
+			}
+		}
+	}
+	return false
 }
