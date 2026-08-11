@@ -342,7 +342,15 @@ jobs:
       # fails with TS2307 on a package that is right there on disk.
       - name: Materialise kit frontend workspace links
         working-directory: ${{ github.workspace }}/frontend
-        run: npm ci
+        run: |
+          npm ci
+          # The packages point "types" at source (so a consumer typechecks
+          # without a build step) but "main"/"module" at dist/. A bundler
+          # resolves the runtime entry, not the types entry, so without
+          # building here vite fails with "Failed to resolve entry for
+          # package" even though tsc is perfectly happy — exactly how this
+          # job failed once the link fix landed.
+          npm run build --workspaces
 
       - name: Point generated app at this checkout (npm) and build frontend
         working-directory: ${{ runner.temp }}/kit-smoke-app/frontend
