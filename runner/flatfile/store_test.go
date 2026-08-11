@@ -3,6 +3,7 @@ package flatfile
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -235,6 +236,134 @@ func TestCrashMidAppendRecovers(t *testing.T) {
 	// trailing line — a new Append should succeed normally.
 	if err := s.Append(runner.Job{ID: "new-job", Type: "noop", Payload: json.RawMessage(`{}`), State: runner.JobStatePending, EnqueuedAt: now, NextRunAt: now}); err != nil {
 		t.Fatalf("Append after recovery: %v", err)
+	}
+}
+
+// recordingFile wraps a real *os.File so tests can observe or fail the
+// Sync() call without simulating an actual OS crash. Write/Close/Name
+// delegate to the embedded file; only Sync is intercepted. Mirrors
+// settings.recordingFile, which pins the same defect class in
+// settings.Store.Save.
+type recordingFile struct {
+	*os.File
+	onSync   func()
+	failSync bool
+}
+
+func (f *recordingFile) Sync() error {
+	if f.onSync != nil {
+		f.onSync()
+	}
+	if f.failSync {
+		return errors.New("simulated fsync failure")
+	}
+	return f.File.Sync()
+}
+
+// TestCompactionFsyncsBeforeRename is H3's regression test: compactLocked
+// previously did os.WriteFile(tmp) + os.Rename with no File.Sync and no
+// directory sync at all, while appendLineLocked fsyncs every append —
+// meaning a crash right after a compaction's rename (which Sweep triggers
+// on the tick after almost any write) could lose the whole queue file to a
+// truncated or zero-length write, even though individual Appends looked
+// durable. Run against the pre-fix compactLocked (raw os.WriteFile, no
+// writeTempFile/createTempFile hook), this fails with syncCalls==0.
+func TestCompactionFsyncsBeforeRename(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "queue.jsonl")
+	s, err := New(WithPath(path))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	now := time.Now().Truncate(time.Second).UTC()
+	if err := s.Append(runner.Job{
+		ID: "job-1", Type: "noop", Payload: json.RawMessage(`{}`),
+		State: runner.JobStateDone, EnqueuedAt: now, NextRunAt: now,
+	}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	var syncCalls int
+	orig := createTempFile
+	defer func() { createTempFile = orig }()
+	createTempFile = func(d, pattern string) (fileHandle, error) {
+		f, err := os.CreateTemp(d, pattern)
+		if err != nil {
+			return nil, err
+		}
+		return &recordingFile{File: f, onSync: func() { syncCalls++ }}, nil
+	}
+
+	if err := s.forceCompact(); err != nil {
+		t.Fatalf("forceCompact: %v", err)
+	}
+	if syncCalls != 1 {
+		t.Fatalf("expected exactly 1 Sync() call during compaction before rename, got %d", syncCalls)
+	}
+
+	// The compacted file must still be readable after sync+rename.
+	due, err := s.Due(now.Add(time.Hour), 10)
+	if err != nil {
+		t.Fatalf("Due: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("Due = %+v, want none (job-1 is done, not due)", due)
+	}
+}
+
+func TestCompactionAbortsRenameWhenSyncFails(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "queue.jsonl")
+	s, err := New(WithPath(path))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	now := time.Now().Truncate(time.Second).UTC()
+	if err := s.Append(runner.Job{
+		ID: "job-1", Type: "noop", Payload: json.RawMessage(`{}`),
+		State: runner.JobStatePending, EnqueuedAt: now, NextRunAt: now,
+	}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read before compaction: %v", err)
+	}
+
+	orig := createTempFile
+	defer func() { createTempFile = orig }()
+	createTempFile = func(d, pattern string) (fileHandle, error) {
+		f, err := os.CreateTemp(d, pattern)
+		if err != nil {
+			return nil, err
+		}
+		return &recordingFile{File: f, failSync: true}, nil
+	}
+
+	if err := s.forceCompact(); err == nil {
+		t.Fatal("forceCompact: want error when Sync fails, got nil")
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read after failed compaction: %v", err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("queue.jsonl changed despite a failed compaction:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp") {
+			t.Fatalf("temp file %q left behind after a failed compaction", e.Name())
+		}
 	}
 }
 

@@ -144,6 +144,21 @@ type Lister interface {
 	List(state JobState) ([]Job, error)
 }
 
+// Deleter is an optional Store capability: permanently remove a job's
+// record by ID. Both runner's built-in memory store and runner/flatfile
+// (and runner/sqlitestore) implement it. Queue.Discard uses it to actually
+// purge a dead-lettered job's Store record — without a Deleter, a Store
+// has no way to remove a record at all (Sweep only ever removes
+// done/failed jobs past Retention; it deliberately never touches
+// JobStateDead, since DeadLetter/Retention govern different lifetimes —
+// see Sweep's doc comment), so a dead job on such a Store would otherwise
+// be stuck forever. Discard returns ErrDiscardUnsupported when the Store
+// doesn't implement Deleter, rather than silently succeeding while leaving
+// the record behind.
+type Deleter interface {
+	Delete(id string) error
+}
+
 // Event names. All three fire only on the actual state transition named
 // (never on every attempt, never on every tick) — a job that fails but has
 // attempts remaining transitions running -> pending and emits nothing.
@@ -172,11 +187,12 @@ type WakePayload struct {
 
 // Error codes.
 const (
-	ErrQueueFull     errors.Code = "runner_queue_full"
-	ErrNoHandler     errors.Code = "runner_no_handler"
-	ErrStoreRequired errors.Code = "runner_store_required"
-	ErrJobNotFound   errors.Code = "runner_job_not_found"
-	ErrQueueClosed   errors.Code = "runner_queue_closed"
+	ErrQueueFull          errors.Code = "runner_queue_full"
+	ErrNoHandler          errors.Code = "runner_no_handler"
+	ErrStoreRequired      errors.Code = "runner_store_required"
+	ErrJobNotFound        errors.Code = "runner_job_not_found"
+	ErrQueueClosed        errors.Code = "runner_queue_closed"
+	ErrDiscardUnsupported errors.Code = "runner_discard_unsupported"
 )
 
 func init() {
@@ -186,5 +202,7 @@ func init() {
 		ErrStoreRequired: i18n.T("wailskit.runner.errors.store_required", "The background job queue is misconfigured."),
 		ErrJobNotFound:   i18n.T("wailskit.runner.errors.job_not_found", "The requested job was not found."),
 		ErrQueueClosed:   i18n.T("wailskit.runner.errors.queue_closed", "The background job queue has been shut down."),
+		ErrDiscardUnsupported: i18n.T("wailskit.runner.errors.discard_unsupported",
+			"This job queue's storage doesn't support permanently discarding a job."),
 	})
 }

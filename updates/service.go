@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	minisign "github.com/jedisct1/go-minisign"
@@ -79,7 +80,16 @@ type (
 
 // Service manages update checking, downloading, and applying.
 type Service struct {
-	currentVersion     semver.Version
+	currentVersion semver.Version
+	// currentVersionRaw and currentVersionErr let NewService distinguish
+	// "WithCurrentVersion was never called" from "WithCurrentVersion was
+	// called with a string that failed to parse" — WithCurrentVersion has
+	// no error return, so it can't surface a parse failure itself. Without
+	// this, an invalid version silently leaves currentVersion at its zero
+	// value and NewService reports the misleading "current version is
+	// required" instead of the actual parse error.
+	currentVersionRaw  string
+	currentVersionErr  error
 	github             *GitHubSource
 	emitter            *events.Emitter
 	applier            Applier
@@ -119,13 +129,19 @@ func WithEmitter(e *events.Emitter) ServiceOption {
 	}
 }
 
-// WithCurrentVersion sets the current app version for comparison.
+// WithCurrentVersion sets the current app version for comparison. A version
+// that fails to parse is not silently dropped: NewService reports the parse
+// error explicitly rather than the misleading "current version is required"
+// (which is reserved for WithCurrentVersion never having been called at all).
 func WithCurrentVersion(version string) ServiceOption {
 	return func(s *Service) {
+		s.currentVersionRaw = version
 		v, err := semver.ParseVersion(version)
-		if err == nil {
-			s.currentVersion = v
+		if err != nil {
+			s.currentVersionErr = err
+			return
 		}
+		s.currentVersion = v
 	}
 }
 
@@ -271,8 +287,11 @@ func NewService(opts ...ServiceOption) (*Service, error) {
 	if s.github == nil || s.github.owner == "" || s.github.repo == "" {
 		return nil, fmt.Errorf("updates: GitHub repo is required (use WithGitHubRepo)")
 	}
-	if s.currentVersion.Raw == "" {
+	if s.currentVersionRaw == "" {
 		return nil, fmt.Errorf("updates: current version is required (use WithCurrentVersion)")
+	}
+	if s.currentVersionErr != nil {
+		return nil, fmt.Errorf("updates: invalid current version %q: %w", s.currentVersionRaw, s.currentVersionErr)
 	}
 	if s.applier == nil {
 		s.applier = defaultApplier{}
@@ -285,7 +304,51 @@ func NewService(opts ...ServiceOption) (*Service, error) {
 		s.publicKey = &pk
 	}
 
+	// Verification must be either configured or explicitly declined. This
+	// package replaces the user's running binary; "no key configured, so
+	// silently apply unverified updates" is not a defensible default, and a
+	// constructor that already hard-fails on a missing repo or version
+	// should not treat missing verification as a soft warning. See
+	// AGENTS.md, "Fail-open default".
+	if s.publicKey == nil && !s.skipVerification {
+		return nil, fmt.Errorf("updates: signature verification is required — call WithPublicKey (recommended) or WithSkipVerification (dev/test only, logs a warning on every use)")
+	}
+
+	// Best-effort: remove leftover per-download staging directories left by
+	// a crashed process between DownloadUpdate and ApplyUpdate/cleanup, or
+	// by a prior process instance that never finished. A sweep failure must
+	// not prevent constructing the service. See AGENTS.md / README, "Staging
+	// directory cleanup".
+	s.sweepStaleDownloads()
+
 	return s, nil
+}
+
+// sweepStaleDownloads removes leftover "dl-*" per-download staging
+// directories under the app's update cache directory
+// (appdirs.Cache()/updates/). Every such directory is, by definition, stale
+// at NewService time: this process has not created one yet, so any that
+// exist were left behind by a crashed or otherwise-abandoned previous run
+// (DownloadUpdate normally removes its own directory on failure or after a
+// successful ApplyUpdate — see AGENTS.md, "Staging directory cleanup").
+// Best-effort: errors are logged, not returned, since a failed sweep should
+// not block constructing the service.
+func (s *Service) sweepStaleDownloads() {
+	stageRoot := filepath.Join(s.appDirs().Cache(), "updates")
+	entries, err := os.ReadDir(stageRoot)
+	if err != nil {
+		// Most commonly: the directory doesn't exist yet. Nothing to sweep.
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), "dl-") {
+			continue
+		}
+		path := filepath.Join(stageRoot, e.Name())
+		if err := os.RemoveAll(path); err != nil {
+			slog.Warn("updates: failed to remove stale staging directory", "path", path, "error", err)
+		}
+	}
 }
 
 // CheckForUpdate checks GitHub for a newer version.
@@ -368,6 +431,23 @@ func (s *Service) DownloadUpdate(ctx context.Context) (string, error) {
 		s.emitError(ErrUpdateDownload, err)
 		return "", errors.Wrap(ErrUpdateDownload, "prepare staging directory", err)
 	}
+
+	// A previous DownloadUpdate call that was never applied (or that failed
+	// after creating its directory but is being retried) left its staging
+	// directory behind — s.downloadDir is about to be overwritten below, so
+	// this is the last point at which anything still references it. Remove
+	// it now rather than leaking it; best effort, since a failure here
+	// should not block downloading the new update. See AGENTS.md, "Staging
+	// directory cleanup".
+	s.mu.Lock()
+	previousDownloadDir := s.downloadDir
+	s.mu.Unlock()
+	if previousDownloadDir != "" {
+		if err := os.RemoveAll(previousDownloadDir); err != nil {
+			slog.Warn("updates: failed to remove previous staging directory", "path", previousDownloadDir, "error", err)
+		}
+	}
+
 	downloadDir, err := os.MkdirTemp(stageRoot, "dl-*")
 	if err != nil {
 		s.emitError(ErrUpdateDownload, err)

@@ -13,11 +13,19 @@
 //   - Field order is fixed by an explicit local record type (see
 //     marshalRecord), independent of runner.Job's own struct field order.
 //
-// A job's history is every line with its ID, in file order; the latest
-// line for a given ID is its current state (last-write-wins). Compaction
-// (see Store.Sweep) rewrites the file keeping exactly one line per live
-// job, sorted by EnqueuedAt then ID — deterministic, so a compaction that
-// changes nothing produces a byte-identical file and an empty `git diff`.
+// Within a single compaction cycle, a job's history is every line with its
+// ID, in file order, with the latest line for a given ID being its current
+// state (last-write-wins) — but that history is not durable. Sweep runs
+// every tick (see runner.Queue.processTick) and compacts whenever anything
+// has changed since the last compaction, which in practice is within about
+// one tick of any Append/Update; compaction (see compactLocked) then
+// rewrites the file keeping exactly one line per live job, sorted by
+// EnqueuedAt then ID — deterministic, so a compaction that changes nothing
+// produces a byte-identical file and an empty `git diff`, but a job's
+// intermediate transitions (e.g. pending -> running -> failed -> pending)
+// are gone from disk almost as soon as they're superseded. Don't rely on
+// this file as an audit log of a job's full lifecycle; it only ever shows
+// each live job's *current* state.
 package flatfile
 
 import (
@@ -25,8 +33,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -182,6 +192,7 @@ func (s *Store) Append(job runner.Job) error {
 	if _, exists := s.latest[job.ID]; exists {
 		return fmt.Errorf("runner/flatfile: job %q already exists", job.ID)
 	}
+	job = normalizeEmptyPayload(job)
 	if err := s.appendLineLocked(job); err != nil {
 		return err
 	}
@@ -198,12 +209,28 @@ func (s *Store) Update(job runner.Job) error {
 	if _, exists := s.latest[job.ID]; !exists {
 		return fmt.Errorf("runner/flatfile: job %q not found", job.ID)
 	}
+	job = normalizeEmptyPayload(job)
 	if err := s.appendLineLocked(job); err != nil {
 		return err
 	}
 	s.latest[job.ID] = job
 	s.dirty = true
 	return nil
+}
+
+// normalizeEmptyPayload maps a nil or zero-length Payload to the JSON
+// literal "null", matching runner/sqlitestore's existing normalization.
+// Without this, json.RawMessage{}'s own MarshalJSON returns zero bytes
+// (valid only for a nil RawMessage, which returns "null" — an empty but
+// non-nil one returns literally nothing), which fails json.Marshal on the
+// enclosing record with "unexpected end of JSON input" — an error the
+// in-memory store never raised for the same input, and sqlitestore papered
+// over by normalizing. See storetest's EmptyPayloadNormalizesToNull.
+func normalizeEmptyPayload(job runner.Job) runner.Job {
+	if len(job.Payload) == 0 {
+		job.Payload = json.RawMessage("null")
+	}
+	return job
 }
 
 // appendLineLocked writes one JSONL line and fsyncs it before returning,
@@ -285,10 +312,17 @@ func (s *Store) Sweep(retention time.Duration, now time.Time) error {
 
 // compactLocked rewrites the file to contain exactly one line per entry in
 // s.latest, sorted deterministically (EnqueuedAt then ID) so an
-// unchanged-content compaction produces a byte-identical file. The write
-// is atomic (write-to-tmp, then rename) — the same pattern state.Store
-// uses for the same reason: a crash mid-write must never leave a
-// half-written file in the real path.
+// unchanged-content compaction produces a byte-identical file. The write is
+// durable: data goes to a temp file in the same directory, is fsynced,
+// closed, and only then renamed over the target path, with the directory
+// itself fsynced afterward so the rename entry is durable too — the same
+// pattern settings.Store.Save uses for the same reason. A rename that lands
+// before the data does (the previous WriteFile+Rename, no Sync at all) can
+// leave a truncated or zero-length queue file after a crash between the
+// write and the OS's own flush — and this is the path most writes actually
+// go through: Sweep compacts on the next tick after any Append/Update, so
+// the fsync-per-append in appendLineLocked was covering only a minority of
+// this Store's actual durability story.
 func (s *Store) compactLocked() error {
 	jobs := make([]runner.Job, 0, len(s.latest))
 	for _, j := range s.latest {
@@ -306,14 +340,78 @@ func (s *Store) compactLocked() error {
 		buf.WriteByte('\n')
 	}
 
-	tmpPath := s.path + ".tmp"
-	if err := os.WriteFile(tmpPath, buf.Bytes(), 0o644); err != nil {
-		return fmt.Errorf("runner/flatfile: write %s: %w", tmpPath, err)
+	dir := filepath.Dir(s.path)
+	tmpName, err := writeTempFile(dir, buf.Bytes())
+	if err != nil {
+		return err
 	}
-	if err := os.Rename(tmpPath, s.path); err != nil {
-		return fmt.Errorf("runner/flatfile: rename %s to %s: %w", tmpPath, s.path, err)
+	if err := os.Rename(tmpName, s.path); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("runner/flatfile: rename %s to %s: %w", tmpName, s.path, err)
 	}
+	syncDir(dir)
 	return nil
+}
+
+// fileHandle is the subset of *os.File that writeTempFile needs. It exists
+// so tests can substitute a fake and assert the fsync-before-rename
+// sequence without simulating an OS crash — mirrors
+// settings.Store's fileHandle.
+type fileHandle interface {
+	io.Writer
+	Sync() error
+	Close() error
+	Name() string
+}
+
+// createTempFile is overridable in tests.
+var createTempFile = func(dir, pattern string) (fileHandle, error) {
+	return os.CreateTemp(dir, pattern)
+}
+
+// writeTempFile serializes data into a 0o644 temp file inside dir and
+// fsyncs it before returning. The caller renames it into place (or removes
+// it on failure). Same directory as the target: rename is only atomic
+// within a filesystem.
+func writeTempFile(dir string, data []byte) (string, error) {
+	tf, err := createTempFile(dir, "queue-*.tmp")
+	if err != nil {
+		return "", fmt.Errorf("runner/flatfile: create temp file in %s: %w", dir, err)
+	}
+	name := tf.Name()
+
+	if _, err := tf.Write(data); err != nil {
+		_ = tf.Close()
+		_ = os.Remove(name)
+		return "", fmt.Errorf("runner/flatfile: write %s: %w", name, err)
+	}
+	// Sync before rename: a rename that lands before the data does leaves a
+	// truncated or zero-length queue file after a crash.
+	if err := tf.Sync(); err != nil {
+		_ = tf.Close()
+		_ = os.Remove(name)
+		return "", fmt.Errorf("runner/flatfile: sync %s: %w", name, err)
+	}
+	if err := tf.Close(); err != nil {
+		_ = os.Remove(name)
+		return "", fmt.Errorf("runner/flatfile: close %s: %w", name, err)
+	}
+	return name, nil
+}
+
+// syncDir best-effort fsyncs a directory so the rename itself (the entry
+// pointing at the new file) is durable, not just the file's contents.
+// Windows does not support fsync on directories.
+func syncDir(dir string) {
+	if runtime.GOOS == "windows" {
+		return
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return
+	}
+	_ = d.Sync()
+	_ = d.Close()
 }
 
 // List returns every job currently in the given state — implements
@@ -335,6 +433,23 @@ func (s *Store) List(state runner.JobState) ([]runner.Job, error) {
 // Close is a no-op: Store holds no long-lived file handle (each
 // Append/Update opens, writes, fsyncs, and closes independently).
 func (s *Store) Close() error { return nil }
+
+// Delete implements runner.Deleter — permanently removes id's record.
+// Deletion itself only touches the in-memory index and marks the Store
+// dirty; the record actually disappears from disk on the next compaction
+// (see compactLocked), the same lazy-compaction path Sweep already uses
+// for done/failed jobs.
+func (s *Store) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.latest[id]; !exists {
+		return fmt.Errorf("runner/flatfile: job %q not found", id)
+	}
+	delete(s.latest, id)
+	s.dirty = true
+	return nil
+}
 
 func sortByEnqueuedThenID(jobs []runner.Job) {
 	// Contract order is NextRunAt, then EnqueuedAt, then ID (see the Store

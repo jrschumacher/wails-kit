@@ -741,6 +741,134 @@ func TestValidateEffectiveState_DynamicSelectUsesPersistedParent(t *testing.T) {
 	}
 }
 
+// TestSetValues_DynamicOptionParentChangeResetsStrandedDependent pins H2: a
+// submission that changes only a DynamicOptions parent field must not be
+// rejected because a dependent field's stale value (persisted or default,
+// from the *previous* parent value) is no longer a valid option for the new
+// parent value. Before the fix, `{"llm.provider": "openai"}` alone — the
+// single most likely thing a real app submits — failed validation with an
+// invalid-option error on "llm.model", a field the caller never touched.
+func TestSetValues_DynamicOptionParentChangeResetsStrandedDependent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	svc := NewService(
+		WithStoragePath(path),
+		WithGroup(Group{
+			Key:   "llm",
+			Label: i18n.Text{Other: "LLM"},
+			Fields: []Field{
+				{
+					Key:     "llm.provider",
+					Type:    FieldSelect,
+					Label:   i18n.Text{Other: "Provider"},
+					Default: "anthropic",
+					Options: []SelectOption{
+						{Label: i18n.Text{Other: "Anthropic"}, Value: "anthropic"},
+						{Label: i18n.Text{Other: "OpenAI"}, Value: "openai"},
+					},
+				},
+				{
+					Key:     "llm.model",
+					Type:    FieldSelect,
+					Label:   i18n.Text{Other: "Model"},
+					Default: "claude-sonnet-4-6",
+					DynamicOptions: &DynamicOptions{
+						DependsOn: "llm.provider",
+						Options: map[string][]SelectOption{
+							"anthropic": {{Label: i18n.Text{Other: "Claude Sonnet 4.6"}, Value: "claude-sonnet-4-6"}},
+							"openai":    {{Label: i18n.Text{Other: "GPT-4o"}, Value: "gpt-4o"}, {Label: i18n.Text{Other: "GPT-4o Mini"}, Value: "gpt-4o-mini"}},
+						},
+					},
+				},
+			},
+		}),
+	)
+
+	// Defaults alone give provider=anthropic, model=claude-sonnet-4-6 —
+	// nothing persisted yet, matching the reproduction in the defect report.
+	values, err := svc.GetValues()
+	if err != nil {
+		t.Fatalf("GetValues: %v", err)
+	}
+	if values["llm.provider"] != "anthropic" || values["llm.model"] != "claude-sonnet-4-6" {
+		t.Fatalf("unexpected starting defaults: %v", values)
+	}
+
+	// Submit only the provider switch — exactly the H2 reproduction.
+	errs, err := svc.SetValues(map[string]any{"llm.provider": "openai"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("expected the provider-only switch to succeed, got validation errors: %v", errs)
+	}
+
+	values, err = svc.GetValues()
+	if err != nil {
+		t.Fatalf("GetValues: %v", err)
+	}
+	if values["llm.provider"] != "openai" {
+		t.Errorf("expected llm.provider=openai, got %v", values["llm.provider"])
+	}
+	if values["llm.model"] != "gpt-4o" {
+		t.Errorf("expected llm.model reset to the first openai option gpt-4o, got %v", values["llm.model"])
+	}
+}
+
+// TestSetValues_DynamicOptionExplicitMismatchStillRejected is the guard rail
+// for the H2 fix: if the caller explicitly submits both the parent and an
+// invalid dependent value in the same call, that is a genuinely inconsistent
+// submission and effective-state validation must still catch it — only a
+// value the caller didn't touch this call gets auto-corrected.
+func TestSetValues_DynamicOptionExplicitMismatchStillRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+
+	svc := NewService(
+		WithStoragePath(path),
+		WithGroup(Group{
+			Key:   "llm",
+			Label: i18n.Text{Other: "LLM"},
+			Fields: []Field{
+				{
+					Key:     "llm.provider",
+					Type:    FieldSelect,
+					Label:   i18n.Text{Other: "Provider"},
+					Default: "anthropic",
+					Options: []SelectOption{
+						{Label: i18n.Text{Other: "Anthropic"}, Value: "anthropic"},
+						{Label: i18n.Text{Other: "OpenAI"}, Value: "openai"},
+					},
+				},
+				{
+					Key:     "llm.model",
+					Type:    FieldSelect,
+					Label:   i18n.Text{Other: "Model"},
+					Default: "claude-sonnet-4-6",
+					DynamicOptions: &DynamicOptions{
+						DependsOn: "llm.provider",
+						Options: map[string][]SelectOption{
+							"anthropic": {{Label: i18n.Text{Other: "Claude Sonnet 4.6"}, Value: "claude-sonnet-4-6"}},
+							"openai":    {{Label: i18n.Text{Other: "GPT-4o"}, Value: "gpt-4o"}},
+						},
+					},
+				},
+			},
+		}),
+	)
+
+	// Both provider and an invalid model for that provider submitted
+	// together — this is a real inconsistency, not a stranded default.
+	errs, err := svc.SetValues(map[string]any{"llm.provider": "openai", "llm.model": "claude-sonnet-4-6"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(errs) != 1 || errs[0].Field != "llm.model" {
+		t.Fatalf("expected an explicit mismatch to still be rejected, got %v", errs)
+	}
+}
+
 // TestPasswordNonString pins defect #3: a non-string value submitted for a
 // password field must be rejected as a validation error, never coerced to
 // "" via a failed type assertion and used to delete the stored secret.

@@ -25,7 +25,7 @@ import (
 // instances to Wails, not just that settings.Binding itself is narrow.
 func TestBindingInstancesNeverRegisterRawService(t *testing.T) {
 	k := newTestKit(t,
-		kit.WithGitHubRepo("acme", "widget"), // enables k.Updates
+		kit.WithGitHubRepo("acme", "widget"), kit.WithUpdatesSkipVerification(), // enables k.Updates
 	)
 	cfg := newConfig()
 
@@ -73,7 +73,7 @@ func TestBindingInstances_CountsMatchEnabledComponents(t *testing.T) {
 	})
 
 	t.Run("updates enabled", func(t *testing.T) {
-		k := newTestKit(t, kit.WithGitHubRepo("acme", "widget"))
+		k := newTestKit(t, kit.WithGitHubRepo("acme", "widget"), kit.WithUpdatesSkipVerification())
 		instances := bindingInstances(k, newConfig())
 		want := 6
 		if len(instances) != want {
@@ -106,7 +106,7 @@ func assertNoType[T any](t *testing.T, instances []any) {
 func TestUpdatesBinding_Mirrors(t *testing.T) {
 	svc, err := updates.NewService(
 		updates.WithCurrentVersion("1.2.3"),
-		updates.WithGitHubRepo("acme", "widget"),
+		updates.WithGitHubRepo("acme", "widget"), updates.WithSkipVerification(),
 	)
 	if err != nil {
 		t.Fatalf("updates.NewService: %v", err)

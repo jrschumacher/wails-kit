@@ -30,6 +30,7 @@ type Store interface {
     Sweep(retention time.Duration, now time.Time) error; Close() error
 }
 type Lister interface { List(state JobState) ([]Job, error) } // optional; enables full Dead()/depth fidelity
+type Deleter interface { Delete(id string) error } // optional; enables Discard actually purging a Store record
 
 func New(p Profile, opts ...Option) (*Queue, error)
 func (q *Queue) Handle(jobType string, h Handler)
@@ -37,6 +38,7 @@ func (q *Queue) Enqueue(ctx, jobType string, payload any, opts ...EnqueueOption)
 func (q *Queue) Start(ctx context.Context) error // blocks until ctx.Done() and all handlers returned
 func (q *Queue) Close() error
 func (q *Queue) Dead() ([]Job, error); func (q *Queue) Requeue(id string) error
+func (q *Queue) Discard(id string) error // permanently removes a dead job; needs a Deleter Store or returns ErrDiscardUnsupported
 ```
 
 ## Invariants (do not break)
@@ -86,7 +88,9 @@ func (q *Queue) Dead() ([]Job, error); func (q *Queue) Requeue(id string) error
 
 - New `Store` implementations: only the four `Store` methods are required;
   implement `Lister` too for full `Dead()`/`MaxQueueDepth`/idempotency
-  fidelity across restarts (see `runner/storetest` for the shared contract
+  fidelity across restarts, and `Deleter` so `Queue.Discard` can actually
+  purge a dead-lettered job's record instead of returning
+  `ErrDiscardUnsupported` (see `runner/storetest` for the shared contract
   suite every `Store` should pass).
 - New profiles: add a constructor alongside `Ephemeral`/`Durable`/
   `BestEffort` returning a `Profile` literal — don't add a fourth
@@ -115,13 +119,14 @@ func (q *Queue) Dead() ([]Job, error); func (q *Queue) Requeue(id string) error
 ## File map
 
 - `runner.go` — `Persistence`, `JobState`, `Job`, `Handler`, `Store`,
-  `Lister`, event/error consts, `init()`.
+  `Lister`, `Deleter`, event/error consts, `init()`.
 - `profile.go` — `Profile`, `Ephemeral`/`Durable`/`BestEffort`,
   `DefaultBackoff`.
 - `queue.go` — `Queue`, `Option`s, `New`, `Handle`, `Enqueue`,
   `EnqueueOption`s, `Start`/`processTick`/`scanDue`/`dispatch`,
-  `completeJob`/`failJob`, `Dead`/`Requeue`, `Close`.
-- `memory_store.go` — the built-in `Store`+`Lister` used for `PersistNone`.
+  `completeJob`/`failJob`, `Dead`/`Requeue`/`Discard`, `Close`.
+- `memory_store.go` — the built-in `Store`+`Lister`+`Deleter` used for
+  `PersistNone`.
 - `id.go` — `newJobID`.
 - `storetest/storetest.go` — shared `Store` contract test suite.
 - `locales/en.json` — this package's i18n catalog.
@@ -129,15 +134,22 @@ func (q *Queue) Dead() ([]Job, error); func (q *Queue) Requeue(id string) error
 ## Landmines
 
 - **`MaxQueueDepth`/idempotency-key/`Dead()` bookkeeping is only fully
-  restart-durable when the `Store` implements `Lister`.** `Start` bootstraps
-  it from `Lister.List` once, before the tick loop; a minimal custom
-  `Store` without `Lister` still works, but that bookkeeping then only
-  reflects what happened since the current process started. Both built-in
-  stores implement `Lister`.
-- **`Enqueue` calls made before the first `Start()` in a process don't see
-  a restart-bootstrapped depth count** — the bootstrap only runs inside
-  `Start`. An app that enqueues before calling `Start` for the first time
-  can transiently overshoot `MaxQueueDepth` right after a restart.
+  restart-durable when the `Store` implements `Lister`.** `New` bootstraps
+  it from `Lister.List` once, before returning the `Queue` to the caller
+  (see `recoverOnce`, called from `New` and, redundantly but harmlessly,
+  from `Start` — the second call is a no-op guarded by `q.recovered`); a
+  minimal custom `Store` without `Lister` still works, but that bookkeeping
+  then only reflects what happened since the current process started. Both
+  built-in stores implement `Lister`.
+- **The bootstrap must run in `New`, not `Start`.** It used to run only in
+  `Start`, which double-counted `q.depth`: `Enqueue` (called any time after
+  `New`) increments `q.depth` for a job it just persisted, and if the same
+  job were later found again by a `Start`-time bootstrap scanning the
+  Store, it got counted a second time — permanently inflating `q.depth`
+  relative to reality once drained (the `depth > 0` floor prevents
+  underflow, not the residue). See `TestEnqueueBeforeStartDoesNotDoubleCountDepth`.
+  Enqueuing before the first `Start()` is exactly the order the package doc
+  example itself uses — it must work, not merely be tolerated.
 - **`Close` racing a still-running `Start` is a caller bug.** Cancel
   `Start`'s `ctx` and let it return before calling `Close` — otherwise
   `Store.Close` can run while `Start` is still using the store.

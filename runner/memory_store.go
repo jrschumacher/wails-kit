@@ -27,7 +27,7 @@ func (s *memoryStore) Append(job Job) error {
 	if _, exists := s.jobs[job.ID]; exists {
 		return fmt.Errorf("runner: job %q already exists", job.ID)
 	}
-	s.jobs[job.ID] = job
+	s.jobs[job.ID] = normalizeEmptyPayload(job)
 	return nil
 }
 
@@ -37,9 +37,26 @@ func (s *memoryStore) Update(job Job) error {
 	if _, exists := s.jobs[job.ID]; !exists {
 		return fmt.Errorf("runner: job %q not found", job.ID)
 	}
-	s.jobs[job.ID] = job
+	s.jobs[job.ID] = normalizeEmptyPayload(job)
 	return nil
 }
+
+// normalizeEmptyPayload maps a nil or zero-length Payload to the JSON
+// literal "null", matching runner/sqlitestore's existing normalization
+// (see that package's Append/Update). Without this, an empty payload's
+// on-disk/in-memory representation diverged by Store: accepted verbatim
+// here, a marshal error in runner/flatfile (json.RawMessage{} is not valid
+// JSON on its own), and "null" in sqlitestore — see storetest's
+// EmptyPayloadNormalizesToNull, which is the shared-contract case that
+// pins this now that all three Stores agree.
+func normalizeEmptyPayload(job Job) Job {
+	if len(job.Payload) == 0 {
+		job.Payload = jsonNull
+	}
+	return job
+}
+
+var jsonNull = []byte("null")
 
 func (s *memoryStore) Due(now time.Time, limit int) ([]Job, error) {
 	s.mu.Lock()
@@ -79,6 +96,17 @@ func (s *memoryStore) Sweep(retention time.Duration, now time.Time) error {
 }
 
 func (s *memoryStore) Close() error { return nil }
+
+// Delete implements Deleter — permanently removes id's record.
+func (s *memoryStore) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.jobs[id]; !exists {
+		return fmt.Errorf("runner: job %q not found", id)
+	}
+	delete(s.jobs, id)
+	return nil
+}
 
 func (s *memoryStore) List(state JobState) ([]Job, error) {
 	s.mu.Lock()

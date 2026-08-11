@@ -35,7 +35,8 @@ func (b *Binding) GetValues() (map[string]any, error)
 func (b *Binding) SetValues(values map[string]any) ([]ValidationError, error)
 
 func Validate(schema Schema, values map[string]any, localizer *i18n.Localizer) []ValidationError
-func LocaleGroup(l *i18n.Localizer) Group // locale-picker group; see locale.go
+func LocaleGroup(l *i18n.Localizer) Group          // locale-picker group; see locale.go
+func WireLocale(svc *Service, l *i18n.Localizer)   // live-switch glue (M6); see locale.go
 
 // Group/Field/SelectOption (schema.go) are the authoring types WithGroup composes;
 // every label is i18n.Text (WP-12). ResolvedGroup/ResolvedField/ResolvedSelectOption
@@ -54,6 +55,16 @@ func LocaleGroup(l *i18n.Localizer) Group // locale-picker group; see locale.go
   partial update can't dodge a `Condition`/`DynamicOptions` dependency by omitting the
   controlling field (`TestValidateEffectiveState*`). Persistence still writes only the
   *submitted* non-secret keys.
+- **A `DynamicOptions` parent changing alone resets a stranded dependent, never fails
+  validation for it.** `SetValues` merges submitted+persisted state and, when this
+  submission changes a `DynamicOptions` parent but doesn't also resubmit the dependent,
+  resets the dependent (to `Field.Default` if still valid, else the new parent's first
+  option) instead of rejecting the whole call over a field the caller never touched
+  (H2). An explicit, self-inconsistent submission of both parent and dependent still
+  fails normally — only a value the caller didn't submit this call gets corrected. See
+  `dynamicOptionCorrections` (`service.go`) and
+  `TestSetValues_DynamicOptionParentChangeResetsStrandedDependent` /
+  `TestSetValues_DynamicOptionExplicitMismatchStillRejected`.
 - **A non-string password value is a validation error, never a delete.**
   `validateField` type-checks `FieldPassword` like `FieldToggle`; `SetValues` keeps a
   defensive backstop after. See `TestPasswordNonString`.
@@ -78,6 +89,12 @@ func LocaleGroup(l *i18n.Localizer) Group // locale-picker group; see locale.go
 - **`ResolvedSchema`'s JSON shape is byte-for-byte the pre-WP-12 `Schema`'s.** Don't
   add/rename a JSON field on `ResolvedField`/`ResolvedGroup`/`ResolvedSelectOption`
   without treating it as a frontend-contract break. See `TestSchemaWireShapeUnchanged`.
+- **`WireLocale` never forwards `"system"` to `l.SetLocale`.** `"system"` isn't a
+  BCP-47 tag, and `Localizer` has no operation to revert an explicit `SetLocale` back
+  to its env/OS/default tiers — see `TestWireLocale_LiveSwitch`'s last assertion. Don't
+  "fix" this by making `WireLocale` special-case `"system"` into some resolution call;
+  that capability doesn't exist on the `i18n` side to call into (i18n/AGENTS.md
+  Landmines).
 
 ## Dependencies & insulation
 
@@ -124,7 +141,8 @@ func LocaleGroup(l *i18n.Localizer) Group // locale-picker group; see locale.go
 - `binding.go` — `Binding`, the frontend-safe registration surface.
 - `schema.go` — authoring types (`i18n.Text` labels) and `Resolved*` wire types.
 - `resolve.go` — authoring -> resolved, nil-localizer-safe (`resolveText` etc.).
-- `locale.go` — `LocaleGroup` (moved from `i18n.Localizer.SettingsGroup`, WP-12).
+- `locale.go` — `LocaleGroup` (moved from `i18n.Localizer.SettingsGroup`, WP-12);
+  `WireLocale` (M6 — `svc.AddOnChange` -> `l.SetLocale` glue for live switching).
 - `validate.go` — `Validate`, `validateField`, `conditionMet`, the `msg*` templates.
 - `store.go` — `Store`: path resolution, `Load`, durable `Save`.
 - `locales/en.json` — this package's catalog: locale-picker labels + validation messages.

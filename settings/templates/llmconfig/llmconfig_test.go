@@ -248,6 +248,57 @@ func TestResolveModelID(t *testing.T) {
 	}
 }
 
+// TestSwitchProviderAlone_DoesNotFailValidation is the exact H2 reproduction
+// against the real llmconfig-built schema (not a synthetic settings-package
+// double): with defaults anthropic/claude-sonnet-4-6, a caller submitting
+// only {"llm.provider": "openai"} — the single most likely thing a real app
+// does with this schema — must succeed, with llm.model reset to a valid
+// openai option rather than the whole submission being rejected because the
+// stale anthropic model isn't a valid openai option.
+func TestSwitchProviderAlone_DoesNotFailValidation(t *testing.T) {
+	dir := t.TempDir()
+	group, _ := New(WithProviders("anthropic", "openai"), WithDefaultProvider("anthropic"))
+
+	svc := settings.NewService(
+		settings.WithStoragePath(dir+"/settings.json"),
+		settings.WithGroup(group),
+	)
+
+	values, err := svc.GetValues()
+	if err != nil {
+		t.Fatalf("GetValues: %v", err)
+	}
+	if values["llm.provider"] != "anthropic" || values["llm.model"] != "claude-sonnet-4-6" {
+		t.Fatalf("unexpected starting defaults: provider=%v model=%v", values["llm.provider"], values["llm.model"])
+	}
+
+	errs, err := svc.SetValues(map[string]any{"llm.provider": "openai"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("expected switching provider alone to succeed, got validation errors: %v", errs)
+	}
+
+	values, err = svc.GetValues()
+	if err != nil {
+		t.Fatalf("GetValues: %v", err)
+	}
+	if values["llm.provider"] != "openai" {
+		t.Errorf("expected llm.provider=openai, got %v", values["llm.provider"])
+	}
+	model, _ := values["llm.model"].(string)
+	validModel := false
+	for _, opt := range Builtin()[1].Models { // Builtin()[1] is openai
+		if opt.Value == model {
+			validModel = true
+		}
+	}
+	if !validModel {
+		t.Errorf("expected llm.model reset to a valid openai option, got %q", model)
+	}
+}
+
 func TestComputeFunc_ResolvedModelID(t *testing.T) {
 	group, _ := New()
 

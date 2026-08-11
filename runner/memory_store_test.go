@@ -6,6 +6,38 @@ import (
 	"time"
 )
 
+// TestMemoryStoreEmptyPayloadNormalizesToNull is the memoryStore half of
+// M5's fix: an empty (non-nil, zero-length) Payload used to be accepted
+// verbatim, diverging from runner/flatfile (which errored marshaling it)
+// and runner/sqlitestore (which already normalized it to the JSON literal
+// null). storetest.Run can't be pointed at the built-in memoryStore
+// directly — runner/storetest imports runner, so an in-package
+// (`package runner`) test file importing runner/storetest back would be a
+// real import cycle, unlike runner/flatfile's and runner/sqlitestore's own
+// storetest-based tests, which live in a different package. This test
+// covers the same case storetest.Run's EmptyPayloadNormalizesToNull
+// subtest does, by hand, for the one Store storetest can't reach.
+func TestMemoryStoreEmptyPayloadNormalizesToNull(t *testing.T) {
+	s := newMemoryStore()
+	defer func() { _ = s.Close() }()
+
+	now := time.Now()
+	if err := s.Append(Job{ID: "a", Payload: json.RawMessage{}, State: JobStatePending, EnqueuedAt: now, NextRunAt: now}); err != nil {
+		t.Fatalf("Append with empty payload: %v", err)
+	}
+
+	due, err := s.Due(now.Add(time.Second), 10)
+	if err != nil {
+		t.Fatalf("Due: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("Due = %+v, want 1 job", due)
+	}
+	if got := string(due[0].Payload); got != "null" {
+		t.Fatalf("empty payload = %q, want the JSON literal null", got)
+	}
+}
+
 func TestMemoryStoreAppendAndDue(t *testing.T) {
 	s := newMemoryStore()
 	defer func() { _ = s.Close() }()

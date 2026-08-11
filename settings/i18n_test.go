@@ -226,3 +226,54 @@ func TestLocaleGroup(t *testing.T) {
 		t.Error("expected a non-empty resolved group label")
 	}
 }
+
+// TestWireLocale_LiveSwitch pins M6: a locale picked through LocaleGroup's
+// field must take effect immediately in the same process, not just on next
+// launch. Before WireLocale existed, SetValues persisted the new
+// i18n.SettingLocale value like any other field (nothing rejected it — the
+// field "worked") but nothing told the already-constructed *i18n.Localizer
+// to re-resolve, so l.Locale() silently stayed on the old value until the
+// app restarted and i18n.WithSettings' tier-2 resolution picked it up fresh.
+func TestWireLocale_LiveSwitch(t *testing.T) {
+	l, err := i18n.New(i18n.WithCatalog(frCatalog()), i18n.WithLocale("en"))
+	if err != nil {
+		t.Fatalf("i18n.New: %v", err)
+	}
+
+	svc := NewService(WithGroup(LocaleGroup(l)), WithLocalizer(l))
+	WireLocale(svc, l)
+
+	if got := l.Locale(); got != "en" {
+		t.Fatalf("Locale() before switch = %q, want %q", got, "en")
+	}
+
+	errs, err := svc.SetValues(map[string]any{i18n.SettingLocale: "fr"})
+	if err != nil {
+		t.Fatalf("SetValues: %v", err)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("expected the locale switch to validate, got %v", errs)
+	}
+	if got := l.Locale(); got != "fr" {
+		t.Errorf("Locale() after SetValues(i18n.locale=fr) = %q, want %q (live switch never reached the Localizer)", got, "fr")
+	}
+
+	// GetSchema resolves fresh every call (existing invariant) — confirms
+	// the wiring is real and something downstream actually observes it, not
+	// just an internal field on l that nothing reads.
+	schema := svc.GetSchema()
+	if got := schema.Groups[0].Fields[0].Label; got == "" {
+		t.Errorf("unexpected empty schema label after locale switch")
+	}
+
+	// "system" (the field's own default, meaning "defer to lower tiers")
+	// must not be forwarded to SetLocale — it isn't a valid BCP-47 tag, and
+	// must not error or change the resolved locale away from the explicit
+	// choice already made.
+	if _, err := svc.SetValues(map[string]any{i18n.SettingLocale: "system"}); err != nil {
+		t.Fatalf("SetValues(system): %v", err)
+	}
+	if got := l.Locale(); got != "fr" {
+		t.Errorf("Locale() after SetValues(i18n.locale=system) = %q, want unchanged %q", got, "fr")
+	}
+}

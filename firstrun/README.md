@@ -173,6 +173,26 @@ not something to bump per release. **If you skip this option**, every
 pre-adoption install is silently treated as `Fresh` the first time it runs
 with `firstrun` — document that loudly if you choose to accept it.
 
+## Recovering from a corrupt stamp
+
+The stamp file can end up corrupt (disk full mid-write on an older build,
+hand-editing, etc.). `Detect`/`Run` never fail forever because of it: the
+underlying `state.Store` quarantines the corrupt file (renamed aside with a
+`.corrupt-<unix-nano>` suffix, preserving the original bytes) and reports it
+as recovered. `firstrun` treats that recovery as its own outcome — `Kind ==
+Same`, with `Previous == Current` — rather than as `Fresh`: reporting
+`Fresh` would re-run every `OnFresh` onboarding hook for what is almost
+certainly an existing user, which is worse than doing nothing. Hooks with no
+`When` filter still run; `OnFresh`/`OnUpgrade`/`OnDowngrade`-gated hooks do
+not. `Run` then writes a fresh, valid stamp at the current version, so
+recovery is a one-launch event — the next launch behaves normally.
+
+For an explicit, user-triggerable reset (e.g. a "repair my installation"
+action) rather than relying on automatic recovery, call `Service.Reset()`,
+which deletes the stamp so the next `Detect`/`Run` treats the install as
+`Fresh` (or `Upgrade` from `WithBaselineVersion`, if set) — including
+re-running `OnFresh` hooks.
+
 ## Options
 
 | Option | Description |

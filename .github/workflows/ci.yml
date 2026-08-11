@@ -83,6 +83,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+      # updates/signing_docs_test.go executes the signing recipe the README
+      # documents, and skips when minisign is absent. Without it installed
+      # here, the one test that proves the documented recipe actually works
+      # silently never runs — which is how the previous recipe shipped
+      # unusable for months.
+      - name: Install minisign
+        run: sudo apt-get install -y --no-install-recommends minisign
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: test

@@ -130,7 +130,8 @@ Summary of the defenses this package implements against a compromised/rolled-bac
 - **Downgrade protection.** `CheckForUpdate` never caches a release that is not strictly newer than the current version — a rolled-back or compromised feed cannot silently poison a previously cached, genuinely newer release with an older one. `DownloadUpdate` and `ApplyUpdate` each independently re-check newness again before acting, rather than trusting a single check performed earlier. A valid signature does not imply a *current* build: an attacker who can make the feed serve an old, legitimately-signed release with known, already-patched vulnerabilities can trick a user into "upgrading" backwards. Opt out only for an explicit, user-initiated reinstall/downgrade flow via `WithAllowDowngrade()`.
 - **Private staging directory.** Downloads are staged under the app's private cache directory (`appdirs.Cache()/updates/`, under the user's home directory — e.g. `~/Library/Caches/<app>` on macOS, `~/.cache/<app>` on Linux) rather than the shared OS temp directory. On Linux, `/tmp` is world-writable (mode `1777`); a local attacker can pre-create a subdirectory there and own it before this process ever runs, and `os.MkdirAll` succeeds silently against a directory that already exists regardless of who created it or with what permissions. This package additionally verifies (on POSIX) that the staging directory is owned by the current user and not group/world-accessible, both when it's created for a download and again for archive extraction.
 - **Re-verify immediately before extract.** `DownloadUpdate` and `ApplyUpdate` are separate, user-triggered steps with an unbounded gap between them. `ApplyUpdate` re-verifies the staged file's signature immediately before extracting it, not just once at download time — closing the window where a local attacker who gains write access to the staging directory between the two calls could swap the file.
-- **Fail-loud, not fail-open, key handling.** A public key passed to `WithPublicKey` is parsed and validated when you call `NewService`, not lazily on first use — a malformed or wrong-length key is rejected immediately with a clear error instead of surfacing later (or, with the previous raw-`ed25519.PublicKey` implementation, **panicking** on a key of the wrong length, since `ed25519.Verify` panics rather than errors on a bad key length). When no key is configured and `WithSkipVerification` isn't set either, a warning is logged on every download — verification being skipped is never silent.
+- **Fail-loud, not fail-open, key handling.** A public key passed to `WithPublicKey` is parsed and validated when you call `NewService`, not lazily on first use — a malformed or wrong-length key is rejected immediately with a clear error instead of surfacing later (or, with the previous raw-`ed25519.PublicKey` implementation, **panicking** on a key of the wrong length, since `ed25519.Verify` panics rather than errors on a bad key length). Verification cannot be silently absent, either: `NewService` **requires** either `WithPublicKey` or `WithSkipVerification` and returns an error at construction time if neither is set. A constructor that already hard-fails on a missing repo or version treating "no verification configured" as a soft, ignorable warning would be inconsistent — and indefensible for the package that replaces the user's binary. `WithSkipVerification` still logs a warning on every use, since it remains an explicit, dev-only opt-out.
+- **Staging directory cleanup.** A previous `DownloadUpdate` call's staging directory is removed before a new one is created (so an app that downloads without ever applying doesn't leak a directory per call), and `NewService` sweeps any staging directories left behind by a crashed prior process. Staging directories are per-app, under `appdirs.Cache()/updates/` — see "Private staging directory" above.
 - **Download size cap.** The GitHub API reports each asset's size in the release metadata (`asset.Size`) before any bytes are downloaded. `DownloadAsset` caps the read at that size; a compromised or malicious feed that tries to stream more than it declared is cut off instead of being buffered to disk indefinitely. (Archive decompression is separately capped at 1 GiB.)
 - **Private repos use the API asset endpoint.** Confirmed bug, now fixed: `browser_download_url` requires a browser session and returns 404 for API/token-authenticated requests against a private repository. `DownloadAsset` now uses the GitHub API asset endpoint (`Asset.URL`, present on every asset the API returns) with an `Accept: application/octet-stream` header instead, which works for both private and public repos. `Authorization` is safe to send on that request unconditionally: `net/http` strips it automatically when the API 302-redirects to the actual (unauthenticated, signed, short-lived) storage URL.
 
@@ -171,7 +172,8 @@ key line.
   so a file swapped in between the two steps is still caught
 - A missing `.minisig` asset fails the download; it is never treated as "unsigned, therefore fine"
 - An invalid signature deletes the downloaded file and emits an `update_verify` error
-- Without `WithPublicKey`, verification is skipped and a warning is logged
+- `NewService` requires either `WithPublicKey` or `WithSkipVerification` — construction
+  fails immediately if neither is set, rather than silently applying unverified updates
 
 ### Generating a keypair
 
@@ -261,7 +263,56 @@ The default applier replaces the binary using an atomic rename strategy:
 2. Rename new binary to the current path
 3. Clean up the `.old` file
 
-If the rename of the new binary fails, the old binary is restored. You can provide a custom `Applier` implementation via `WithApplier` for platform-specific needs (e.g., macOS `.app` bundle replacement).
+If the rename of the new binary fails, the old binary is restored.
+
+**This only replaces a single executable file.** It is correct for a plain
+binary (Linux, Windows, or a macOS binary run outside a `.app` bundle). It is
+**not** sufficient for a macOS `.app` bundle — see the next section.
+
+## macOS `.app` bundles
+
+The default applier does not support `.app` bundles, and this is intentional,
+not an oversight.
+
+Inside a bundle, `os.Executable()` resolves to
+`Foo.app/Contents/MacOS/Foo` — one file among many (`Info.plist`,
+`Resources/`, `Frameworks/`, the code signature under `_CodeSignature/`). The
+default applier would rename over just that one file and leave the rest of
+the bundle at the old version. Worse: **`.app` bundles are code-signed as a
+unit**, and replacing any single file inside a signed bundle invalidates that
+signature. On Apple Silicon, Gatekeeper enforces the seal at launch — the
+next time the user opens the app, macOS kills it. A self-updater that bricks
+a signed app on every install is strictly worse than shipping no
+self-updater at all.
+
+If your app ships as a `.app` bundle, you must provide your own `Applier` via
+`WithApplier` that:
+
+- Downloads/stages the new bundle (or the pieces needed to construct one)
+- Replaces the *entire* bundle directory in one atomic operation (e.g. build
+  the new bundle alongside the old one, then swap directory entries — not a
+  file-by-file copy into the running bundle)
+- Re-signs the bundle as part of your release process so the swapped-in
+  bundle carries a valid signature (the signing step happens when you *build*
+  the release asset, not inside the applier — the applier just needs to not
+  disturb it)
+
+This package does not ship a bundle-swap `Applier` itself. Doing so correctly
+requires verifying the result against a real signed-and-notarized build under
+Gatekeeper — including how the quarantine extended attribute behaves after
+the swap — which cannot be validated in this repository's test environment.
+Shipping an untested bundle-swap implementation as the default would be
+worse than the honest limitation described here.
+
+## Restart/relaunch
+
+This package does not include a process-relaunch helper. `ApplyUpdate`
+replaces the file(s) on disk; it does not restart the app. Wiring up the
+common flow — check on launch, notify the user, apply on quit, relaunch — is
+your app's responsibility today. If you need it, `os.Executable()` plus
+`exec.Command` (spawn the new binary, then exit the current process) is the
+usual pattern; on macOS, relaunching a bundle means opening the `.app` again
+(e.g. via `open` or `NSWorkspace`), not just re-exec'ing the inner binary.
 
 ## Version comparison
 

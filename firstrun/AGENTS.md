@@ -43,6 +43,7 @@ func WithHooks(hooks ...Hook) Option
 
 func (s *Service) Detect() (Info, error) // read-only; no hooks, no writes
 func (s *Service) Run(ctx context.Context) (Info, error)
+func (s *Service) Reset() error // deletes the stamp; next Detect/Run is Fresh (or baseline-Upgrade)
 
 const EventTransition = "firstrun:transition"
 var ErrRefuse error // sentinel for OnDowngrade hooks that refuse to proceed
@@ -63,11 +64,20 @@ var ErrRefuse error // sentinel for OnDowngrade hooks that refuse to proceed
   no per-hook "already ran" bookkeeping; hooks must be idempotent
   (documented loudly in the README) rather than this package tracking
   partial progress.
-- **Never emit while holding `s.mu`.** `Run` releases the lock
-  (`runLocked` returns) before calling `s.emit` — `state`, `settings`, and
-  now `firstrun` all had or avoided this deadlock; see
-  `TestRunEmitsTransitionAfterSuccess`, which registers a handler that
-  calls back into `Detect` and would hang if emit held the lock.
+- **Never emit while holding `s.mu`.** `Run` releases the lock before
+  calling `s.emit` — `state`, `settings`, and now `firstrun` all had or
+  avoided this deadlock; see `TestRunEmitsTransitionAfterSuccess`, which
+  registers a handler that calls back into `Detect` and would hang if emit
+  held the lock.
+- **Never run a `Hook.Run` (or the final `state.Store.Save`) while holding
+  `s.mu` either.** This is a distinct instance of the same bug class, not
+  covered by the emit invariant above: the old `runLocked` held `s.mu` for
+  the entire hook loop, so a hook that called back into `Detect` or `Run`
+  self-deadlocked (same goroutine re-entering a non-reentrant
+  `sync.Mutex`; Go does not detect this, it just hangs). The fix
+  (`detectAndSnapshotHooks`) takes `s.mu` only long enough to `detect()`
+  and copy the hook slice, then releases it before `run` invokes anything
+  external. See `TestHookReentryDoesNotDeadlock`.
 - **`EventTransition` fires only after a fully successful `Run`.** A failed
   `Run` (hook error, save error) never emits — an app must be able to treat
   "I got `firstrun:transition`" as proof the run completed.
@@ -81,6 +91,19 @@ var ErrRefuse error // sentinel for OnDowngrade hooks that refuse to proceed
   even when the version arithmetic would technically overlap — a fresh
   install has nothing to migrate *from*. Gate explicitly on
   `Kind == Upgrade`, don't rely on the comparison alone.
+- **A corrupt stamp is a distinct outcome, not `Fresh`.** `detect()` calls
+  `state.Store.LoadDetailed()`; when it reports `recovered == true` (the
+  stamp file existed but failed to parse as JSON and `state` has already
+  quarantined it), `detect()` returns `Kind == Same` with `Previous ==
+  Current`, never `Fresh`. Collapsing corruption into `Fresh` would re-run
+  every `OnFresh` onboarding hook for what is almost certainly an existing
+  user — worse than doing nothing. Only unfiltered (`When == nil`) hooks
+  run on this recovery pass; `Run` then writes a fresh valid stamp so
+  recovery is a one-launch event. See `TestDetectRecoversFromCorruptStamp`,
+  `TestRunRecoversFromCorruptStampWithoutRerunningOnboarding`. `Reset()` is
+  the separate, explicit, user-triggerable counterpart (delete the stamp
+  outright) — it deliberately *does* report `Fresh` next time, unlike
+  automatic corruption recovery.
 
 ## Dependencies & insulation
 
@@ -114,9 +137,14 @@ var ErrRefuse error // sentinel for OnDowngrade hooks that refuse to proceed
   the stamp untouched (`TestUpgradeStopsAtFirstFailure`,
   `TestStampOnlyAfterSuccess`), downgrade with and without refusal
   (`TestDowngradeRefusal`, `TestDowngradeWithoutHookProceeds`), the
-  adopted-mid-life baseline behavior (`TestAdoptedMidLife`), and event
+  adopted-mid-life baseline behavior (`TestAdoptedMidLife`), event
   emission/non-emission (`TestRunEmitsTransitionAfterSuccess`,
-  `TestRunDoesNotEmitOnFailure`).
+  `TestRunDoesNotEmitOnFailure`), corrupt-stamp recovery without re-running
+  onboarding (`TestDetectRecoversFromCorruptStamp`,
+  `TestRunRecoversFromCorruptStampWithoutRerunningOnboarding`), `Reset`
+  (`TestReset`), and the hook-reentrancy deadlock regression, run with a
+  real timeout so a regression fails instead of hanging the suite
+  (`TestHookReentryDoesNotDeadlock`).
 - Not automatable: none — this package is pure logic plus one JSON file, no
   OS/GUI signal to fake.
 

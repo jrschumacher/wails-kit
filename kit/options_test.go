@@ -91,7 +91,7 @@ func TestUpdatesTickerChecksOnStartup(t *testing.T) {
 	defer srv.Close()
 
 	k := newTestKit(t,
-		WithGitHubRepo("acme", "widget"),
+		WithGitHubRepo("acme", "widget"), WithUpdatesSkipVerification(),
 		WithUpdatesOptions(updates.WithGitHubAPIURL(srv.URL)),
 	)
 

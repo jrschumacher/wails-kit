@@ -114,3 +114,11 @@ silently skipped (not an error), `WithProvider`/`WithModels` add and override pa
 - Field keys are string-built (`prefix + "." + id + ".secret"`, etc.) — there's no
   validation that `groupKey` or a provider ID doesn't contain a literal `.` that would
   collide with this scheme. Not currently guarded; keep IDs simple identifiers.
+- **Switching `<prefix>.provider` alone no longer fails validation (H2).** The
+  `<prefix>.model` field is `settings.FieldSelect` with `DynamicOptions` keyed on
+  `<prefix>.provider`; a submission that changes the provider without also resubmitting
+  the model used to leave the previous provider's stale model value in place and fail
+  `settings.Validate`'s option-membership check. The fix lives in `settings.Service`
+  (`dynamicOptionCorrections`, `settings/service.go`), not here — this package's schema
+  needed no change. See `TestSwitchProviderAlone_DoesNotFailValidation` in
+  `llmconfig_test.go` and `settings/README.md`'s "Validation" section.

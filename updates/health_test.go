@@ -19,6 +19,7 @@ func TestWithHealthRegistersCheck(t *testing.T) {
 	svc, err := NewService(
 		WithCurrentVersion("v1.0.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 		WithGitHubAPIURL(srv.URL),
 		WithHealth(r),
 	)
@@ -57,6 +58,7 @@ func TestWithHealthOptionOrderDoesNotMatter(t *testing.T) {
 		WithHealth(r),
 		WithCurrentVersion("v1.0.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 		WithGitHubAPIURL(srv.URL),
 	)
 	if err != nil {
@@ -74,6 +76,7 @@ func TestWithHealthNilRegistryIsNoop(t *testing.T) {
 	_, err := NewService(
 		WithCurrentVersion("v1.0.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 		WithHealth(nil),
 	)
 	if err != nil {
@@ -90,6 +93,7 @@ func TestWithHealthDuplicateDoesNotFailConstruction(t *testing.T) {
 	_, err := NewService(
 		WithCurrentVersion("v1.0.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 		WithHealth(r),
 	)
 	if err != nil {
@@ -107,6 +111,7 @@ func TestGithubReleasesProbeDownOnServerError(t *testing.T) {
 	if _, err := NewService(
 		WithCurrentVersion("v1.0.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 		WithGitHubAPIURL(srv.URL),
 		WithHealth(r),
 	); err != nil {
@@ -133,6 +138,7 @@ func TestGithubReleasesProbeHealthyOnRateLimitResponse(t *testing.T) {
 	if _, err := NewService(
 		WithCurrentVersion("v1.0.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 		WithGitHubAPIURL(srv.URL),
 		WithHealth(r),
 	); err != nil {
@@ -156,6 +162,7 @@ func TestWithHealthCriticalAndInterval(t *testing.T) {
 	if _, err := NewService(
 		WithCurrentVersion("v1.0.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 		WithGitHubAPIURL(srv.URL),
 		WithHealth(r, WithHealthCritical(true)),
 	); err != nil {

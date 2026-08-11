@@ -507,6 +507,18 @@ Conventions for every WP below:
   phases. **Before merging `v2` to `main`:** tag `v2.0.0` manually and seed the
   manifest to `2.0.0` so subsequent automation computes 2.0.x/2.1.0. This is a
   cross-cutting release task, not a package WP — see §Cross-cutting.
+- **The runner sleep/wake spec was wrong as written, and the implementation
+  inherited the bug.** WP-40 specified detection via "monotonic gap > 2×tick".
+  Go's `time.Sub` uses the monotonic reading when both operands carry one, and
+  Darwin's `mach_absolute_time` halts during sleep while Linux's
+  `CLOCK_MONOTONIC` excludes suspend — so the gap is never observed on either
+  primary desktop target and the feature was inert in production. Tests passed
+  because the fake clock advances a single shared timestamp. Detection must use
+  **wall-clock** comparison (`t.Round(0)` strips the monotonic reading). Fixed;
+  the spec text above is corrected so it is not reimplemented from the roadmap.
+- **`ResumeOnWake` is event-only.** The spec said "re-tick immediately", but the
+  due-scan already runs every tick regardless, so there is no code path that
+  could burst — the flag gates only the `runner:wake` event.
 - **`go.work.sum` is gitignored** (regenerates on build; committing it means a
   permanently dirty `git status`). `go.work` itself is committed.
 
@@ -1370,7 +1382,7 @@ type Profile struct {
     MaxAttempts   int           // 0 = unlimited (durable), N = drop after N (best-effort)
     Backoff       func(attempt int) time.Duration // default: exp, 1s..5m, jitter
     DeadLetter    bool          // failed-terminal jobs retained in "dead" state vs deleted
-    ResumeOnWake  bool          // re-tick immediately after sleep/wake gap detection
+    ResumeOnWake  bool          // emit runner:wake on sleep/wake gap detection (event-only; the due-scan already runs every tick)
     MaxQueueDepth int           // backpressure: Enqueue errors beyond this; 0 = unbounded
     Retention     time.Duration // completed-job retention in the store; 0 = delete on success
 }
@@ -1412,7 +1424,7 @@ func (q *Queue) Handle(jobType string, h Handler)
 func (q *Queue) Enqueue(ctx context.Context, jobType string, payload any, opts ...EnqueueOption) (id string, err error)
 func WithIdempotencyKey(k string) EnqueueOption // duplicate key while pending/running → returns existing id
 func WithDelay(d time.Duration) EnqueueOption
-func (q *Queue) Start(ctx context.Context) error // tick loop; sleep/wake detected via monotonic gap > 2×tick
+func (q *Queue) Start(ctx context.Context) error // tick loop; sleep/wake detected via WALL-CLOCK gap > 2×tick
 func (q *Queue) Close() error                    // drain running, persist pending
 ```
 

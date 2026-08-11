@@ -3,5 +3,6 @@
   "wailskit.runner.errors.no_handler": "This job type isn't handled yet.",
   "wailskit.runner.errors.store_required": "The background job queue is misconfigured.",
   "wailskit.runner.errors.job_not_found": "The requested job was not found.",
-  "wailskit.runner.errors.queue_closed": "The background job queue has been shut down."
+  "wailskit.runner.errors.queue_closed": "The background job queue has been shut down.",
+  "wailskit.runner.errors.discard_unsupported": "This job queue's storage doesn't support permanently discarding a job."
 }

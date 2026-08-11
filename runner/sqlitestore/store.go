@@ -304,6 +304,22 @@ func (s *Store) Close() error {
 	return nil
 }
 
+// Delete implements runner.Deleter — permanently removes id's row.
+func (s *Store) Delete(id string) error {
+	res, err := s.db.DB().Exec(`DELETE FROM jobs WHERE id = ?`, id)
+	if err != nil {
+		return errors.Wrap(ErrStoreQuery, fmt.Sprintf("runner/sqlitestore: delete job %q", id), err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return errors.Wrap(ErrStoreQuery, fmt.Sprintf("runner/sqlitestore: delete job %q: rows affected", id), err)
+	}
+	if n == 0 {
+		return fmt.Errorf("runner/sqlitestore: job %q not found", id)
+	}
+	return nil
+}
+
 func scanJobs(rows *sql.Rows) ([]runner.Job, error) {
 	defer func() { _ = rows.Close() }()
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"golang.org/x/text/feature/plural"
+	"golang.org/x/text/language"
 )
 
 // kitLocalesFS is the kit's own catalog. It is always merged first, so any
@@ -83,11 +84,25 @@ func (e *catalogEntry) UnmarshalJSON(data []byte) error {
 }
 
 // mergeFS loads every locales/<bcp47>.json file found in fsys and merges its
-// entries into l.catalogs, keyed by the locale tag in the filename (e.g.
-// "fr-CA.json" -> locale "fr-CA"). A missing "locales" directory is not an
-// error — a WithCatalog source may legitimately ship none. Entries from
-// later mergeFS calls overwrite entries from earlier ones for the same
-// locale+key, which is what makes app catalogs win over the kit's.
+// entries into l.catalogs, keyed by the *canonical* BCP-47 form of the
+// locale tag in the filename — not the raw filename stem. "fr-CA.json"
+// becomes locale "fr-CA", but so does "fr_ca.json" or "FR-CA.json": the
+// filename stem is run through language.Parse and re-serialized via
+// Tag.String(), the same canonicalization lookupCandidates (resolve.go)
+// produces from a resolved locale tag. Without this, a catalog keyed by
+// whatever casing/separator/legacy-code convention a translator happened to
+// name the file with (e.g. "en-us.json", "pt_BR.json", "iw.json" — the
+// deprecated code for Hebrew) never matches lookupCandidates' canonical
+// candidates ("en-US", "pt-BR", "he"): the file loads without error, its
+// locale even appears in LocaleOptions, but every T/TN/Catalog lookup for it
+// silently falls through to a lower fallback tier instead. A filename stem
+// that fails to parse as BCP-47 at all is kept as-is (rather than dropping
+// the file) — see the fallback assignment below.
+//
+// A missing "locales" directory is not an error — a WithCatalog source may
+// legitimately ship none. Entries from later mergeFS calls overwrite entries
+// from earlier ones for the same locale+key, which is what makes app
+// catalogs win over the kit's.
 func (l *Localizer) mergeFS(fsys fs.FS) error {
 	entries, err := fs.ReadDir(fsys, "locales")
 	if err != nil {
@@ -102,6 +117,9 @@ func (l *Localizer) mergeFS(fsys fs.FS) error {
 			continue
 		}
 		locale := strings.TrimSuffix(entry.Name(), ".json")
+		if tag, err := language.Parse(locale); err == nil {
+			locale = tag.String()
+		}
 
 		data, err := fs.ReadFile(fsys, path.Join("locales", entry.Name()))
 		if err != nil {

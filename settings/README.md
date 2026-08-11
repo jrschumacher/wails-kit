@@ -186,6 +186,31 @@ svc := settings.NewService(
 )
 ```
 
+**`LocaleGroup` alone only makes the choice persist — call `WireLocale` too for it to
+take effect live.** `i18n.WithSettings` reads a persisted locale exactly once, at
+`i18n.New` (resolution tier 2); nothing re-reads it afterward. Without also wiring the
+change through, submitting a new value via `LocaleGroup`'s field saves correctly and
+looks like it worked, but the already-constructed `*i18n.Localizer` never re-resolves
+until the next process launch — a silent no-op dressed up as a working feature.
+`settings.WireLocale(svc, l)` closes that gap: a thin `svc.AddOnChange` that calls
+`l.SetLocale` whenever `i18n.SettingLocale` changes.
+
+```go
+svc := settings.NewService(
+    settings.WithLocalizer(l),
+    settings.WithGroup(settings.LocaleGroup(l)),
+)
+settings.WireLocale(svc, l) // live switching — call once, after both exist
+```
+
+Picking `"system"` (the field's own default) is deliberately not forwarded to
+`l.SetLocale` — it isn't a BCP-47 tag, and `Localizer` has no way to "revert" an
+explicit choice back to its env/OS/default resolution tiers once one has been made (see
+[`i18n/README.md`](../i18n/README.md#settings-integration)). Switching to French then
+back to "System default" leaves the running process on French until relaunch;
+`WireLocale` avoids a spurious error on that submission, it does not add a capability
+`i18n` itself doesn't have.
+
 ## Field types
 
 | Type | Constant | Description |
@@ -269,6 +294,25 @@ caller submits `{"api_key": ""}` without resubmitting `provider`, validation sti
 whatever `provider` is *currently* set to (persisted or default) when deciding whether
 `api_key`'s condition is met — a partial update can't sneak an invalid or missing
 required value past a condition simply by omitting the controlling field.
+
+**Switching a `DynamicOptions` parent alone resets a stranded dependent, rather than
+failing.** Submitting only `{"llm.provider": "openai"}` when the persisted/default
+`llm.model` is still `"claude-sonnet-4-6"` (valid for the *previous* provider, not this
+one) does not reject the submission — that's the single most likely thing a real app
+does with a provider/model pair, and rejecting it would force every caller to always
+resubmit an unrelated field it never touched. Instead `SetValues` resets the dependent
+field to `Field.Default` (if that default is itself valid for the new parent value) or
+otherwise the first option for the new parent value, folds the correction into both the
+values it persists and the `onChange` payload (so `GetValues()` and any listener see the
+corrected value, not a value that silently doesn't match what was asked for), and logs it
+at `slog.Info`.
+
+This correction only fires when the dependent field itself was **not** part of the
+submission — if a caller explicitly submits both the parent and an inconsistent
+dependent value in the same call (`{"llm.provider": "openai", "llm.model":
+"claude-sonnet-4-6"}`), that is a genuine mismatch and still fails validation normally.
+Only a value the caller didn't touch this call gets auto-corrected — effective-state
+validation still catches an intentionally-inconsistent explicit submission.
 
 ### Computed fields
 

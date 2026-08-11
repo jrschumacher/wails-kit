@@ -30,6 +30,26 @@ func TestNewServiceRequiresVersion(t *testing.T) {
 	}
 }
 
+// TestNewServiceRejectsInvalidCurrentVersion is the regression test for
+// WithCurrentVersion silently swallowing a parse error: previously, passing
+// a version string that failed to parse left currentVersion at its zero
+// value, and NewService reported the misleading "current version is
+// required" — as though WithCurrentVersion had never been called at all,
+// instead of surfacing the actual parse failure.
+func TestNewServiceRejectsInvalidCurrentVersion(t *testing.T) {
+	_, err := NewService(
+		WithCurrentVersion("not-a-version"),
+		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
+	)
+	if err == nil {
+		t.Fatal("expected error for an unparseable current version")
+	}
+	if strings.Contains(err.Error(), "is required") {
+		t.Errorf("expected a parse-error message distinguishing this from a missing option, got the misleading %q", err.Error())
+	}
+}
+
 func TestCheckForUpdateNewer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(Release{
@@ -44,6 +64,7 @@ func TestCheckForUpdateNewer(t *testing.T) {
 	svc, err := NewService(
 		WithCurrentVersion("v1.0.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 		WithEmitter(events.NewEmitter(mem)),
 	)
 	if err != nil {
@@ -82,6 +103,7 @@ func TestCheckForUpdateUpToDate(t *testing.T) {
 	svc, err := NewService(
 		WithCurrentVersion("v1.0.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 		WithEmitter(events.NewEmitter(mem)),
 	)
 	if err != nil {
@@ -112,6 +134,7 @@ func TestCheckForUpdateOlder(t *testing.T) {
 	svc, err := NewService(
 		WithCurrentVersion("v1.0.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -137,6 +160,7 @@ func TestCheckForUpdateError(t *testing.T) {
 	svc, err := NewService(
 		WithCurrentVersion("v1.0.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 		WithEmitter(events.NewEmitter(mem)),
 	)
 	if err != nil {
@@ -173,6 +197,7 @@ func TestDownloadUpdateWithoutCheck(t *testing.T) {
 	svc, err := NewService(
 		WithCurrentVersion("v1.0.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -188,6 +213,7 @@ func TestApplyUpdateWithoutDownload(t *testing.T) {
 	svc, err := NewService(
 		WithCurrentVersion("v1.0.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -203,6 +229,7 @@ func TestGetCurrentVersion(t *testing.T) {
 	svc, err := NewService(
 		WithCurrentVersion("v1.2.3"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -256,6 +283,7 @@ func TestCheckForUpdateWithSettingsPrereleases(t *testing.T) {
 	svc, err := NewService(
 		WithCurrentVersion("v0.9.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 		WithSettings(settingsSvc),
 	)
 	if err != nil {
@@ -290,6 +318,7 @@ func TestCheckForUpdateWithoutSettingsFallsBackToOption(t *testing.T) {
 	svc, err := NewService(
 		WithCurrentVersion("v1.0.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -335,6 +364,7 @@ func TestCheckForUpdateSettingsOverridesOption(t *testing.T) {
 	svc, err := NewService(
 		WithCurrentVersion("v0.9.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 		WithIncludePrereleases(false), // static says no
 		WithSettings(settingsSvc),     // settings says yes — wins
 	)
@@ -372,6 +402,7 @@ func TestWithIncludePrereleasesWithoutSettings(t *testing.T) {
 	svc, err := NewService(
 		WithCurrentVersion("v0.9.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 		WithIncludePrereleases(true), // static option, no settings
 	)
 	if err != nil {
@@ -412,6 +443,7 @@ func TestRefuseDowngrade(t *testing.T) {
 	svc, err := NewService(
 		WithCurrentVersion("v2.0.0"),
 		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -595,6 +627,125 @@ func TestStagingDirPrivate(t *testing.T) {
 	}
 	if info.Mode().Perm()&0o077 != 0 {
 		t.Errorf("staging dir %q is not private: mode %04o", filepath.Dir(path), info.Mode().Perm())
+	}
+}
+
+// TestDownloadUpdateRemovesPreviousStagingDir is the regression test for the
+// staging-directory leak: DownloadUpdate previously overwrote s.downloadDir
+// without removing the directory it replaced, so a caller that downloads
+// more than once without ever applying (or between a failed apply and a
+// retry) orphaned one "dl-*" directory per call, unbounded.
+func TestDownloadUpdateRemovesPreviousStagingDir(t *testing.T) {
+	assetContent := []byte("binary")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/repo/releases/latest":
+			_ = json.NewEncoder(w).Encode(Release{
+				TagName: "v2.0.0",
+				Assets: []Asset{
+					{Name: "app", Size: int64(len(assetContent)), BrowserDownloadURL: "/download/app"},
+				},
+			})
+		case "/download/app":
+			_, _ = w.Write(assetContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	svc, err := NewService(
+		WithCurrentVersion("v1.0.0"),
+		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
+		WithAssetPattern("app"),
+		WithAppName("test-staging-leak"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirs := svc.appDirs()
+	t.Cleanup(func() { _ = os.RemoveAll(dirs.Cache()) })
+	svc.github.apiURL = srv.URL
+
+	rel, err := svc.CheckForUpdate(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range rel.Assets {
+		rel.Assets[i].BrowserDownloadURL = srv.URL + rel.Assets[i].BrowserDownloadURL
+	}
+
+	firstPath, err := svc.DownloadUpdate(context.Background())
+	if err != nil {
+		t.Fatalf("first download failed: %v", err)
+	}
+	firstDir := filepath.Dir(firstPath)
+	if _, err := os.Stat(firstDir); err != nil {
+		t.Fatalf("expected first staging dir to exist right after download: %v", err)
+	}
+
+	// A second DownloadUpdate call without an intervening ApplyUpdate — the
+	// leak scenario: the caller re-downloads (e.g. the user re-triggered a
+	// check) without ever consuming the first download.
+	secondPath, err := svc.DownloadUpdate(context.Background())
+	if err != nil {
+		t.Fatalf("second download failed: %v", err)
+	}
+	secondDir := filepath.Dir(secondPath)
+	if secondDir == firstDir {
+		t.Fatal("expected the second download to use a fresh staging directory")
+	}
+
+	if _, err := os.Stat(firstDir); !os.IsNotExist(err) {
+		t.Errorf("expected the superseded staging directory %q to be removed, stat err: %v", firstDir, err)
+	}
+	if _, err := os.Stat(secondDir); err != nil {
+		t.Errorf("expected the current staging directory to still exist: %v", err)
+	}
+}
+
+// TestNewServiceSweepsStaleStagingDirs is the regression test for orphaned
+// staging directories left behind by a crashed process: nothing previously
+// swept "dl-*" directories under the app's update cache dir except an
+// in-run failure or a successful ApplyUpdate — a crash between the two
+// leaked the directory forever. NewService must remove any leftover "dl-*"
+// directory before it creates one of its own.
+func TestNewServiceSweepsStaleStagingDirs(t *testing.T) {
+	svc, err := NewService(
+		WithCurrentVersion("v1.0.0"),
+		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
+		WithAppName("test-sweep-stale"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirs := svc.appDirs()
+	t.Cleanup(func() { _ = os.RemoveAll(dirs.Cache()) })
+
+	// Simulate what a crashed prior process instance would have left behind.
+	stageRoot := filepath.Join(dirs.Cache(), "updates")
+	staleDir := filepath.Join(stageRoot, "dl-leftover-from-a-crash")
+	if err := os.MkdirAll(staleDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staleDir, "app"), []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// A fresh NewService call for the same app must sweep it away.
+	if _, err := NewService(
+		WithCurrentVersion("v1.0.0"),
+		WithGitHubRepo("owner", "repo"),
+		WithSkipVerification(),
+		WithAppName("test-sweep-stale"),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(staleDir); !os.IsNotExist(err) {
+		t.Errorf("expected stale staging directory %q to be swept by NewService, stat err: %v", staleDir, err)
 	}
 }
 

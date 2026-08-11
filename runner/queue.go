@@ -118,6 +118,20 @@ func New(p Profile, opts ...Option) (*Queue, error) {
 		}
 	}
 
+	// Bootstrap depth/idempotency/dead-job bookkeeping from the Store here,
+	// not in Start. Enqueue already increments q.depth (and the
+	// idempotency map) for every job it appends; if this same bootstrap
+	// also ran in Start (as it used to), any job Enqueued between New and
+	// Start would be counted twice — once by Enqueue itself, once by the
+	// Store-derived recovery scan finding the very same job it had just
+	// persisted. Running it here, before the caller can possibly have
+	// enqueued anything, means every subsequent Enqueue is the only thing
+	// that ever increments depth for that job. recoverOnce is idempotent
+	// (guarded by q.recovered) so Start's own call remains harmless.
+	if err := q.recoverOnce(); err != nil {
+		return nil, fmt.Errorf("runner: recover: %w", err)
+	}
+
 	return q, nil
 }
 
@@ -290,6 +304,45 @@ func (q *Queue) Requeue(id string) error {
 	return nil
 }
 
+// Discard permanently removes a dead-lettered job identified by id — the
+// only way a dead job's Store record can ever go away, since Sweep never
+// touches JobStateDead (DeadLetter/Retention govern separate lifetimes;
+// see Sweep's doc comment) and Requeue moves a job back to pending rather
+// than deleting it. It returns ErrJobNotFound if id is not currently dead,
+// and ErrDiscardUnsupported if the Store doesn't implement Deleter (in
+// which case nothing is removed — Discard never pretends success while
+// leaving the record behind).
+func (q *Queue) Discard(id string) error {
+	dead, err := q.Dead()
+	if err != nil {
+		return err
+	}
+	found := false
+	for _, j := range dead {
+		if j.ID == id {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return errors.New(ErrJobNotFound, "runner.Discard: job "+id+" is not dead-lettered", nil)
+	}
+
+	deleter, ok := q.store.(Deleter)
+	if !ok {
+		return errors.New(ErrDiscardUnsupported, "runner.Discard: Store does not implement Deleter", nil)
+	}
+	if err := deleter.Delete(id); err != nil {
+		return fmt.Errorf("runner: discard job: %w", err)
+	}
+
+	q.mu.Lock()
+	delete(q.deadJobs, id)
+	q.mu.Unlock()
+
+	return nil
+}
+
 // Start runs the tick loop until ctx is done. On each tick it scans the
 // Store for due jobs (including any left JobStateRunning by an unclean
 // shutdown — see Store.Due) and dispatches up to Profile-implied
@@ -307,6 +360,10 @@ func (q *Queue) Start(ctx context.Context) error {
 	q.runCtx = ctx
 	q.mu.Unlock()
 
+	// recoverOnce already ran in New — this call is a no-op guarded by
+	// q.recovered, kept here only so a hand-built Queue that skipped New's
+	// error path (impossible via the public API, but cheap insurance) is
+	// still bootstrapped before its first tick.
 	if err := q.recoverOnce(); err != nil {
 		return fmt.Errorf("runner: recover: %w", err)
 	}
@@ -327,10 +384,11 @@ func (q *Queue) Start(ctx context.Context) error {
 
 // recoverOnce bootstraps depth/idempotency/dead-job bookkeeping from the
 // Store, when it implements Lister. It runs at most once per Queue
-// (idempotent to call again). It never dispatches anything — orphaned
-// JobStateRunning jobs are picked up by the normal Due-based scan on the
-// first tick, which is what actually performs crash recovery (see
-// Store.Due's doc comment).
+// (idempotent to call again — see New, which calls this before returning
+// the Queue to the caller, and Start, whose own call is then a no-op). It
+// never dispatches anything — orphaned JobStateRunning jobs are picked up
+// by the normal Due-based scan on the first tick, which is what actually
+// performs crash recovery (see Store.Due's doc comment).
 func (q *Queue) recoverOnce() error {
 	q.mu.Lock()
 	if q.recovered {
@@ -379,7 +437,20 @@ func (q *Queue) recoverOnce() error {
 // advancing the fake clock between calls, rather than waiting on real
 // timers (see runner/AGENTS.md Testing).
 func (q *Queue) processTick() {
-	now := q.clock()
+	// Round(0) strips any monotonic clock reading now (q.clock defaults to
+	// time.Now, which always attaches one). This matters because Go
+	// compares two Times that both carry a monotonic reading using that
+	// reading alone, ignoring the wall clock — and mach_absolute_time
+	// (Darwin) / CLOCK_MONOTONIC (Linux) both freeze while the machine is
+	// asleep. Without stripping it, `now.Sub(prev)` below would silently
+	// report ~0 across a real sleep/wake cycle instead of the actual wall
+	// gap, since both prev (q.lastTick, itself derived from q.clock) and
+	// now would carry monotonic readings that never diverged. Stripping
+	// either operand is sufficient — Sub falls back to wall-clock
+	// comparison when either side lacks a monotonic reading — but
+	// stripping at the point of capture keeps every downstream use of now
+	// (and its storage into q.lastTick) consistently wall-clock-only.
+	now := q.clock().Round(0)
 
 	q.mu.Lock()
 	prev := q.lastTick
@@ -423,12 +494,28 @@ func (q *Queue) scanDue(now time.Time) {
 		return
 	}
 
-	jobs, err := q.store.Due(now, avail)
+	// Due(now, avail) would cap the result at avail *before* this loop gets
+	// a chance to skip jobs already tracked in q.inFlight. Due returns
+	// in-flight running jobs alongside due pending ones (that's the crash-
+	// recovery contract — see Store.Due's doc comment), and a running job
+	// always sorts earliest (its NextRunAt predates any freshly-enqueued
+	// pending job). With workers > 1, a limit of avail could come back
+	// entirely full of jobs this process already has in flight, starving a
+	// genuinely due pending job even though a worker is free — confirmed
+	// with 2 workers, one long-running job, and a due pending job that
+	// never dispatched across 5 ticks. Query unbounded (limit <= 0 means
+	// "no limit" per the Store.Due contract) and let the loop below apply
+	// the real dispatch cap after filtering out in-flight jobs.
+	jobs, err := q.store.Due(now, 0)
 	if err != nil {
 		return
 	}
 
+	dispatched := 0
 	for _, job := range jobs {
+		if dispatched >= avail {
+			break
+		}
 		q.mu.Lock()
 		if _, busy := q.inFlight[job.ID]; busy {
 			q.mu.Unlock()
@@ -443,6 +530,7 @@ func (q *Queue) scanDue(now time.Time) {
 
 		q.wg.Add(1)
 		go q.dispatch(ctx, job)
+		dispatched++
 	}
 }
 

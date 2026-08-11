@@ -22,13 +22,15 @@ func WithStoragePath[T any](path string) Option[T]    // exact path override
 func WithEmitter[T any](e *events.Emitter) Option[T]
 func WithDefaults[T any](defaults T) Option[T]
 
-func (s *Store[T]) Load() (T, error)  // returns defaults/zero value if file absent
-func (s *Store[T]) Save(value T) error // atomic: write-to-tmp + fsync-adjacent + rename
+func (s *Store[T]) Load() (T, error)  // returns defaults/zero value if file absent OR corrupt (quarantined)
+func (s *Store[T]) LoadDetailed() (value T, recovered bool, err error) // Load + recovered=true iff this call just quarantined a corrupt file
+func (s *Store[T]) Save(value T) error // atomic + durable: write-to-tmp + fsync + rename
 func (s *Store[T]) Delete() error
 func (s *Store[T]) Path() string
 
-const StateLoaded = "state:loaded"
-const StateSaved  = "state:saved"
+const StateLoaded    = "state:loaded"
+const StateSaved     = "state:saved"
+const StateCorrupted = "state:corrupted" // fires when Load/LoadDetailed quarantines a corrupt file
 ```
 
 ## Invariants (do not break)
@@ -51,9 +53,24 @@ const StateSaved  = "state:saved"
   no file, and `Save()` fails later with a confusing `os.Rename` error on
   `.tmp` disconnected from the missing option. `New` now returns
   `ErrStateConfig` immediately instead.
-- **Writes are atomic**: temp file → `os.WriteFile` (`0600`) → `os.Rename`.
-  Don't write directly to `s.path`; a crash mid-write must never leave a
-  truncated file, only the old or new complete one.
+- **Writes are atomic and durable**: temp file (`0600`) → `Write` → `Sync`
+  → `Close` → `os.Rename`, mirroring `settings.Store.Save`'s
+  `writeTempFile`/`createTempFile` shape exactly (including the same
+  test-injection seam for asserting `Sync` is actually called —
+  `TestSaveDurability`). Don't write directly to `s.path`, and don't drop
+  the `Sync` before `Rename`: a rename that lands before the data does can
+  leave a zero-length or truncated file as the rename's winner after a
+  crash.
+- **A corrupt file is quarantined, not fatal.** `Load`/`LoadDetailed`
+  finding a file that fails to parse as JSON renames it aside
+  (`<path>.corrupt-<unix-nano>`, preserving the bytes) under a re-verify
+  pass taken with the write lock (guards against racing a concurrent
+  `Save` that just repaired the file), then returns defaults with `err ==
+  nil` — never an error, and never the same failure forever. `LoadDetailed`
+  additionally reports `recovered == true` for that call so a caller that
+  must distinguish "no file" from "corrupt file, now reset" (firstrun is
+  the motivating case) can. See `TestLoadCorruptedFile`,
+  `TestLoadDetailedDistinguishesCorruptionFromMissing`.
 - **State directory is `0700`**, matching the kit's convention for
   user-content directories (mirrors `logging`, `keyring`, `database`).
 

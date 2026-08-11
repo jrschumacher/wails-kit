@@ -165,7 +165,7 @@ func TestWithoutDiagnostics(t *testing.T) {
 // TestWithoutUpdates covers the explicit-override opt-out: even with a
 // GitHub repo configured, WithoutUpdates wins.
 func TestWithoutUpdates(t *testing.T) {
-	k := newTestKit(t, WithGitHubRepo("acme", "widget"), WithoutUpdates())
+	k := newTestKit(t, WithGitHubRepo("acme", "widget"), WithUpdatesSkipVerification(), WithoutUpdates())
 
 	if k.Updates != nil {
 		t.Error("Updates is non-nil despite WithoutUpdates")
@@ -180,7 +180,7 @@ func TestWithoutUpdates(t *testing.T) {
 // TestGitHubRepoEnablesUpdates is the positive case: WithGitHubRepo alone
 // turns Updates on and registers its settings group.
 func TestGitHubRepoEnablesUpdates(t *testing.T) {
-	k := newTestKit(t, WithGitHubRepo("acme", "widget"))
+	k := newTestKit(t, WithGitHubRepo("acme", "widget"), WithUpdatesSkipVerification())
 
 	if k.Updates == nil {
 		t.Fatal("Updates is nil despite WithGitHubRepo")
@@ -225,7 +225,7 @@ func TestConstructionFailureNamesComponent(t *testing.T) {
 // "updates" — not "firstrun" or a bare wrapped string.
 func TestConstructionFailureNamesUpdatesComponent(t *testing.T) {
 	opts := append(baseOpts(t),
-		WithGitHubRepo("acme", "widget"),
+		WithGitHubRepo("acme", "widget"), WithUpdatesSkipVerification(),
 		WithUpdatesOptions(updates.WithPublicKey("not-a-valid-minisign-key")),
 	)
 	_, err := New(testInfo(), opts...)

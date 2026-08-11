@@ -283,6 +283,51 @@ func Run(t *testing.T, newStore func(t *testing.T) runner.Store) {
 		}
 	})
 
+	t.Run("DeleteRemovesJob", func(t *testing.T) {
+		// M2: Deleter is what makes runner.Queue.Discard able to actually
+		// purge a dead-lettered job's record — without it, a dead job on
+		// this Store would be stuck forever (Sweep never touches
+		// JobStateDead, and there was no other removal path at all).
+		s := newStore(t)
+		defer func() { _ = s.Close() }()
+
+		deleter, ok := s.(runner.Deleter)
+		if !ok {
+			t.Skip("store does not implement Deleter")
+		}
+
+		now := time.Now()
+		dead := runner.Job{
+			ID:         "dead-job",
+			Type:       "noop",
+			Payload:    json.RawMessage(`{}`),
+			State:      runner.JobStateDead,
+			EnqueuedAt: now,
+			NextRunAt:  now,
+		}
+		if err := s.Append(dead); err != nil {
+			t.Fatalf("Append: %v", err)
+		}
+
+		if err := deleter.Delete("dead-job"); err != nil {
+			t.Fatalf("Delete: %v", err)
+		}
+
+		if lister, ok := s.(runner.Lister); ok {
+			jobs, err := lister.List(runner.JobStateDead)
+			if err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			if len(jobs) != 0 {
+				t.Fatalf("List(dead) after Delete = %+v, want none", jobs)
+			}
+		}
+
+		if err := deleter.Delete("does-not-exist"); err == nil {
+			t.Fatal("Delete on an unknown ID: want error, got nil")
+		}
+	})
+
 	t.Run("PayloadRoundTrips", func(t *testing.T) {
 		s := newStore(t)
 		defer func() { _ = s.Close() }()
@@ -314,6 +359,60 @@ func Run(t *testing.T, newStore func(t *testing.T) runner.Store) {
 		}
 		if got["greeting"] != "hello" {
 			t.Fatalf("payload = %v, want greeting=hello", got)
+		}
+	})
+
+	t.Run("EmptyPayloadNormalizesToNull", func(t *testing.T) {
+		// Pins the M5 divergence: an empty (non-nil, zero-length)
+		// json.RawMessage payload was accepted verbatim by the in-memory
+		// store, caused a marshal error in runner/flatfile
+		// ("unexpected end of JSON input" — json.RawMessage{}'s own
+		// MarshalJSON returns zero bytes, which isn't valid JSON on its
+		// own), and normalized to the JSON literal null in sqlitestore.
+		// Every Store must now agree: empty/nil payload round-trips as
+		// the JSON literal null.
+		s := newStore(t)
+		defer func() { _ = s.Close() }()
+
+		now := time.Now()
+		job := runner.Job{
+			ID:         "empty-payload",
+			Type:       "noop",
+			Payload:    json.RawMessage{},
+			State:      runner.JobStatePending,
+			EnqueuedAt: now,
+			NextRunAt:  now,
+		}
+		if err := s.Append(job); err != nil {
+			t.Fatalf("Append with empty payload: %v", err)
+		}
+
+		due, err := s.Due(now.Add(time.Second), 10)
+		if err != nil {
+			t.Fatalf("Due: %v", err)
+		}
+		if len(due) != 1 {
+			t.Fatalf("Due = %+v, want 1 job", due)
+		}
+		if got := string(due[0].Payload); got != "null" {
+			t.Fatalf("empty payload round-tripped as %q, want the JSON literal null", got)
+		}
+
+		// Update with a nil payload must normalize the same way.
+		job.Payload = nil
+		job.State = runner.JobStateDone
+		job.NextRunAt = now
+		if err := s.Update(job); err != nil {
+			t.Fatalf("Update with nil payload: %v", err)
+		}
+		if lister, ok := s.(runner.Lister); ok {
+			done, err := lister.List(runner.JobStateDone)
+			if err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			if len(done) != 1 || string(done[0].Payload) != "null" {
+				t.Fatalf("List(done) = %+v, want payload normalized to null", done)
+			}
 		}
 	})
 }

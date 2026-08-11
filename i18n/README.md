@@ -121,6 +121,17 @@ registerable `settings.Group` with one select field. Register it with your
 back into `i18n.New` via `WithSettings` to close the loop (persisted choice →
 resolution tier 2 → picker reflects it on next launch).
 
+**A persisted choice alone only takes effect on next launch.** `WithSettings` is read
+once, at `New` — nothing re-reads it later, and `SetLocale` is the only way `l.locale`
+changes afterward (see Locale resolution above). To make the picker take effect live,
+in the same process, also call
+[`settings.WireLocale(svc, l)`](../settings/README.md#locale-picker) once after both
+`svc` and `l` exist — it's a thin `svc.AddOnChange` that calls `l.SetLocale` whenever
+the settings field changes. Skipping this isn't a build error or a validation error —
+the field persists correctly and looks like it worked — so leaving it unwired is the
+kind of silent half-feature this package tries hard to avoid elsewhere; wire it or
+don't offer a live locale picker.
+
 This package used to build the `settings.Group` itself (`Localizer.SettingsGroup()`,
 WP-10). WP-12 moved that assembly into package `settings`: once `settings.Field`
 carries `i18n.Text` and `settings.Service` accepts a `*Localizer`

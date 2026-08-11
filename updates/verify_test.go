@@ -420,48 +420,20 @@ func TestDownloadSkipVerification(t *testing.T) {
 	}
 }
 
-func TestDownloadNoKeyNoVerification(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/repos/owner/repo/releases/latest":
-			_ = json.NewEncoder(w).Encode(Release{
-				TagName: "v2.0.0",
-				Assets: []Asset{
-					{Name: fmt.Sprintf("app_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH), BrowserDownloadURL: "/download/app"},
-				},
-			})
-		case "/download/app":
-			_, _ = w.Write([]byte("binary"))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-
-	// No public key, no skip — verification is skipped but a warning is logged.
-	svc, err := NewService(
+// TestNewServiceRequiresVerificationConfig is the regression test for the
+// fail-open-by-default defect: previously, omitting both WithPublicKey and
+// WithSkipVerification silently applied unverified updates (with only a log
+// warning). NewService must now refuse to construct at all in that
+// configuration — "silently ships unsigned updates" is not a defensible
+// default for the package that replaces the user's binary. See AGENTS.md,
+// "Fail-open default".
+func TestNewServiceRequiresVerificationConfig(t *testing.T) {
+	_, err := NewService(
 		WithCurrentVersion("v1.0.0"),
 		WithGitHubRepo("owner", "repo"),
-		WithAssetPattern("app_{os}_{arch}"),
-		WithAppName("test-no-key"),
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(svc.appDirs().Cache()) })
-	svc.github.apiURL = srv.URL
-
-	rel, err := svc.CheckForUpdate(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := range rel.Assets {
-		rel.Assets[i].BrowserDownloadURL = srv.URL + rel.Assets[i].BrowserDownloadURL
-	}
-
-	_, err = svc.DownloadUpdate(context.Background())
-	if err != nil {
-		t.Fatalf("expected download to succeed without key: %v", err)
+	if err == nil {
+		t.Fatal("expected NewService to reject a config with neither WithPublicKey nor WithSkipVerification")
 	}
 }
 

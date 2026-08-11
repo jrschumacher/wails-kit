@@ -216,3 +216,34 @@ func WithAppearanceDefaultMode(mode appearance.Mode) Option {
 		c.appearanceDefaultModeSet = true
 	}
 }
+
+// WithUpdatePublicKey supplies the minisign public key used to verify
+// downloaded updates. Required when updates are enabled, unless
+// WithUpdatesSkipVerification is set.
+//
+// updates.NewService fails closed on a missing verification configuration —
+// silently applying unverified updates is not a defensible default for the
+// component that replaces the user's binary — and kit surfaces that
+// requirement with its own option so the common path does not need a direct
+// updates import.
+//
+//	//go:embed minisign.pub
+//	var updateKey string
+//
+//	k, err := kit.New(info, kit.WithGitHubRepo("me", "app"), kit.WithUpdatePublicKey(updateKey))
+func WithUpdatePublicKey(key string) Option {
+	return func(c *config) {
+		c.updatesOpts = append(c.updatesOpts, updates.WithPublicKey(key))
+	}
+}
+
+// WithUpdatesSkipVerification disables update signature verification.
+//
+// For development and tests only. An app shipped this way will install any
+// artifact the release feed serves, so a compromised or hijacked feed
+// becomes arbitrary code execution on every install.
+func WithUpdatesSkipVerification() Option {
+	return func(c *config) {
+		c.updatesOpts = append(c.updatesOpts, updates.WithSkipVerification())
+	}
+}

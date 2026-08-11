@@ -129,15 +129,22 @@ emit anything, and the due-scan runs every tick regardless of `ResumeOnWake`
 | `runner_queue_full` | `Enqueue` beyond `Profile.MaxQueueDepth`. |
 | `runner_no_handler` | A due job's `Type` has no registered `Handle`r — the job fails per the profile's retry/dead-letter rules. |
 | `runner_store_required` | `New` with `Persistence == PersistStore` and no `WithStore`. |
-| `runner_job_not_found` | `Requeue` on an ID that isn't currently dead-lettered. |
+| `runner_job_not_found` | `Requeue` or `Discard` on an ID that isn't currently dead-lettered. |
 | `runner_queue_closed` | `Enqueue` or `Start` called after `Close`. |
+| `runner_discard_unsupported` | `Discard` on a `Store` that doesn't implement `Deleter`. |
 
-## Dead-letter and requeue
+## Dead-letter, requeue, and discard
 
 ```go
 dead, err := q.Dead()          // every job currently JobStateDead
 err = q.Requeue(dead[0].ID)    // back to pending, Attempts reset, picked up on the next due-scan
+err = q.Discard(dead[0].ID)    // permanently remove it instead — needs a Store that implements Deleter
 ```
+
+`Requeue` and `Discard` are the only two ways a dead-lettered job's
+lifetime ends — `Sweep` never touches `JobStateDead` (that's what
+`DeadLetter` is for). Without `Discard`, a dead job on a `Store` with no
+other purge path was stuck forever; that's the gap `Discard` closes.
 
 ## Stores
 
@@ -149,7 +156,12 @@ err = q.Requeue(dead[0].ID)    // back to pending, Attempts reset, picked up on 
   `Close`. Also implement `Lister` (`List(state) ([]Job, error)`) to get
   full `MaxQueueDepth`/idempotency-dedupe/`Dead()` fidelity across process
   restarts — without it, that bookkeeping only reflects what happened since
-  the current process started. Both built-in stores implement `Lister`.
+  the current process started. Also implement `Deleter`
+  (`Delete(id string) error`) so `Queue.Discard` can actually purge a
+  dead-lettered job's record — without it, `Discard` returns
+  `runner_discard_unsupported` rather than pretending to succeed. Both
+  built-in stores (and `runner/sqlitestore`) implement `Lister` and
+  `Deleter`.
 
 ## Not included, on purpose
 

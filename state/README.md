@@ -22,10 +22,18 @@ store, err := state.New[WindowState](
 // err is non-nil if neither WithAppName nor WithStoragePath is provided —
 // New has nowhere to persist state otherwise.
 
-// Load returns zero value if file doesn't exist
+// Load returns zero value if file doesn't exist. If the file exists but is
+// corrupt (fails to parse as JSON), Load quarantines it (renamed aside as
+// "<path>.corrupt-<unix-nano>", preserving the bytes) and also returns
+// defaults with no error — it never errors forever on a corrupt file.
 s, err := store.Load()
 
-// Save with atomic write (tmp + rename)
+// LoadDetailed is Load plus a `recovered` flag that is true only when this
+// call just quarantined a corrupt file — use it when "no file" and
+// "corrupt file, now reset" must be told apart (see firstrun).
+s, recovered, err := store.LoadDetailed()
+
+// Save with a durable atomic write (tmp + fsync + rename)
 s.Width = 800
 err = store.Save(s)
 
@@ -61,8 +69,9 @@ State files are stored in a `state/` subdirectory of the app's data directory:
 |-------|---------|-------------|
 | `state:loaded` | `StateLoadedPayload{Name}` | Emitted after state is loaded from disk |
 | `state:saved` | `StateSavedPayload{Name}` | Emitted after state is saved to disk |
+| `state:corrupted` | `StateCorruptedPayload{Name, Path, QuarantinePath, Err}` | Emitted after Load/LoadDetailed quarantines and recovers from a corrupt file — fires in addition to (after) `state:loaded` for that same call |
 
-Both events are emitted **after** the internal lock is released, so a
+All events are emitted **after** the internal lock is released, so a
 handler is free to call `Load`/`Save` back on the same store without
 deadlocking.
 
@@ -79,5 +88,6 @@ deadlocking.
 - **Generic** — `state.New[T]()`, fully type-safe
 - **No schema or validation** — that's what `settings` is for
 - **No keyring** — not for secrets, just state
-- **Atomic writes** — write-to-tmp + rename prevents corruption
+- **Atomic, durable writes** — write-to-tmp + fsync + rename prevents corruption and truncated files after a crash
+- **Self-healing reads** — a corrupt file is quarantined (bytes preserved) and recovered with defaults instead of erroring forever
 - **Mutex-protected** — safe for single-process concurrent access

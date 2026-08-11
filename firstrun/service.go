@@ -196,9 +196,30 @@ func (s *Service) Detect() (Info, error) {
 }
 
 func (s *Service) detect() (Info, error) {
-	st, err := s.store.Load()
+	st, recovered, err := s.store.LoadDetailed()
 	if err != nil {
 		return Info{}, err
+	}
+
+	if recovered {
+		// The stamp file existed but failed to parse as JSON; state.Store
+		// has already quarantined it (preserving the bytes for
+		// support/debugging) and returned a zero stamp in its place. That
+		// zero stamp is indistinguishable from "no stamp ever recorded" by
+		// value alone — but treating it as Fresh would re-run OnFresh
+		// onboarding hooks for what is almost certainly an existing user
+		// whose stamp merely got corrupted, which is worse than doing
+		// nothing. It's equally wrong to guess a "previous" version and run
+		// upgrade migrations against a fabrication.
+		//
+		// So corruption is deliberately its own outcome, distinct from both
+		// Fresh and Upgrade: it reports Same (current -> current), which
+		// runs only hooks with no When filter (or an explicit Same
+		// interest) and none of OnFresh/OnUpgrade/OnDowngrade. Run then
+		// writes a fresh, valid stamp at the current version, so the next
+		// launch behaves normally again — this one launch is the full
+		// extent of the recovery.
+		return Info{Kind: Same, Previous: s.current, Current: s.current}, nil
 	}
 
 	if st.Version == "" {
@@ -241,7 +262,7 @@ func classify(previous, current semver.Version) Info {
 // ErrHookFailed; errors.Is/As and errors.Unwrap see through it to the
 // original error.
 func (s *Service) Run(ctx context.Context) (Info, error) {
-	info, err := s.runLocked(ctx)
+	info, err := s.run(ctx)
 	if err != nil {
 		return info, err
 	}
@@ -249,16 +270,26 @@ func (s *Service) Run(ctx context.Context) (Info, error) {
 	return info, nil
 }
 
-func (s *Service) runLocked(ctx context.Context) (Info, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	info, err := s.detect()
+// run does one Run call's work. It holds s.mu only long enough to detect
+// the transition and snapshot the hook list (detectAndSnapshotHooks), then
+// releases the lock before invoking any Hook.Run or state.Store.Save.
+//
+// Hooks are arbitrary caller code, and s.mu is a plain sync.Mutex — not
+// re-entrant. The previous implementation ran the entire hook loop (and the
+// final Save) inside the same lock scope used by Detect and Run, so a hook
+// that called back into Detect or Run on this same Service — a natural
+// thing for a migration hook to do, e.g. to check the transition again —
+// deadlocked forever. state.Store, settings.Service, and appearance all
+// have (or narrowly avoided) this exact bug; this mirrors their fix:
+// snapshot under the lock, then do everything external with it released.
+// See TestHookReentryDoesNotDeadlock.
+func (s *Service) run(ctx context.Context) (Info, error) {
+	info, hooks, err := s.detectAndSnapshotHooks()
 	if err != nil {
 		return Info{}, err
 	}
 
-	for _, h := range s.hooks {
+	for _, h := range hooks {
 		if h.When != nil && !h.When(info) {
 			continue
 		}
@@ -279,6 +310,40 @@ func (s *Service) runLocked(ctx context.Context) (Info, error) {
 	}
 
 	return info, nil
+}
+
+// detectAndSnapshotHooks holds s.mu just long enough to detect the
+// transition and copy the hook list, then releases it before returning.
+// The hook list is only ever set at construction (WithHooks), so copying it
+// is defensive rather than strictly required today — but it keeps this
+// function honest about what "snapshot under the lock" means, and protects
+// against a future API (e.g. an AddHook, mirroring settings.AddOnChange)
+// silently reintroducing a read/write race.
+func (s *Service) detectAndSnapshotHooks() (Info, []Hook, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	info, err := s.detect()
+	if err != nil {
+		return Info{}, nil, err
+	}
+	hooks := make([]Hook, len(s.hooks))
+	copy(hooks, s.hooks)
+	return info, hooks, nil
+}
+
+// Reset deletes the recorded version stamp, so the next Detect or Run
+// treats the app exactly as if it had never run before (Fresh, or Upgrade
+// from WithBaselineVersion if that was set) — including re-running OnFresh
+// hooks. This is the explicit, user-triggerable counterpart to the
+// automatic corruption recovery in detect: a corrupt stamp already heals
+// itself on the next launch without anyone calling this, but an app may
+// still want to expose an explicit "repair my installation" action (a
+// support flow, a CLI flag) that does not require a user to find and delete
+// the stamp file by hand — the stamp's path is otherwise internal to this
+// package.
+func (s *Service) Reset() error {
+	return s.store.Delete()
 }
 
 // emit is called after runLocked has returned and s.mu is released — never

@@ -3,11 +3,30 @@
 ## Purpose
 
 GitHub Releases–based self-update: check for a newer release, download the
-matching asset, verify its minisign signature, and swap the running binary or
-`.app` bundle. It owns the update *mechanism*. It does not own release
-publishing, signing (that is the release engineer's job, documented in the
-README), version parsing (`semver`), or the decision of when to prompt a user —
-the app drives that via `CheckForUpdate`/`DownloadUpdate`/`ApplyUpdate`.
+matching asset, verify its minisign signature, and swap the running binary.
+It owns the update *mechanism*. It does not own release publishing, signing
+(that is the release engineer's job, documented in the README), version
+parsing (`semver`), or the decision of when to prompt a user — the app drives
+that via `CheckForUpdate`/`DownloadUpdate`/`ApplyUpdate`.
+
+**Scope: single-binary distributions only.** The default `Applier` (`apply.go`)
+replaces one file via atomic rename over `os.Executable()`. It does **not**
+and — as shipped — **cannot** correctly swap a macOS `.app` bundle: inside a
+bundle, `os.Executable()` resolves to `Foo.app/Contents/MacOS/Foo`, so the
+default applier would rename over that one file and leave every other bundle
+member (`Info.plist`, `Resources/`, `Frameworks/`, the code signature in
+`_CodeSignature/`) untouched. Bundles are code-signed as a whole; replacing
+any single file inside a signed bundle invalidates the seal, and Gatekeeper
+kills the app at next launch on Apple Silicon. A self-updater that bricks a
+signed app is strictly worse than no self-updater, so this package refuses to
+guess at bundle replacement rather than ship something that looks like it
+works and then destroys the user's install. Apps that ship a `.app` bundle
+**must** provide their own `Applier` via `WithApplier` that swaps the whole
+bundle directory atomically (and understand what that requires to preserve
+the signature — see README, "macOS `.app` bundles"). This package does not
+provide one: doing so correctly needs verification against a real
+signed-and-notarized build, which cannot be done in this environment. See
+"Landmines" below.
 
 **This is the highest-stakes package in the kit.** It replaces the user's
 running binary. A defect here is arbitrary code execution on every install, so
@@ -58,6 +77,18 @@ func (s *Service) GetCurrentVersion() string
 - **Downloads are size-capped against the API-reported asset size**, and
   extraction is capped independently. A hostile feed must not be able to fill
   the disk before verification rejects it.
+- **`NewService` requires either `WithPublicKey` or `WithSkipVerification`.**
+  A constructor that already hard-fails on a missing repo or version cannot
+  treat "no verification configured" as a soft warning — silently shipping
+  unsigned updates is not a defensible default for this package. See
+  "Fail-open default" in Landmines.
+- **Staging directories must not accumulate.** Every `dl-*` directory under
+  `appdirs.Cache()/updates/` is either the one the current `DownloadUpdate`
+  call is actively using, or garbage. `DownloadUpdate` removes the previous
+  call's directory before creating a new one (a download that's never
+  applied must not leak), and `NewService` sweeps any that survived a crash
+  from an earlier process. Do not add a new place that creates a staging
+  directory without also arranging for its removal.
 
 ## Dependencies & insulation
 
@@ -70,7 +101,9 @@ from a CLI with no GUI in the process.
 ## Extension points
 
 - `Applier` is the seam for platform-specific install behaviour — implement it
-  rather than branching inside the service.
+  rather than branching inside the service. This is the required seam for
+  macOS `.app` bundle replacement; see "Scope" above and README, "macOS `.app`
+  bundles".
 - Non-GitHub release sources: extract a provider interface alongside
   `github.go`. The verification and apply paths are already source-agnostic.
 
@@ -86,15 +119,18 @@ read what the tool emits — and the README instructs release engineers to use t
 tool. Do not regenerate those fixtures casually; their value is provenance.
 
 Manual verification automated tests cannot do: an end-to-end release against a
-real GitHub repo, and the macOS `.app` bundle swap under Gatekeeper (quarantine
-xattr behaviour after replacement is unverified — see Landmines).
+real GitHub repo. (There is deliberately no automated or manual `.app` bundle
+swap to verify here — see "Scope" above; a bundle-swap `Applier` is an
+app-owned extension, and *that* would need testing against a real
+signed-and-notarized build.)
 
 ## File map
 
 - `service.go` — options, constructor, check/download/apply orchestration
 - `github.go` — release listing and asset download
 - `verify.go` — minisign public-key parsing and signature verification
-- `apply.go` — archive extraction and binary/bundle replacement
+- `apply.go` — archive extraction and single-binary replacement (`defaultApplier`;
+  does not handle `.app` bundles — see "Scope" above)
 - `staging_unix.go` / `staging_windows.go` — `verifyPrivateDir`; this is the
   code backing the "never stage in a shared temp directory" invariant above
 - `managed.go` — detection of package-manager-managed installs (notify-only)
@@ -103,13 +139,25 @@ xattr behaviour after replacement is unverified — see Landmines).
 
 ## Landmines
 
-- **Gatekeeper quarantine after bundle swap is unverified.** Replacing a
-  `.app` on macOS may leave it in a state Gatekeeper re-evaluates on next
-  launch. Nothing here tests that; a real signed-and-notarized release is the
-  only way to find out.
-- **`WithSkipVerification` and an unset public key are different failure
-  modes** and both log warnings. Neither should ever be the default in a
-  shipped app; do not "simplify" them into a single silent path.
+- **Do not implement bundle-swap "for convenience" without a real
+  signed-and-notarized app to test against.** The default `Applier` handles
+  single-binary distributions only, by design — see "Scope" above. If you're
+  tempted to make `defaultApplier` "smarter" about detecting a `.app` and
+  swapping the whole directory: that is exactly the mechanism this package
+  deliberately does not ship, because an untested bundle-swap that silently
+  breaks the code-signing seal (Gatekeeper kills the app at next launch on
+  Apple Silicon) is a worse failure mode than the honest limitation. If you
+  do have a way to test it end-to-end, it belongs behind a distinct,
+  explicitly-opted-into `Applier` — never the default — and the untested
+  parts (Gatekeeper's quarantine-xattr re-evaluation after replacement in
+  particular) must be called out as such.
+- **`WithSkipVerification` and `WithPublicKey` are the only two ways to
+  satisfy `NewService`'s verification requirement, and they are different
+  failure modes.** `NewService` hard-fails if neither is set (see
+  "Fail-open default" in Invariants) — but once construction succeeds,
+  `WithSkipVerification` skips verification unconditionally, while
+  `WithPublicKey` enforces it. Do not "simplify" them into a single silent
+  path.
 - **The trusted comment is signed; the untrusted comment is not.** Displaying
   the untrusted one as though it were verified is an easy and dangerous mistake.
 - Losing the signing private key permanently strands every installed copy —
