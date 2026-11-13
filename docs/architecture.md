@@ -68,10 +68,14 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 ┌───────────────────┐
 │ @wails-kit/types  │     (leaf — no kit dependencies)
 └───────────────────┘
+┌───────────────────┐
+│  @wails-kit/ui    │     (leaf — no imports from outside the package)
+└───────────────────┘
 ```
 
 - `@wails-kit/types` (`frontend/types`) — TypeScript type definitions mirroring Go schema types
 - `@wails-kit/settings` (`frontend/settings`) — headless settings logic: validation, condition evaluation, dynamic option resolution. Mirrors `settings/validate.go`
+- `@wails-kit/ui` (`frontend/ui`) — base UI for Wails apps: `--wk-*` tokens in light and dark, CSS components on native elements, light-DOM custom elements (`wk-dialog`, `wk-menu`, `wk-context-menu`, `wk-tabs`, `wk-tooltip`), charts, a theme file of about ten values an app overrides, and `<wk-settings>`, a settings window drawn from the `settings` schema (`GetSchema`/`GetValues`/`SetValues`). It imports nothing: it reads the schema's JSON shape (mirrored in `src/index.d.ts`) and carries its own copy of the condition and dynamic-option rules; client-side validation is pluggable, so an app with a bundler can pass `@wails-kit/settings`' `validate`. Ships as `src/` (ES modules plus `ui.css`) for bundlers and as `dist/wails-kit-ui.css` and `dist/wails-kit-ui.js` for apps without one; `scripts/build.mjs` builds `dist/`, and a test keeps it in step with `src/`
 
 ## Design patterns
 
