@@ -1,0 +1,47 @@
+{
+  "name": "@wails-kit/ui",
+  "version": "0.1.0",
+  "description": "Base UI for Wails desktop apps: tokens, components, custom elements, charts, a theme file and a settings window drawn from the wails-kit settings schema.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jrschumacher/wails-kit.git",
+    "directory": "frontend/ui"
+  },
+  "main": "./src/index.js",
+  "module": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./ui.css": "./src/ui.css",
+    "./theme.css": "./theme/theme.css",
+    "./themes/example.css": "./theme/example.css",
+    "./dist/wails-kit-ui.css": "./dist/wails-kit-ui.css",
+    "./dist/wails-kit-ui.js": "./dist/wails-kit-ui.js",
+    "./package.json": "./package.json"
+  },
+  "sideEffects": [
+    "./src/index.js",
+    "./src/kit.js",
+    "./src/settings.js",
+    "./dist/wails-kit-ui.js",
+    "*.css"
+  ],
+  "files": [
+    "src",
+    "theme",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:browser": "node test/browser.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.63.0"
+  }
+}

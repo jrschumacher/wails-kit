@@ -10,7 +10,7 @@ wails-kit provides **desktop app infrastructure** — the plumbing that every Wa
 
 1. **Wails-specific or desktop-specific** — solves a problem unique to desktop apps or Wails integration. Generic Go libraries (AI SDKs, HTTP clients, data processing) belong in standalone repos.
 2. **Reduces real boilerplate** — eliminates >50 lines of repeated setup that multiple apps would otherwise copy-paste. A 30-line convenience wrapper doesn't justify a kit package.
-3. **Infrastructure, not business logic** — provides foundational services (storage, config, lifecycle, OS integration), not application-level features (chat UI, domain models, workflows).
+3. **Infrastructure, not business logic** — provides foundational services (storage, config, lifecycle, OS integration) and base UI that looks the same in every app (tokens, controls, a theme mechanism, a settings window drawn from the settings schema), not application-level features (chat UI, domain models, workflows, an app's own screens).
 
 **Ask before adding:** "Would a Wails app author write this themselves, and would it look roughly the same every time?" If yes, it belongs in the kit. If the implementation varies significantly per app, it belongs in the app.
 
@@ -29,6 +29,8 @@ Go module at `github.com/jrschumacher/wails-kit` with these packages:
 - `updates` — GitHub Releases-based auto-updates
 - `lifecycle` — Service lifecycle manager with dependency ordering
 - `shortcuts` — Native menu shortcuts and keyboard accelerators
+
+Frontend packages live under `frontend/`: `@wails-kit/types`, `@wails-kit/settings` and `@wails-kit/ui` (base UI kit, theme file and settings window; see `frontend/ui/README.md`).
 
 ## Documentation
 
@@ -57,7 +59,7 @@ type(scope): description
 
 **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
 
-**Scopes** (optional, use the package name): `appdirs`, `database`, `diagnostics`, `keyring`, `taskfiles`, `settings`, `state`, `errors`, `events`, `lifecycle`, `logging`, `shortcuts`, `updates`
+**Scopes** (optional, use the package name): `appdirs`, `database`, `diagnostics`, `keyring`, `taskfiles`, `settings`, `state`, `errors`, `events`, `lifecycle`, `logging`, `shortcuts`, `ui`, `updates`
 
 Examples:
 - `feat(updates): add GitHub Releases auto-update`
@@ -87,7 +89,7 @@ Before committing, always run lint and tests locally to catch issues before CI:
 task check
 ```
 
-This runs `golangci-lint run ./...` and `go test ./...`. Both must pass before committing and pushing.
+This runs `golangci-lint run ./...`, `go test ./...` and the frontend packages' checks (including `frontend/ui`'s build check, node tests and browser tests). All must pass before committing and pushing.
 
 ### Testing
 

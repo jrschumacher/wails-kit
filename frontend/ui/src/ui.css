@@ -1,0 +1,7 @@
+/* @wails-kit/ui: the one stylesheet entry. Link it before the app's theme
+   file, so the theme's token values win. Nothing here loads from outside
+   the package. dist/wails-kit-ui.css is this file with the imports inlined. */
+@import "tokens.css";
+@import "base.css";
+@import "components.css";
+@import "settings.css";

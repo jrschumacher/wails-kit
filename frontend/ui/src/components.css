@@ -1,0 +1,631 @@
+/* Kit components. Each is a class on a native element; states come from
+   native attributes (disabled, checked, open, aria-current, aria-pressed,
+   aria-selected, aria-expanded, aria-invalid) and pseudo-classes, never from
+   extra state classes. The custom elements in kit.js only add behaviour.
+   Every colour comes from a token; the exceptions are ::backdrop, which
+   does not inherit custom properties in older WebKit (macOS 13), and the
+   system colours inside @media (forced-colors: active). Every selector is
+   scoped to a wk- class or element (see base.css for .wk-root). */
+
+/* ---- Button ------------------------------------------------------------ */
+.wk-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: var(--wk-control-height); padding: 0 12px;
+  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border-radius: var(--wk-radius-control);
+  background-color: var(--wk-color-control); color: var(--wk-color-text);
+  box-shadow: var(--wk-shadow-control);
+  font-size: var(--wk-font-size-base); font-weight: var(--wk-font-weight-medium); line-height: 1;
+  white-space: nowrap; text-decoration: none; cursor: pointer;
+}
+.wk-button:hover:not(:disabled, [aria-disabled="true"]),
+.wk-button[aria-expanded="true"] { background-image: linear-gradient(var(--wk-color-fill-strong), var(--wk-color-fill-strong)); }
+.wk-button:active:not(:disabled, [aria-disabled="true"]) { background-image: linear-gradient(var(--wk-color-fill-strong), var(--wk-color-fill-strong)), linear-gradient(var(--wk-color-fill-strong), var(--wk-color-fill-strong)); }
+.wk-button:disabled, .wk-button[aria-disabled="true"] { opacity: .45; cursor: default; box-shadow: none; }
+.wk-button--primary { background-color: var(--wk-color-accent); color: var(--wk-color-on-accent); border-color: transparent; }
+.wk-button--destructive { color: var(--wk-color-destructive-text); }
+.wk-button--quiet { background-color: transparent; border-color: transparent; box-shadow: none; color: var(--wk-color-text-secondary); }
+.wk-button--quiet:hover:not(:disabled) { color: var(--wk-color-text); }
+.wk-button--small { min-height: var(--wk-control-height-small); padding: 0 8px; font-size: var(--wk-font-size-sm); }
+.wk-button--icon { padding: 0; width: var(--wk-control-height); }
+.wk-button > svg { width: 14px; height: 14px; flex: none; }
+/* Locked: a control the person may see but lacks the access to use. Pair it
+   with aria-disabled="true" (not disabled) so it stays focusable and its
+   tooltip ("Needs manage access") is reachable; the lock glyph goes first. */
+.wk-button.wk-button--locked { cursor: not-allowed; gap: var(--wk-space-1); }
+.wk-button--locked > svg { width: var(--wk-font-size-sm); height: var(--wk-font-size-sm); }
+
+/* ---- Link -------------------------------------------------------------- */
+.wk-link { color: var(--wk-color-accent); text-decoration: none; text-underline-offset: 2px; cursor: pointer; }
+.wk-link:hover { text-decoration: underline; }
+button.wk-link { padding: 0; border: 0; background: none; font: inherit; }
+button.wk-link:disabled { color: var(--wk-color-text-secondary); text-decoration: none; cursor: default; }
+/* A link that shows or hides a section in place keeps aria-expanded (and
+   aria-controls): a leading chevron points right when closed, down when open. */
+.wk-link[aria-expanded] { display: inline-flex; align-items: center; gap: var(--wk-space-2); }
+.wk-link[aria-expanded]::before { content: ""; flex: none; width: 6px; height: 6px; margin: 0 2px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); }
+.wk-link[aria-expanded="true"]::before { transform: rotate(45deg); }
+
+/* ---- Field, label, help and error -------------------------------------- */
+.wk-label { display: block; margin: 0 0 var(--wk-space-1); font-weight: var(--wk-font-weight-medium); }
+.wk-help { margin: var(--wk-space-1) 0 0; font-size: var(--wk-font-size-sm); color: var(--wk-color-text-secondary); }
+.wk-error { margin: var(--wk-space-1) 0 0; font-size: var(--wk-font-size-sm); color: var(--wk-color-attention-text); }
+.wk-field {
+  -webkit-appearance: none; appearance: none;
+  min-width: 0; min-height: var(--wk-control-height); padding: 4px 8px;
+  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border-radius: var(--wk-radius-control);
+  background: var(--wk-color-control); color: var(--wk-color-text);
+  font-size: var(--wk-font-size-base); line-height: var(--wk-line-height);
+}
+textarea.wk-field { min-height: 64px; padding: 6px 8px; resize: vertical; }
+.wk-field::placeholder { color: var(--wk-color-text-secondary); opacity: 1; }
+.wk-field:focus-visible { outline-offset: 0; }
+.wk-field[aria-invalid="true"] { border-color: var(--wk-color-attention); }
+.wk-field:disabled { background: var(--wk-color-fill); color: var(--wk-color-text-secondary); cursor: default; }
+.wk-field[readonly] { background: var(--wk-color-fill); }
+
+/* ---- Search field: a wrapper draws the magnifier ----------------------- */
+.wk-search { position: relative; display: inline-flex; }
+.wk-search > .wk-field { width: 100%; padding-left: 26px; }
+.wk-search > .wk-field::-webkit-search-decoration { -webkit-appearance: none; }
+.wk-search::before, .wk-search::after { content: ""; position: absolute; pointer-events: none; z-index: 1; }
+.wk-search::before { left: 9px; top: 50%; width: 9px; height: 9px; margin-top: -6px; border: 1.5px solid var(--wk-color-text-secondary); border-radius: 50%; }
+.wk-search::after { left: 16.5px; top: 50%; width: 1.5px; height: 5px; margin-top: 1px; background: var(--wk-color-text-secondary); transform: rotate(-45deg); }
+
+/* ---- Checkbox ---------------------------------------------------------- */
+.wk-check { display: inline-flex; align-items: center; gap: var(--wk-space-2); cursor: pointer; }
+.wk-check:has(.wk-checkbox:disabled, .wk-radio:disabled, .wk-switch:disabled) { color: var(--wk-color-text-secondary); cursor: default; }
+/* --top: a label that runs to two lines (a help line under it) aligns its box
+   with the first line; wk-check-text stacks the words and the help. --row: a
+   settings row that is one label, the words at the start and the switch,
+   stepper or menu at the end, across the row. */
+.wk-check--top { align-items: flex-start; }
+.wk-check--top > .wk-checkbox, .wk-check--top > .wk-radio { margin-top: 3px; }
+.wk-check-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wk-check--row { display: flex; flex: 1 1 100%; justify-content: space-between; gap: var(--wk-space-3); min-width: 0; }
+.wk-checkbox {
+  -webkit-appearance: none; appearance: none;
+  display: inline-grid; place-content: center; flex: none;
+  width: 14px; height: 14px; margin: 0;
+  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border-radius: var(--wk-radius-small);
+  background: var(--wk-color-control); box-shadow: var(--wk-shadow-control);
+  vertical-align: -2px; cursor: pointer;
+}
+.wk-checkbox::before { content: ""; width: 8px; height: 4px; border-left: 2px solid var(--wk-color-on-accent); border-bottom: 2px solid var(--wk-color-on-accent); transform: translateY(-1px) rotate(-45deg); opacity: 0; }
+.wk-checkbox:checked, .wk-checkbox:indeterminate { background: var(--wk-color-accent); border-color: var(--wk-color-accent); }
+.wk-checkbox:checked::before { opacity: 1; }
+.wk-checkbox:indeterminate::before { height: 0; border-left: 0; transform: none; opacity: 1; }
+.wk-checkbox:disabled { opacity: .45; cursor: default; }
+
+/* ---- Radio button: <input type="radio"> ------------------------------- */
+.wk-radio {
+  -webkit-appearance: none; appearance: none;
+  display: inline-grid; place-content: center; flex: none;
+  width: 14px; height: 14px; margin: 0;
+  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border-radius: 50%;
+  background: var(--wk-color-control); box-shadow: var(--wk-shadow-control);
+  vertical-align: -2px; cursor: pointer;
+}
+.wk-radio::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--wk-color-on-accent); opacity: 0; }
+.wk-radio:checked { background: var(--wk-color-accent); border-color: var(--wk-color-accent); }
+.wk-radio:checked::before { opacity: 1; }
+.wk-radio:disabled { opacity: .45; cursor: default; }
+
+/* ---- Switch: <input type="checkbox" role="switch"> ------------------- */
+.wk-switch {
+  -webkit-appearance: none; appearance: none;
+  position: relative; flex: none; display: inline-block;
+  width: 34px; height: 20px; margin: 0;
+  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border-radius: var(--wk-radius-pill);
+  background: var(--wk-color-fill-strong);
+  vertical-align: middle; cursor: pointer;
+  transition: background-color .12s, border-color .12s;
+}
+.wk-switch::before {
+  content: ""; position: absolute; top: 1px; left: 1px;
+  width: 16px; height: 16px;
+  border: var(--wk-hairline-width) solid transparent; border-radius: 50%;
+  background: var(--wk-color-thumb); box-shadow: var(--wk-shadow-raised);
+  transition: transform .12s;
+}
+.wk-switch:checked { background: var(--wk-color-accent); border-color: var(--wk-color-accent); }
+.wk-switch:checked::before { transform: translateX(14px); }
+.wk-switch:disabled { opacity: .45; cursor: default; }
+@media (prefers-reduced-motion: reduce) { .wk-switch, .wk-switch::before { transition: none; } }
+/* Forced colours drop backgrounds: the track and thumb keep system-colour
+   borders and fills so the thumb and its side stay visible. */
+@media (forced-colors: active) {
+  .wk-switch { border-color: CanvasText; }
+  .wk-switch::before { forced-color-adjust: none; border-color: CanvasText; background: CanvasText; }
+  .wk-switch:checked { forced-color-adjust: none; border-color: Highlight; background: Highlight; }
+  .wk-switch:checked::before { border-color: HighlightText; background: HighlightText; }
+  .wk-switch:disabled, .wk-switch:disabled::before { border-color: GrayText; }
+  .wk-switch:disabled::before { background: GrayText; }
+}
+
+/* ---- Select: a chevron drawn in the text colour ------------------------ */
+.wk-select {
+  -webkit-appearance: none; appearance: none;
+  min-height: var(--wk-control-height); padding: 0 26px 0 8px;
+  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border-radius: var(--wk-radius-control);
+  background-color: var(--wk-color-control); color: var(--wk-color-text);
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 13px) 52%, calc(100% - 9px) 52%;
+  background-size: 4px 4px; background-repeat: no-repeat;
+  box-shadow: var(--wk-shadow-control);
+  font-size: var(--wk-font-size-base); cursor: pointer;
+}
+.wk-select:disabled { opacity: .45; cursor: default; }
+.wk-select:focus-visible { outline-offset: 0; }
+
+/* ---- Filter buttons: toggle buttons with aria-pressed ------------------ */
+.wk-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.wk-filter {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 24px; padding: 0 10px;
+  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border-radius: var(--wk-radius-pill);
+  background: transparent; color: var(--wk-color-text-secondary);
+  font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-medium); cursor: pointer;
+}
+.wk-filter:hover:not(:disabled) { color: var(--wk-color-text); background: var(--wk-color-fill); }
+.wk-filter[aria-pressed="true"] { border-color: transparent; background: var(--wk-color-selection); color: var(--wk-color-text); }
+.wk-filter:disabled { opacity: .45; cursor: default; }
+.wk-filter-count { color: var(--wk-color-text-secondary); font-variant-numeric: tabular-nums; }
+.wk-filter[aria-pressed="true"] .wk-filter-count { color: var(--wk-color-text-secondary-on-selected); }
+
+/* ---- Segmented control: native radios, one label each ------------------ */
+.wk-segmented { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--wk-radius-control); background: var(--wk-color-fill-strong); }
+.wk-segmented > label { position: relative; display: flex; }
+.wk-segmented input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.wk-segmented input + span {
+  display: flex; align-items: center; min-height: var(--wk-control-height-small); padding: 0 12px;
+  border-radius: calc(var(--wk-radius-control) - 1px);
+  font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-medium); white-space: nowrap;
+}
+.wk-segmented input:checked + span { background: var(--wk-color-control); box-shadow: var(--wk-shadow-raised); }
+.wk-segmented input:focus-visible + span { outline: var(--wk-focus-width) solid var(--wk-color-accent); outline-offset: 0; }
+.wk-segmented input:disabled { cursor: default; }
+.wk-segmented input:disabled + span { color: var(--wk-color-text-secondary); opacity: .6; }
+
+/* ---- Chip and pill ----------------------------------------------------- */
+.wk-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  min-height: 20px; padding: 0 8px;
+  border: var(--wk-hairline-width) solid var(--wk-color-hairline-strong);
+  border-radius: var(--wk-radius-pill);
+  background: transparent; color: var(--wk-color-text-secondary);
+  font-size: var(--wk-font-size-xs); font-weight: var(--wk-font-weight-semibold); line-height: 1; white-space: nowrap;
+}
+button.wk-chip { cursor: pointer; }
+button.wk-chip:hover:not(:disabled) { background: var(--wk-color-fill); color: var(--wk-color-text); }
+button.wk-chip:disabled { opacity: .45; cursor: default; }
+.wk-chip--count { min-width: 20px; justify-content: center; padding: 0 6px; border-color: transparent; background: var(--wk-color-fill-strong); color: var(--wk-color-text-secondary-on-selected); font-weight: var(--wk-font-weight-medium); font-variant-numeric: tabular-nums; }
+.wk-chip--attention { border-color: transparent; background: var(--wk-color-attention); color: var(--wk-color-on-attention); }
+/* Lock: what the person may do here ("View only", "Can manage"), its glyph
+   first. data-level="manage" reads in the text colour. */
+.wk-chip--lock > svg { width: var(--wk-font-size-xs); height: var(--wk-font-size-xs); flex: none; }
+.wk-chip--lock[data-level="manage"] { color: var(--wk-color-text); }
+
+/* ---- Table: row hairlines, no stripes ---------------------------------- */
+.wk-table { width: 100%; border-collapse: collapse; font-size: var(--wk-font-size-base); }
+.wk-table th, .wk-table td { padding: 6px 10px; text-align: left; vertical-align: middle; }
+.wk-table thead th { border-bottom: var(--wk-hairline-width) solid var(--wk-color-hairline-strong); color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-semibold); white-space: nowrap; }
+.wk-table tbody td, .wk-table tbody th { border-bottom: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+.wk-table tbody tr:last-child > * { border-bottom: 0; }
+.wk-table .wk-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wk-table tbody tr[aria-selected="true"] > *,
+.wk-table tbody tr[aria-current]:not([aria-current="false"]) > * { background: var(--wk-color-selection); }
+.wk-table tbody tr[aria-selected="true"] .wk-secondary,
+.wk-table tbody tr[aria-current]:not([aria-current="false"]) .wk-secondary { color: var(--wk-color-text-secondary-on-selected); }
+
+/* ---- Sidebar ----------------------------------------------------------- */
+.wk-sidebar {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow: auto;
+  padding: var(--wk-space-3) var(--wk-space-2);
+  border-right: var(--wk-hairline-width) solid var(--wk-color-hairline);
+  background: var(--wk-color-sidebar); color: var(--wk-color-text);
+}
+.wk-sidebar ul { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.wk-sidebar-heading { margin: 0; padding: var(--wk-space-3) var(--wk-space-2) var(--wk-space-1); color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-xs); font-weight: var(--wk-font-weight-semibold); }
+.wk-sidebar-item {
+  display: flex; align-items: center; gap: var(--wk-space-2);
+  width: 100%; min-height: var(--wk-control-height); padding: 4px var(--wk-space-2);
+  border: 0; border-radius: var(--wk-radius-control);
+  background: transparent; color: inherit; font: inherit; text-align: left; text-decoration: none; cursor: pointer;
+}
+.wk-sidebar-item:hover { background: var(--wk-color-fill-strong); }
+.wk-sidebar-item[aria-current]:not([aria-current="false"]) { background: var(--wk-color-selection); font-weight: var(--wk-font-weight-semibold); }
+.wk-sidebar-item > svg { width: 16px; height: 16px; flex: none; color: var(--wk-color-text-secondary); }
+.wk-sidebar-item[aria-current]:not([aria-current="false"]) > svg { color: var(--wk-color-accent); }
+.wk-sidebar-item > .wk-chip--count, .wk-sidebar-item > .wk-chip--attention { margin-left: auto; }
+.wk-sidebar-item > .wk-chip--count + .wk-chip--attention { margin-left: 0; }
+.wk-sidebar-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wk-sidebar ul ul .wk-sidebar-item { padding-left: 30px; }
+.wk-sidebar summary.wk-sidebar-item { list-style: none; }
+.wk-sidebar summary.wk-sidebar-item::-webkit-details-marker { display: none; }
+.wk-sidebar summary.wk-sidebar-item::before { content: ""; flex: none; margin: 0 -4px 0 -2px; border: 4px solid transparent; border-top: 5px solid var(--wk-color-text-secondary); border-bottom: 0; }
+.wk-sidebar details:not([open]) > summary.wk-sidebar-item::before { transform: rotate(-90deg); }
+.wk-sidebar-footer { margin-top: auto; padding: var(--wk-space-2); border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-xs); }
+
+/* ---- Toolbar ----------------------------------------------------------- */
+.wk-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--wk-space-2);
+  min-height: 48px; padding: var(--wk-space-2) var(--wk-space-4);
+  border-bottom: var(--wk-hairline-width) solid var(--wk-color-hairline);
+  background: var(--wk-color-bg);
+}
+.wk-toolbar-title { margin: 0; font-size: var(--wk-font-size-md); font-weight: var(--wk-font-weight-bold); }
+.wk-toolbar-spacer { flex: 1; }
+
+/* ---- Footer bar -------------------------------------------------------- */
+/* A window's bottom edge: a hairline above, then wk-link buttons. The first
+   sits at the start and the last at the end; hide one with `hidden`. */
+.wk-footer-bar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--wk-space-3); padding: 2px var(--wk-space-2); border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); background: var(--wk-color-bg); font-size: var(--wk-font-size-base); }
+.wk-footer-bar > .wk-link { min-height: var(--wk-control-height); padding: 0 var(--wk-space-1); border-radius: var(--wk-radius-small); }
+.wk-footer-bar > [hidden] { display: none; }
+
+/* ---- Tabs (wk-tabs) ---------------------------------------------------- */
+wk-tabs { display: block; }
+.wk-tablist { display: flex; gap: var(--wk-space-1); border-bottom: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+.wk-tablist[aria-orientation="vertical"] { flex-direction: column; border-bottom: 0; }
+.wk-tablist [role="tab"] {
+  margin-bottom: -1px; padding: 6px 10px;
+  border: 0; border-bottom: 2px solid transparent; border-radius: var(--wk-radius-control) var(--wk-radius-control) 0 0;
+  background: none; color: var(--wk-color-text-secondary); font-weight: var(--wk-font-weight-medium); cursor: pointer;
+}
+.wk-tablist [role="tab"]:hover:not(:disabled) { color: var(--wk-color-text); }
+.wk-tablist [role="tab"][aria-selected="true"] { color: var(--wk-color-text); border-bottom-color: var(--wk-color-accent); }
+.wk-tablist [role="tab"]:disabled, .wk-tablist [role="tab"][aria-disabled="true"] { opacity: .45; cursor: default; }
+.wk-tablist [role="tab"]:focus-visible { outline-offset: -2px; }
+wk-tabs > [role="tabpanel"] { padding-top: var(--wk-space-3); }
+wk-tabs > [role="tabpanel"]:focus-visible { outline-offset: 2px; border-radius: var(--wk-radius-small); }
+
+/* ---- Menu and context menu (wk-menu, wk-context-menu) ------------------ */
+wk-menu { display: inline-block; }
+wk-context-menu { display: contents; }
+.wk-menu[hidden], .wk-tooltip[hidden] { display: none; }
+.wk-menu {
+  position: fixed; z-index: 1000; top: 0; left: 0;
+  display: flex; flex-direction: column; min-width: 180px; max-width: 320px; margin: 0; padding: 4px;
+  border: var(--wk-hairline-width) solid var(--wk-color-hairline-strong);
+  border-radius: var(--wk-radius-group);
+  background: var(--wk-color-surface); color: var(--wk-color-text);
+  box-shadow: var(--wk-shadow-popover);
+  font-size: var(--wk-font-size-base); text-align: left;
+}
+.wk-menu:focus { outline: none; }
+.wk-menu [role^="menuitem"] {
+  position: relative; display: flex; align-items: center; gap: var(--wk-space-2);
+  width: 100%; min-height: 24px; padding: 2px 10px;
+  border: 0; border-radius: calc(var(--wk-radius-control) - 1px);
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: default;
+}
+.wk-menu:has([role="menuitemcheckbox"], [role="menuitemradio"]) [role^="menuitem"] { padding-left: 24px; }
+.wk-menu [role^="menuitem"]:focus { outline: none; background: var(--wk-color-accent); color: var(--wk-color-on-accent); }
+.wk-menu [role^="menuitem"][aria-disabled="true"] { color: var(--wk-color-text-secondary); opacity: .6; }
+.wk-menu [role^="menuitem"][aria-disabled="true"]:focus { background: var(--wk-color-fill-strong); color: var(--wk-color-text-secondary); }
+.wk-menu [role^="menuitem"][aria-checked="true"]::before { content: "\2713"; content: "\2713" / ""; position: absolute; left: 8px; }
+.wk-menu [role="separator"] { height: 1px; margin: 4px 6px; border: 0; background: var(--wk-color-hairline); }
+.wk-menu-heading { padding: 4px 10px 2px; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-xs); font-weight: var(--wk-font-weight-semibold); }
+.wk-menu-shortcut { margin-left: auto; padding-left: var(--wk-space-4); color: var(--wk-color-text-secondary); }
+.wk-menu [role^="menuitem"]:focus .wk-menu-shortcut { color: inherit; opacity: .75; }
+
+/* ---- Tooltip (wk-tooltip) ---------------------------------------------- */
+wk-tooltip { display: inline-block; }
+.wk-tooltip {
+  position: fixed; z-index: 1001; top: 0; left: 0; max-width: 260px; padding: 4px 8px;
+  border-radius: var(--wk-radius-control);
+  background: var(--wk-color-inverse); color: var(--wk-color-on-inverse);
+  box-shadow: var(--wk-shadow-popover);
+  font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-regular); line-height: 1.35; white-space: normal;
+}
+/* An invisible strip over the 6 px gap to the trigger, above or below, so
+   the pointer can move onto the tip without leaving the element. */
+wk-tooltip > .wk-tooltip::before { content: ""; position: absolute; left: 0; right: 0; top: -6px; bottom: -6px; }
+
+/* ---- Dialog and sheet (wk-dialog on a native <dialog>) ----------------- */
+wk-dialog { display: contents; }
+.wk-dialog {
+  width: min(440px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto;
+  padding: 20px;
+  border: 0; border-radius: var(--wk-radius-window);
+  background: var(--wk-color-surface); color: var(--wk-color-text);
+  box-shadow: var(--wk-shadow-dialog);
+}
+.wk-dialog--sheet { margin-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
+.wk-dialog::backdrop { background: rgba(15, 20, 30, .28); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .wk-dialog::backdrop { background: rgba(0, 0, 0, .5); } }
+:root[data-theme="dark"] .wk-dialog::backdrop { background: rgba(0, 0, 0, .5); }
+.wk-dialog-title { margin: 0 0 6px; font-size: var(--wk-font-size-md); font-weight: var(--wk-font-weight-semibold); }
+.wk-dialog-body { margin: 0; }
+.wk-dialog-body + .wk-dialog-body { margin-top: var(--wk-space-2); }
+.wk-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--wk-space-2); margin-top: 18px; }
+.wk-dialog-actions > .wk-dialog-start { margin-right: auto; }
+/* A sheet that scrolls: wk-dialog-header (the title), wk-dialog-scroll (the
+   body) and wk-dialog-footer (the buttons, the primary at the right). The
+   header and the footer bar stay put and span the sheet; only the middle
+   scrolls. Plain text under a heading inside the body goes in
+   wk-dialog-indent, behind a rule, so it reads as belonging to that heading. */
+.wk-dialog--sheet:has(> .wk-dialog-scroll) { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.wk-dialog--sheet:has(> .wk-dialog-scroll):not([open]) { display: none; }
+/* The scrolling body takes focus (tabindex="0" and a name) so the keyboard can scroll it; its ring sits inside the clipped sheet. */
+.wk-dialog-scroll:focus-visible { outline-offset: calc(-1 * var(--wk-focus-width)); }
+.wk-dialog-header { flex: none; padding: var(--wk-space-4) var(--wk-space-4) var(--wk-space-2); }
+.wk-dialog-header > .wk-dialog-title { margin: 0; }
+.wk-dialog-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--wk-space-2); padding: 0 var(--wk-space-4) var(--wk-space-3); }
+.wk-dialog-scroll > * { flex: none; }
+.wk-dialog-footer { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--wk-space-2); padding: 10px var(--wk-space-4) var(--wk-space-3); border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); background: var(--wk-color-surface); }
+.wk-dialog-footer > .wk-dialog-start { margin-right: auto; }
+/* Alert: a small centred question before something that cannot be undone. The
+   app icon, a title that asks, a line or two of consequence, then the buttons
+   stacked, the destructive or alternative choices first and the safe default
+   last (primary, autofocus). Put it on a <dialog role="alertdialog">. */
+.wk-dialog--alert { width: min(280px, calc(100% - 32px)); padding: 18px var(--wk-space-4) 14px; text-align: center; }
+.wk-dialog--alert > img, .wk-dialog--alert > svg { display: block; width: 54px; height: 54px; margin: 0 auto var(--wk-space-2); }
+.wk-dialog--alert > .wk-dialog-title { font-size: var(--wk-font-size-base); }
+.wk-dialog--alert > .wk-dialog-body { font-size: var(--wk-font-size-sm); }
+.wk-dialog--alert > .wk-dialog-actions { flex-direction: column; align-items: stretch; margin-top: var(--wk-space-3); gap: 6px; }
+.wk-dialog-indent { margin: 0 0 0 2px; padding: 1px 0 1px 10px; border-left: calc(var(--wk-hairline-width) * 2) solid var(--wk-color-hairline-strong); }
+
+/* ---- Popover surface for tray windows ---------------------------------- */
+.wk-popover {
+  display: flex; flex-direction: column; overflow: hidden;
+  border: var(--wk-hairline-width) solid var(--wk-color-hairline-strong);
+  border-radius: var(--wk-radius-window);
+  background: var(--wk-color-surface); color: var(--wk-color-text);
+  box-shadow: var(--wk-shadow-popover);
+}
+.wk-popover-header { display: flex; align-items: center; gap: var(--wk-space-2); padding: var(--wk-space-3) 14px; border-bottom: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+.wk-popover-section { padding: 10px 14px; }
+.wk-popover-section + .wk-popover-section { border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+.wk-popover-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--wk-space-2); padding: var(--wk-space-2) 14px; border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); background: var(--wk-color-bg); }
+
+/* ---- Three-pane layout: sidebar / list / inspector --------------------- */
+.wk-three-pane { display: flex; min-height: 0; height: 100%; }
+.wk-three-pane > * { min-width: 0; min-height: 0; overflow: auto; }
+.wk-three-pane > .wk-sidebar { flex: 0 0 var(--wk-sidebar-width); }
+.wk-pane-list { flex: 1 1 0; display: flex; flex-direction: column; background: var(--wk-color-bg); }
+.wk-pane-inspector { flex: 0 0 var(--wk-inspector-width); padding: var(--wk-space-4); border-left: var(--wk-hairline-width) solid var(--wk-color-hairline); background: var(--wk-color-bg); }
+
+/* ---- Settings group and row -------------------------------------------- */
+.wk-settings-heading { margin: var(--wk-space-4) 0 6px; padding: 0 2px; font-size: var(--wk-font-size-base); font-weight: var(--wk-font-weight-semibold); }
+.wk-settings-heading:first-child { margin-top: 0; }
+/* wk-settings-group is the older name of wk-panel wk-panel--rows (Panel,
+   below) and draws the same box; new markup uses the Panel classes. */
+.wk-settings-group { margin: 0; padding: 0 var(--wk-space-3); border: var(--wk-hairline-width) solid var(--wk-color-hairline); border-radius: var(--wk-radius-group); background: var(--wk-color-surface); }
+.wk-settings-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px var(--wk-space-3); min-height: 40px; padding: var(--wk-space-2) 0; }
+.wk-settings-row + .wk-settings-row { border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+.wk-settings-label { display: flex; flex-direction: column; gap: 2px; flex: 1 1 8em; min-width: 0; }
+.wk-settings-help { color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+.wk-settings-note { margin: 6px 2px 0; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+
+/* ---- Status dot: shapes and tones, no state names ---------------------- */
+/* Sizes: wk-dot-size, or wk-dot-size-small with data-size="sm" (a dot beside
+   small text: a sidebar item, a connection line). The working tone draws its
+   outline in wk-color-working-ring, so the mark reaches 3:1 on the ground
+   where the working colour alone does not. */
+.wk-dot {
+  --wk-dot-color: var(--wk-color-text);
+  display: inline-block; flex: none; width: var(--wk-dot-size); height: var(--wk-dot-size);
+  border: 1.5px solid var(--wk-dot-color); border-radius: 50%;
+  background: var(--wk-dot-color); vertical-align: middle;
+}
+.wk-dot[data-size="sm"] { width: var(--wk-dot-size-small); height: var(--wk-dot-size-small); }
+.wk-dot[data-tone="working"] { --wk-dot-color: var(--wk-color-working); border-color: var(--wk-color-working-ring); }
+.wk-dot[data-tone="attention"] { --wk-dot-color: var(--wk-color-attention); }
+.wk-dot[data-shape="ringed"] { background: radial-gradient(circle, var(--wk-dot-color) 0 36%, transparent 40%); }
+.wk-dot[data-shape="half"] { background: linear-gradient(90deg, var(--wk-dot-color) 50%, transparent 50%); }
+.wk-dot[data-shape="hollow"] { background: transparent; }
+.wk-dot[data-shape="dashed"] { background: transparent; border-style: dashed; }
+.wk-dot[data-shape="bar"] { background: linear-gradient(transparent 35%, var(--wk-dot-color) 35% 65%, transparent 65%); }
+/* A dot and the words it stands for, as one line ("Reconnecting"): the small
+   dot, then the words in secondary text. */
+.wk-dot-label { display: inline-flex; align-items: center; gap: var(--wk-space-2); white-space: nowrap; }
+.wk-dot-label > .wk-dot[data-size="sm"] + * { color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+
+/* ---- Empty state: what a view shows when it has nothing to list -------- */
+/* A centred column that fills its pane: an optional mark (<img>, <picture> or
+   <svg>), wk-empty-title, one <p> and at most one Button. */
+.wk-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 40px 20px; text-align: center; }
+.wk-empty > img, .wk-empty > svg, .wk-empty > picture > img { width: 56px; height: 56px; margin-bottom: 6px; }
+.wk-empty-title { margin: 0; font-size: var(--wk-font-size-xl); font-weight: 650; line-height: var(--wk-line-height-tight); letter-spacing: -.01em; }
+.wk-empty > p { margin: 0; max-width: 46ch; color: var(--wk-color-text-secondary); }
+.wk-empty > .wk-button { margin-top: var(--wk-space-3); }
+
+/* ---- Settings tabs: a settings window's pane buttons ------------------- */
+/* A role="tablist" of <button class="wk-settings-tab" role="tab">, each a
+   glyph over its name. A pane that holds something to review carries
+   data-attention: a small attention dot at the top right. */
+.wk-settings-tabs { display: flex; flex: none; justify-content: center; gap: var(--wk-space-1); padding: 10px 14px 6px; border-bottom: var(--wk-hairline-width) solid var(--wk-color-hairline); background: var(--wk-color-bg); }
+.wk-settings-tab { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 60px; padding: 5px 10px; border: var(--wk-hairline-width) solid transparent; border-radius: var(--wk-radius-control); background: none; color: var(--wk-color-text); font-size: var(--wk-font-size-xs); cursor: pointer; }
+.wk-settings-tab > svg { width: 22px; height: 22px; color: var(--wk-color-text-secondary); }
+.wk-settings-tab:hover { background: var(--wk-color-fill); }
+.wk-settings-tab[aria-selected="true"] { background: var(--wk-color-fill-strong); }
+.wk-settings-tab[aria-selected="true"] > svg { color: var(--wk-color-accent); }
+.wk-settings-tab[data-attention]::after { content: ""; position: absolute; top: 4px; right: 10px; width: 7px; height: 7px; border-radius: 50%; background: var(--wk-color-attention); }
+
+/* ---- Panel: a boxed group ----------------------------------------------- */
+/* Rows that belong together on the window ground. --rows: settings rows
+   (wk-settings-row) separated by hairlines edge to edge; wk-settings-group
+   is its older name. --dashed: something to check rather than change. */
+.wk-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: var(--wk-space-3); border: var(--wk-hairline-width) solid var(--wk-color-hairline); border-radius: var(--wk-radius-group); background: var(--wk-color-surface); }
+.wk-panel--dashed { border-style: dashed; border-color: var(--wk-color-hairline-strong); background: transparent; }
+.wk-panel--rows { gap: 0; padding-block: 0; }
+.wk-panel-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--wk-space-2) var(--wk-space-3); }
+.wk-panel-hint { margin: 0; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+
+/* ---- Facts: label and value pairs (a <dl>) ----------------------------- */
+.wk-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--wk-space-1) var(--wk-space-3); margin: 0; font-size: var(--wk-font-size-base); }
+.wk-facts dt { color: var(--wk-color-text-secondary); }
+.wk-facts dd { margin: 0; overflow-wrap: anywhere; }
+
+/* ---- Section heading: the one heading style inside a view -------------- */
+/* An <h2>-<h4> with the section name; optionally a wk-section-heading-aside
+   (what the section counts) and a wk-link at the end. --rule draws a
+   hairline above, to start a card. */
+.wk-section-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--wk-space-1) var(--wk-space-3); margin: 0; font-size: var(--wk-font-size-base); font-weight: var(--wk-font-weight-semibold); line-height: var(--wk-line-height); }
+.wk-section-heading-aside { margin-right: auto; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-regular); }
+.wk-section-heading > .wk-link { font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-regular); }
+.wk-section-heading--rule { padding-top: 10px; border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+
+/* ---- Stat: a figure and the words that say what it counts -------------- */
+/* wk-stat holds a wk-stat-figure (a <small> unit allowed) over a
+   wk-stat-label. --tile puts it on a tinted ground with a wk-stat-glyph (an
+   inline SVG in currentColor) at the left. wk-stats-grid lays stats two up;
+   wk-stats-row is a ruled row of large figures. */
+.wk-stat { display: flex; flex-direction: column; min-width: 0; }
+.wk-stat-figure { display: block; font-size: var(--wk-font-size-lg); font-weight: var(--wk-font-weight-semibold); line-height: var(--wk-line-height-tight); letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.wk-stat-figure small { font-size: var(--wk-font-size-md); font-weight: var(--wk-font-weight-regular); color: var(--wk-color-text-secondary); letter-spacing: 0; }
+.wk-stat-label { color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); line-height: 1.35; }
+.wk-stat--tile { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 10px; align-items: start; padding: 10px var(--wk-space-3); border: var(--wk-hairline-width) solid var(--wk-color-hairline); border-radius: var(--wk-radius-group); background: var(--wk-color-fill); }
+.wk-stat-glyph { grid-row: 1 / span 2; display: grid; place-items: center; width: 30px; height: 30px; border-radius: var(--wk-radius-group); background: var(--wk-color-selection); color: var(--wk-color-accent); }
+.wk-stat-glyph > svg { width: 18px; height: 18px; }
+.wk-stat--tile > .wk-stat-figure, .wk-stat--tile > .wk-stat-label { grid-column: 2; }
+.wk-stats-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--wk-space-2); }
+.wk-stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); border-bottom: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+.wk-stats-row > .wk-stat { padding: 9px 14px 9px 0; }
+.wk-stats-row > .wk-stat + .wk-stat { padding-left: 14px; border-left: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+.wk-stats-row .wk-stat-figure { font-size: var(--wk-font-size-xl); line-height: 1.15; letter-spacing: -.02em; }
+
+/* ---- Copy button: an icon button for text the person may paste --------- */
+.wk-copy { display: grid; place-items: center; flex: none; width: var(--wk-control-height); height: 26px; padding: 0; border: 0; border-radius: var(--wk-radius-control); background: none; color: var(--wk-color-text-secondary); cursor: pointer; }
+.wk-copy:hover { background: var(--wk-color-fill); color: var(--wk-color-text); }
+.wk-copy > svg { width: 16px; height: 16px; }
+
+/* ---- Code block: monospace text to copy or read exactly ---------------- */
+/* A <code> (one value) or a <pre> (lines), then optionally a wk-copy.
+   --scroll stops a long <pre> at 200 px. */
+.wk-codeblock { display: flex; align-items: flex-start; gap: var(--wk-space-2); min-width: 0; padding: var(--wk-space-2) 10px; border: var(--wk-hairline-width) solid var(--wk-color-control-border); border-radius: var(--wk-radius-control); background: var(--wk-color-fill); }
+.wk-codeblock > pre, .wk-codeblock > code { flex: 1; min-width: 0; margin: 0; font-family: var(--wk-font-family-mono); font-size: var(--wk-font-size-sm); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.wk-codeblock > code { word-break: break-all; }
+.wk-codeblock--scroll > pre { max-height: 200px; overflow-y: auto; }
+/* A <pre> that scrolls takes focus (tabindex="0", role="region" and a name) so the keyboard can scroll it; its ring sits inside. */
+.wk-codeblock > pre:focus-visible, .wk-errorbox > pre:focus-visible { outline-offset: calc(-1 * var(--wk-focus-width)); }
+.wk-codeblock > .wk-button { margin: -4px -6px -4px 0; }
+
+/* ---- Notice: a strip that names one problem or pending thing ----------- */
+/* An optional glyph, wk-notice-body (a bold first sentence, then a <p>) and
+   optional wk-notice-actions. Neutral by default; data-tone="attention" for
+   something that stops work. --inline: one line, the action at its end. */
+.wk-notice { display: flex; align-items: flex-start; gap: var(--wk-space-3); padding: 10px 14px; border: var(--wk-hairline-width) solid var(--wk-color-hairline-strong); border-radius: var(--wk-radius-group); background: var(--wk-color-surface); font-size: var(--wk-font-size-base); }
+.wk-notice > svg { flex: none; width: 20px; height: 20px; margin-top: 1px; color: var(--wk-color-text-secondary); }
+.wk-notice-body { flex: 1; min-width: 0; }
+.wk-notice-body > b { font-weight: var(--wk-font-weight-semibold); }
+.wk-notice-body > p { margin: 3px 0 0; color: var(--wk-color-text-secondary); }
+.wk-notice-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; }
+.wk-notice[data-tone="attention"] { border-color: var(--wk-color-attention); background: var(--wk-color-attention-fill); }
+.wk-notice[data-tone="attention"] > svg { color: var(--wk-color-attention); }
+.wk-notice--inline { align-items: center; flex-wrap: wrap; padding: var(--wk-space-2) var(--wk-space-3); }
+.wk-notice--inline > .wk-notice-actions { flex-direction: row; margin-left: auto; }
+
+/* ---- Error box: what failed, in the machine's own words ---------------- */
+/* wk-errorbox-head (a <span> naming the failure, then a wk-copy), a
+   wk-facts list (when, how often, the next try) and the raw message in a
+   <pre>. Not red: the headline or notice above it carries the state. */
+.wk-errorbox { width: 100%; max-width: 400px; overflow: hidden; border: var(--wk-hairline-width) solid var(--wk-color-hairline-strong); border-radius: var(--wk-radius-group); background: var(--wk-color-surface); color: var(--wk-color-text); font-size: var(--wk-font-size-base); text-align: left; }
+.wk-errorbox-head { display: flex; align-items: center; gap: var(--wk-space-2); padding: 6px 6px 6px var(--wk-space-3); border-bottom: var(--wk-hairline-width) solid var(--wk-color-hairline); font-weight: var(--wk-font-weight-semibold); }
+.wk-errorbox-head > span { flex: 1; min-width: 0; }
+.wk-errorbox > .wk-facts { padding: var(--wk-space-2) var(--wk-space-3); gap: 3px var(--wk-space-3); }
+.wk-errorbox > pre { max-height: 96px; margin: 0; overflow-y: auto; padding: var(--wk-space-2) var(--wk-space-3); border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); color: var(--wk-color-text-secondary); font-family: var(--wk-font-family-mono); font-size: var(--wk-font-size-sm); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+
+/* ---- Stepper: a short number with up and down arrows ------------------- */
+/* <span class="wk-stepper"> holding an <input class="wk-field"
+   inputmode="numeric"> (type="number" or text, with min and max) and <span
+   class="wk-stepper-arrows"> with two empty buttons ("More", "Fewer"). kit.js
+   steps the value, fires input and change, and disables an arrow at its
+   limit. */
+.wk-stepper { display: inline-flex; align-items: stretch; gap: 6px; }
+.wk-stepper > .wk-field { width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
+/* An <input type="number"> keeps its validation and its Up and Down keys but
+   not the browser's own spinner: the arrows are the stepper's. */
+.wk-stepper > .wk-field[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.wk-stepper > .wk-field[type="number"]::-webkit-inner-spin-button, .wk-stepper > .wk-field[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.wk-stepper-arrows { display: inline-flex; flex-direction: column; overflow: hidden; border: var(--wk-hairline-width) solid var(--wk-color-control-border); border-radius: var(--wk-radius-control); background: var(--wk-color-control); }
+.wk-stepper-arrows > button { display: grid; place-items: center; flex: 1; width: 18px; padding: 0; border: 0; background: none; color: var(--wk-color-text); cursor: pointer; }
+.wk-stepper-arrows > button + button { border-top: var(--wk-hairline-width) solid var(--wk-color-control-border); }
+.wk-stepper-arrows > button:hover:not(:disabled) { background: var(--wk-color-fill-strong); }
+.wk-stepper-arrows > button:disabled { color: var(--wk-color-text-secondary); opacity: .45; cursor: default; }
+.wk-stepper-arrows > button::before { content: ""; width: 5px; height: 5px; border-left: 1.5px solid currentColor; border-top: 1.5px solid currentColor; transform: translateY(1px) rotate(45deg); }
+.wk-stepper-arrows > button + button::before { transform: translateY(-1px) rotate(225deg); }
+
+/* ---- Chart (wk-chart, built by chart.js) -------------------------------- */
+/* A figure on the surface colour: the 2 px gaps between marks show it. A mark's
+   colour is its data-tone: "1" to "5" are the chart series, "neutral" a secondary
+   ink. Text stays in text tokens; only marks and keys wear a series colour. */
+.wk-chart { --wk-chart-c: var(--wk-color-chart-1); margin: 0; padding: var(--wk-space-3) var(--wk-space-4) var(--wk-space-3); border: var(--wk-hairline-width) solid var(--wk-color-hairline); border-radius: var(--wk-radius-group); background: var(--wk-color-surface); min-width: 0; }
+.wk-chart [data-tone="1"] { --wk-chart-c: var(--wk-color-chart-1); }
+.wk-chart [data-tone="2"] { --wk-chart-c: var(--wk-color-chart-2); }
+.wk-chart [data-tone="3"] { --wk-chart-c: var(--wk-color-chart-3); }
+.wk-chart [data-tone="4"] { --wk-chart-c: var(--wk-color-chart-4); }
+.wk-chart [data-tone="5"] { --wk-chart-c: var(--wk-color-chart-5); }
+.wk-chart [data-tone="neutral"] { --wk-chart-c: var(--wk-color-text-secondary); }
+.wk-chart-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--wk-space-2) var(--wk-space-3); }
+.wk-chart-title { margin: 0; font-size: var(--wk-font-size-base); font-weight: var(--wk-font-weight-semibold); line-height: var(--wk-line-height); }
+.wk-chart-caption { margin-left: var(--wk-space-2); color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-regular); }
+.wk-chart-legend { display: flex; flex-wrap: wrap; gap: 2px var(--wk-space-4); margin: var(--wk-space-2) 0 var(--wk-space-3); padding: 0; list-style: none; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+.wk-chart-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.wk-chart-key { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 2px; background: var(--wk-chart-c); }
+.wk-chart-key[data-shape="line"] { width: 14px; height: 2px; border-radius: 1px; }
+.wk-chart-key[data-shape="band"] { width: 14px; opacity: .35; }
+.wk-chart-key[data-shape="shade"] { border: var(--wk-hairline-width) solid var(--wk-color-hairline-strong); background: var(--wk-color-fill-strong); }
+.wk-chart-plot { position: relative; min-width: 0; outline-offset: var(--wk-focus-offset); }
+.wk-chart-plot > svg { display: block; max-width: 100%; }
+.wk-chart-bar { fill: var(--wk-chart-c); }
+.wk-chart-line { fill: none; stroke: var(--wk-chart-c); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.wk-chart-band { fill: var(--wk-chart-c); fill-opacity: .14; }
+.wk-chart-dot { fill: var(--wk-chart-c); stroke: var(--wk-color-surface); stroke-width: 2; }
+.wk-chart-grid { stroke: var(--wk-color-hairline); stroke-width: 1; }
+.wk-chart-axis { stroke: var(--wk-color-hairline-strong); stroke-width: 1; }
+.wk-chart-shade { fill: var(--wk-color-fill-strong); }
+.wk-chart-active { fill: var(--wk-color-fill); }
+.wk-chart-tick, .wk-chart-value { font-size: var(--wk-font-size-xs); font-variant-numeric: tabular-nums; }
+.wk-chart-tick { fill: var(--wk-color-text-secondary); }
+.wk-chart-value { fill: var(--wk-color-text); }
+.wk-chart-tip { position: absolute; z-index: 1; min-width: 120px; max-width: 240px; padding: 6px var(--wk-space-2); border: var(--wk-hairline-width) solid var(--wk-color-hairline-strong); border-radius: var(--wk-radius-control); background: var(--wk-color-surface); box-shadow: var(--wk-shadow-popover); color: var(--wk-color-text); font-size: var(--wk-font-size-sm); pointer-events: none; }
+.wk-chart-tip p { margin: 0; }
+.wk-chart-tip-title { color: var(--wk-color-text-secondary); }
+.wk-chart-tip-row { display: flex; align-items: baseline; gap: 6px; }
+.wk-chart-tip-row .wk-chart-key { align-self: center; }
+.wk-chart-tip-row strong { font-weight: var(--wk-font-weight-semibold); font-variant-numeric: tabular-nums; }
+.wk-chart-tip-name { color: var(--wk-color-text-secondary); }
+.wk-chart-scroll { max-width: 100%; overflow-x: auto; }
+.wk-chart-scroll:focus-visible, .wk-chart-plot:focus-visible { outline-offset: calc(-1 * var(--wk-focus-width)); }
+.wk-chart-none { margin: 0; padding: var(--wk-space-4) 0; color: var(--wk-color-text-secondary); }
+.wk-chart-readout { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ---- Forced colours (Windows High Contrast) ---------------------------
+   The system replaces backgrounds, shadows and most border colours with its
+   own. Where a state is drawn only with those, these rules redraw it with
+   system colours. Tones may collapse to one colour here; dot shapes may not. */
+@media (forced-colors: active) {
+  .wk-search::before { forced-color-adjust: none; border-color: CanvasText; }
+  .wk-search::after { forced-color-adjust: none; background: CanvasText; }
+  .wk-select { forced-color-adjust: none; border-color: FieldText; background-color: Field; color: FieldText; }
+  .wk-select:disabled { border-color: GrayText; color: GrayText; }
+  .wk-filter[aria-pressed="true"] { forced-color-adjust: none; border-color: Highlight; background: Highlight; color: HighlightText; }
+  .wk-filter[aria-pressed="true"] .wk-filter-count { color: HighlightText; }
+  .wk-segmented input:checked + span { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+  .wk-segmented input:checked:disabled + span { background: GrayText; color: Canvas; }
+  .wk-chip--attention { forced-color-adjust: none; border-color: CanvasText; background: CanvasText; color: Canvas; }
+  .wk-table tbody tr[aria-selected="true"] > *,
+  .wk-table tbody tr[aria-current]:not([aria-current="false"]) > * { border-top: 2px solid Highlight; border-bottom: 2px solid Highlight; }
+  .wk-tablist [role="tab"] { forced-color-adjust: none; border-bottom-color: transparent; color: CanvasText; }
+  .wk-tablist [role="tab"]:disabled, .wk-tablist [role="tab"][aria-disabled="true"] { color: GrayText; }
+  .wk-tablist [role="tab"][aria-selected="true"] { border-bottom-color: Highlight; }
+  .wk-settings-tab[aria-selected="true"], .wk-settings-tab[aria-selected="true"] > svg { forced-color-adjust: none; border-color: Highlight; background: Highlight; color: HighlightText; }
+  .wk-settings-tab[data-attention]::after { forced-color-adjust: none; background: CanvasText; }
+  .wk-menu [role^="menuitem"]:focus { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+  .wk-menu [role^="menuitem"][aria-disabled="true"]:focus { background: Canvas; color: GrayText; outline: 2px solid Highlight; outline-offset: -2px; }
+  .wk-radio::before { forced-color-adjust: none; background: Canvas; }
+  .wk-radio:checked { forced-color-adjust: none; border-color: Highlight; background: Highlight; }
+  .wk-radio:checked::before { background: HighlightText; }
+  .wk-chart-key, .wk-chart-bar, .wk-chart-band, .wk-chart-dot { forced-color-adjust: none; fill: CanvasText; background: CanvasText; }
+  .wk-chart-line { forced-color-adjust: none; stroke: CanvasText; }
+  .wk-dot, .wk-dot[data-tone] { forced-color-adjust: none; --wk-dot-color: CanvasText; border-color: CanvasText; }
+}

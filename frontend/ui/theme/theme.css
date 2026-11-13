@@ -1,0 +1,72 @@
+/* @wails-kit/ui theme file: the values an app sets to make the kit its own.
+   Copy this file into the app, change the values, and link it after the
+   kit's stylesheet (dist/wails-kit-ui.css or src/ui.css) so it wins. As
+   shipped it holds the kit's own defaults, so linking it unchanged changes
+   nothing.
+
+   A theme sets only these tokens (test/tokens.test.mjs checks the themes in
+   this folder, and an app can run the same check on its own):
+
+     Accent       --wk-color-accent, --wk-color-on-accent, --wk-color-selection
+                  primary buttons, links, focus ring, selected rows and tabs
+     Working      --wk-color-working, --wk-color-working-ring
+                  the "something is happening" state; the ring is a darker
+                  step for where working is under 3:1 on the background
+     Attention    --wk-color-attention, --wk-color-attention-text,
+                  --wk-color-attention-fill, --wk-color-destructive-text
+                  someone must act; destructive buttons
+     Charts       --wk-color-chart-1, --wk-color-chart-3
+                  the series that usually follow the accent and working
+     Type         --wk-font-family, --wk-font-features
+     Corners      --wk-radius-control, --wk-radius-group
+
+   Every colour has a light value on :root and a dark value, written twice:
+   under the dark media query on :root:not([data-theme="light"]), and on
+   :root[data-theme="dark"], with the same values in both. A font the theme
+   names must be bundled with the app (an @font-face here, pointing at a file
+   the app ships); never load one from the network. */
+:root {
+  --wk-color-accent: #3d4452;
+  --wk-color-on-accent: #ffffff;
+  --wk-color-selection: rgba(61, 68, 82, .1);
+  --wk-color-working: #3f73c4;
+  --wk-color-working-ring: #3f73c4;
+  --wk-color-attention: #c23a2c;
+  --wk-color-attention-text: #a3301f;
+  --wk-color-attention-fill: rgba(194, 58, 44, .08);
+  --wk-color-destructive-text: #a3301f;
+  --wk-color-chart-1: #3d4452;
+  --wk-color-chart-3: #3f73c4;
+  --wk-font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --wk-font-features: normal;
+  --wk-radius-control: 5px;
+  --wk-radius-group: 7px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --wk-color-accent: #c3c9d4;
+    --wk-color-on-accent: #15181d;
+    --wk-color-selection: rgba(195, 201, 212, .14);
+    --wk-color-working: #79a6ee;
+    --wk-color-working-ring: #79a6ee;
+    --wk-color-attention: #ee6b5f;
+    --wk-color-attention-text: #f48c82;
+    --wk-color-attention-fill: rgba(238, 107, 95, .12);
+    --wk-color-destructive-text: #f48c82;
+    --wk-color-chart-1: #c3c9d4;
+    --wk-color-chart-3: #79a6ee;
+  }
+}
+:root[data-theme="dark"] {
+  --wk-color-accent: #c3c9d4;
+  --wk-color-on-accent: #15181d;
+  --wk-color-selection: rgba(195, 201, 212, .14);
+  --wk-color-working: #79a6ee;
+  --wk-color-working-ring: #79a6ee;
+  --wk-color-attention: #ee6b5f;
+  --wk-color-attention-text: #f48c82;
+  --wk-color-attention-fill: rgba(238, 107, 95, .12);
+  --wk-color-destructive-text: #f48c82;
+  --wk-color-chart-1: #c3c9d4;
+  --wk-color-chart-3: #79a6ee;
+}

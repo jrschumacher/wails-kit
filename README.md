@@ -8,7 +8,7 @@ wails-kit provides **desktop app infrastructure** — the plumbing that every Wa
 
 - Solve a problem **specific to desktop apps or Wails integration** (OS paths, keyring, window lifecycle)
 - Eliminate **real boilerplate** that multiple apps would otherwise copy-paste
-- Provide **infrastructure, not business logic** (storage, config, lifecycle — not domain models or UI)
+- Provide **infrastructure, not business logic** (storage, config, lifecycle, and base UI that looks the same in every app — not domain models or an app's own screens)
 
 Generic Go libraries (AI SDKs, HTTP clients, data processing) belong in standalone repos, not in the kit.
 
@@ -511,6 +511,7 @@ for each group in schema.groups:
 |---------|------|-------------|
 | [`@wails-kit/types`](frontend/types/README.md) | `frontend/types` | TypeScript type definitions mirroring Go types |
 | [`@wails-kit/settings`](frontend/settings/README.md) | `frontend/settings` | Headless settings logic: validation, conditions, dynamic options |
+| [`@wails-kit/ui`](frontend/ui/README.md) | `frontend/ui` | Base UI kit: tokens, components, custom elements, charts, a theme file and a settings window drawn from the schema; as an npm package or one prebuilt CSS file and ES module |
 
 ## Required Tools
 

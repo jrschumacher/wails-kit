@@ -1,0 +1,178 @@
+/* Kit tokens. Every colour token has a light value here and a dark value in
+   the two dark blocks below. The page follows <html data-theme="light|dark">
+   when it is set and the system appearance when it is not: dark applies
+   under the media query unless data-theme="light", and under
+   data-theme="dark" whatever the system says. The two dark blocks hold the
+   same values (test/tokens.test.mjs checks that they match). Sizes,
+   type and radii are the same in both. An app's theme file overrides a few
+   of these (accent, state colours, font family, radii) after this stylesheet;
+   theme/theme.css lists them. The
+   accent and state defaults are deliberately plain so the kit stands alone.
+   :root holds only these --wk-* custom properties; everything that styles
+   the page is scoped under .wk-root (base.css). */
+:root {
+  /* Surfaces */
+  --wk-color-bg: #fcfcfb;
+  --wk-color-sidebar: #f0f1f3;
+  --wk-color-surface: #ffffff;
+  --wk-color-control: #ffffff;
+  /* Text */
+  --wk-color-text: #1b1f27;
+  --wk-color-text-secondary: #626977;
+  /* Secondary text one step darker, for where it sits on a tint: a selected
+     row or a count chip. It reaches 4.5:1 on wk-color-selection and
+     wk-color-fill-strong over any surface (the theme's selection too). */
+  --wk-color-text-secondary-on-selected: #525966;
+  /* Lines */
+  --wk-color-hairline: #e6e7ea;
+  --wk-color-hairline-strong: #d3d5da;
+  --wk-color-control-border: #cfd2d8;
+  /* Tints laid over any surface: rest, then hover and pressed. */
+  --wk-color-fill: rgba(27, 31, 39, .045);
+  --wk-color-fill-strong: rgba(27, 31, 39, .07);
+  /* Accent: primary buttons, links, focus, selection. */
+  --wk-color-accent: #3d4452;
+  --wk-color-on-accent: #ffffff;
+  --wk-color-selection: rgba(61, 68, 82, .1);
+  /* State tones: the status dot and anything that must be acted on. */
+  --wk-color-working: #3f73c4;
+  /* The working dot's outline: a darker step of working where working alone
+     does not reach 3:1 on wk-color-bg (a theme's light working colour). */
+  --wk-color-working-ring: #3f73c4;
+  --wk-color-attention: #c23a2c;
+  --wk-color-on-attention: #ffffff;
+  --wk-color-attention-text: #a3301f;
+  /* The ground of an attention strip (Notice): a tint of attention. */
+  --wk-color-attention-fill: rgba(194, 58, 44, .08);
+  --wk-color-destructive-text: #a3301f;
+  /* The thumb of a switch, on either track. */
+  --wk-color-thumb: #ffffff;
+  /* Tooltips */
+  --wk-color-inverse: #1b1f27;
+  --wk-color-on-inverse: #ffffff;
+  /* Chart series, in order. */
+  --wk-color-chart-1: #3d4452;
+  --wk-color-chart-2: #1c8a72;
+  --wk-color-chart-3: #3f73c4;
+  --wk-color-chart-4: #8a55a6;
+  --wk-color-chart-5: #b8592c;
+  /* Shadows */
+  --wk-shadow-control: 0 1px 0 rgba(15, 20, 30, .04);
+  --wk-shadow-raised: 0 .5px 2px rgba(15, 20, 30, .2);
+  --wk-shadow-popover: 0 12px 30px -8px rgba(15, 20, 30, .3), 0 0 0 1px rgba(15, 20, 30, .06);
+  --wk-shadow-dialog: 0 24px 48px -22px rgba(15, 20, 30, .45), 0 0 0 1px rgba(15, 20, 30, .1);
+
+  /* Type */
+  --wk-font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --wk-font-family-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
+  --wk-font-features: normal;
+  --wk-font-size-xs: 11px;
+  --wk-font-size-sm: 12px;
+  --wk-font-size-base: 13px;
+  --wk-font-size-md: 15px;
+  --wk-font-size-lg: 20px;
+  --wk-font-size-xl: 24px;
+  --wk-font-weight-regular: 400;
+  --wk-font-weight-medium: 500;
+  --wk-font-weight-semibold: 600;
+  --wk-font-weight-bold: 700;
+  --wk-line-height: 1.4;
+  --wk-line-height-tight: 1.2;
+  /* Spacing */
+  --wk-space-1: 4px;
+  --wk-space-2: 8px;
+  --wk-space-3: 12px;
+  --wk-space-4: 16px;
+  --wk-space-5: 24px;
+  --wk-space-6: 32px;
+  /* Radii */
+  --wk-radius-small: 3px;
+  --wk-radius-control: 5px;
+  --wk-radius-group: 7px;
+  --wk-radius-window: 10px;
+  --wk-radius-pill: 999px;
+  /* Sizes */
+  --wk-control-height: 28px;
+  --wk-control-height-small: 22px;
+  --wk-hairline-width: 1px;
+  --wk-focus-width: 2px;
+  --wk-focus-offset: 2px;
+  --wk-dot-size: 10px;
+  --wk-dot-size-small: 8px;
+  --wk-sidebar-width: 220px;
+  --wk-inspector-width: 320px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --wk-color-bg: #181a1f;
+    --wk-color-sidebar: #131519;
+    --wk-color-surface: #1f2228;
+    --wk-color-control: #262a31;
+    --wk-color-text: #eceef2;
+    --wk-color-text-secondary: #9aa1ae;
+    --wk-color-text-secondary-on-selected: #b4bac5;
+    --wk-color-hairline: #2a2e36;
+    --wk-color-hairline-strong: #3a3f49;
+    --wk-color-control-border: #3a3f49;
+    --wk-color-fill: rgba(236, 238, 242, .055);
+    --wk-color-fill-strong: rgba(236, 238, 242, .09);
+    --wk-color-accent: #c3c9d4;
+    --wk-color-on-accent: #15181d;
+    --wk-color-selection: rgba(195, 201, 212, .14);
+    --wk-color-working: #79a6ee;
+    --wk-color-working-ring: #79a6ee;
+    --wk-color-attention: #ee6b5f;
+    --wk-color-on-attention: #20100e;
+    --wk-color-attention-text: #f48c82;
+    --wk-color-attention-fill: rgba(238, 107, 95, .12);
+    --wk-color-destructive-text: #f48c82;
+    --wk-color-thumb: #e6e8ec;
+    --wk-color-inverse: #eceef2;
+    --wk-color-on-inverse: #181a1f;
+    --wk-color-chart-1: #c3c9d4;
+    --wk-color-chart-2: #35b597;
+    --wk-color-chart-3: #79a6ee;
+    --wk-color-chart-4: #b98bd0;
+    --wk-color-chart-5: #e0825a;
+    --wk-shadow-control: 0 1px 0 rgba(0, 0, 0, .25);
+    --wk-shadow-raised: 0 .5px 2px rgba(0, 0, 0, .5);
+    --wk-shadow-popover: 0 12px 30px -8px rgba(0, 0, 0, .7), 0 0 0 1px rgba(255, 255, 255, .08);
+    --wk-shadow-dialog: 0 24px 48px -22px rgba(0, 0, 0, .8), 0 0 0 1px rgba(255, 255, 255, .1);
+  }
+}
+:root[data-theme="dark"] {
+  --wk-color-bg: #181a1f;
+  --wk-color-sidebar: #131519;
+  --wk-color-surface: #1f2228;
+  --wk-color-control: #262a31;
+  --wk-color-text: #eceef2;
+  --wk-color-text-secondary: #9aa1ae;
+  --wk-color-text-secondary-on-selected: #b4bac5;
+  --wk-color-hairline: #2a2e36;
+  --wk-color-hairline-strong: #3a3f49;
+  --wk-color-control-border: #3a3f49;
+  --wk-color-fill: rgba(236, 238, 242, .055);
+  --wk-color-fill-strong: rgba(236, 238, 242, .09);
+  --wk-color-accent: #c3c9d4;
+  --wk-color-on-accent: #15181d;
+  --wk-color-selection: rgba(195, 201, 212, .14);
+  --wk-color-working: #79a6ee;
+  --wk-color-working-ring: #79a6ee;
+  --wk-color-attention: #ee6b5f;
+  --wk-color-on-attention: #20100e;
+  --wk-color-attention-text: #f48c82;
+  --wk-color-attention-fill: rgba(238, 107, 95, .12);
+  --wk-color-destructive-text: #f48c82;
+  --wk-color-thumb: #e6e8ec;
+  --wk-color-inverse: #eceef2;
+  --wk-color-on-inverse: #181a1f;
+  --wk-color-chart-1: #c3c9d4;
+  --wk-color-chart-2: #35b597;
+  --wk-color-chart-3: #79a6ee;
+  --wk-color-chart-4: #b98bd0;
+  --wk-color-chart-5: #e0825a;
+  --wk-shadow-control: 0 1px 0 rgba(0, 0, 0, .25);
+  --wk-shadow-raised: 0 .5px 2px rgba(0, 0, 0, .5);
+  --wk-shadow-popover: 0 12px 30px -8px rgba(0, 0, 0, .7), 0 0 0 1px rgba(255, 255, 255, .08);
+  --wk-shadow-dialog: 0 24px 48px -22px rgba(0, 0, 0, .8), 0 0 0 1px rgba(255, 255, 255, .1);
+}

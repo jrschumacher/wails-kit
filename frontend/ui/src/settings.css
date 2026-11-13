@@ -1,0 +1,17 @@
+/* ---- Settings window (<wk-settings>, built by settings.js) -------------- */
+/* The settings tabs sit across the top (more than one group); each pane is
+   a padded column of wk-panel--rows groups. Rows hidden by a condition leave
+   no hairline behind: a row draws its top hairline only when a visible row
+   comes before it. */
+wk-settings { display: flex; flex-direction: column; min-height: 0; }
+wk-settings > .wk-settings-window { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+wk-settings > .wk-settings-window > [role="tabpanel"] { padding-top: var(--wk-space-4); }
+.wk-settings-pane { display: flex; flex: 1; flex-direction: column; gap: var(--wk-space-3); min-height: 0; padding: var(--wk-space-4) var(--wk-space-5) var(--wk-space-5); overflow: auto; }
+.wk-settings-pane[hidden] { display: none; }
+.wk-settings-pane > .wk-settings-heading { margin: 0; }
+.wk-settings-pane > .wk-settings-advanced { align-self: flex-start; }
+wk-settings .wk-settings-row + .wk-settings-row { border-top: 0; }
+wk-settings .wk-settings-row:not([hidden]) ~ .wk-settings-row { border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+wk-settings .wk-settings-row > .wk-error { flex: 1 0 100%; margin: 0; }
+.wk-settings-control { width: min(240px, 100%); }
+.wk-settings-value { color: var(--wk-color-text-secondary); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }

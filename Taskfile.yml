@@ -23,6 +23,7 @@ tasks:
     cmds:
       - task: ts:check:types
       - task: ts:check:settings
+      - task: ts:check:ui
 
   ts:check:types:
     desc: Run frontend/types TypeScript typecheck and lint
@@ -40,3 +41,11 @@ tasks:
       - npm run typecheck
       - npm run lint
       - npm test
+
+  ts:check:ui:
+    desc: Run frontend/ui build check, node tests and browser tests (browser tests skip without Chrome)
+    dir: frontend/ui
+    cmds:
+      - npm ci --silent
+      - npm test
+      - npm run test:browser
