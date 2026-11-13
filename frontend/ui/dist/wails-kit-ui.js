@@ -977,6 +977,27 @@ function legend(spec) {
   return list;
 }
 
+// One ResizeObserver for every chart's plot. A redraw of the page replaces its charts without telling them,
+// and a removed element gets no resize notice, so each paint schedules a sweep: once the redraw has been put
+// in the document, plots no longer in it stop being observed and their charts can be freed.
+const sized = new Map(); // plot → its redraw
+let sizeObserver = null, sweepQueued = false;
+function sweepSizes() {
+  sweepQueued = false;
+  for (const plot of sized.keys()) if (!plot.isConnected) unwatchSize(plot);
+}
+function watchSize(plot, redraw) {
+  if (typeof ResizeObserver !== 'function') return null;
+  sizeObserver ??= new ResizeObserver(entries => { for (const e of entries) sized.get(e.target)?.(); });
+  sized.set(plot, redraw);
+  sizeObserver.observe(plot);
+  if (!sweepQueued) { sweepQueued = true; setTimeout(sweepSizes, 0); }
+  return plot;
+}
+function unwatchSize(plot) {
+  if (sized.delete(plot)) sizeObserver?.unobserve(plot);
+}
+
 /** Builds the chart's <figure>. It redraws itself when its width changes. */
 export function wkChart(spec) {
   const id = spec.id || `wk-chart-${++sequence}`;
@@ -999,7 +1020,7 @@ export function wkChart(spec) {
   const body = htmlEl('div', 'wk-chart-body', null, fig);
   const status = htmlEl('p', 'wk-chart-readout', null, fig);
   status.setAttribute('role', 'status');
-  let observer = null, current = null, width = 0, activeIndex = -1;
+  let observed = null, current = null, width = 0, activeIndex = -1;
   const empty = spec.categories.length === 0 || spec.series.length === 0;
 
   function tooltip(plot, tip, at, i) {
@@ -1045,7 +1066,7 @@ export function wkChart(spec) {
   }
 
   function paint() {
-    observer?.disconnect(); observer = null; current = null; activeIndex = -1; status.textContent = '';
+    if (observed) unwatchSize(observed); observed = null; current = null; activeIndex = -1; status.textContent = '';
     body.replaceChildren();
     if (view === 'table') {
       const { head: header, rows } = tableModel(spec);
@@ -1067,13 +1088,10 @@ export function wkChart(spec) {
     plot.setAttribute('aria-label', `${spec.label}${spec.summary ? `, ${spec.summary}` : ''}. Use the arrow keys to read each value.`);
     htmlEl('div', 'wk-chart-tip', null, plot).setAttribute('hidden', '');
     drawChart(plot, Math.round(plot.clientWidth) || 640);
-    if (typeof ResizeObserver === 'function') {
-      observer = new ResizeObserver(() => {
-        const w = Math.round(plot.clientWidth);
-        if (w > 0 && w !== width) drawChart(plot, w);
-      });
-      observer.observe(plot);
-    }
+    observed = watchSize(plot, () => {
+      const w = Math.round(plot.clientWidth);
+      if (w > 0 && w !== width) drawChart(plot, w);
+    });
   }
   paint();
   return fig;

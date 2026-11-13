@@ -823,6 +823,25 @@ try {
     assert.deepEqual(problems, []);
     await page.close();
   });
+  await check('chart: a chart a page redraw replaces stops being observed', async () => {
+    const { page, problems } = await open('/demo/index.html');
+    const live = await page.evaluate(async () => {
+      // Count observed plots on the prototype: the kit's observer may exist before this patch.
+      const P = ResizeObserver.prototype, { observe, unobserve } = P, seen = new Set();
+      P.observe = function (el, o) { if (el.classList?.contains('wk-chart-plot')) seen.add(el); return observe.call(this, el, o); };
+      P.unobserve = function (el) { seen.delete(el); return unobserve.call(this, el); };
+      const { wkChart } = await import(document.body.dataset.module || '../src/index.js');
+      const host = document.createElement('div');
+      document.body.append(host);
+      const spec = { id: 'leak', kind: 'bars', label: 'Leak', categories: [{ label: 'a' }, { label: 'b' }], series: [{ key: 's', label: 'S', tone: 1, values: [1, 2] }] };
+      for (let i = 0; i < 6; i++) { host.replaceChildren(wkChart(spec)); await new Promise(r => setTimeout(r, 5)); }
+      await new Promise(r => setTimeout(r, 20));
+      return seen.size;
+    });
+    assert.equal(live, 1, 'only the chart in the page is observed');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
   await check('chart: redraws to its width, and stays inside a narrow page', async () => {
     const { page, problems } = await open('/demo/index.html', { viewport: { width: 380, height: 800 } });
     const w = await page.locator('#demo-stacked svg').evaluate(el => ({ svg: el.getBoundingClientRect().width, plot: el.parentElement.getBoundingClientRect().width }));
