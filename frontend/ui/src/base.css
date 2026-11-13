@@ -1,0 +1,44 @@
+/* Kit base: the page, focus, and the type scale. Colours come from tokens.
+
+   wk-root: the page-level rules here (box sizing, [hidden], the page's
+   background, text colour and font, form controls inheriting the font,
+   monospace for code, and the focus ring) apply only inside an element with
+   the class wk-root, so linking the stylesheet never restyles a host app. Put it on
+   <html> for a page built on the kit, or on any container that holds kit
+   components. Components are designed and tested inside a wk-root. The
+   selectors use :where() so these rules keep the low specificity of the
+   element selectors they stand for, and any component class wins over them. */
+:where(.wk-root), :where(.wk-root)::before, :where(.wk-root)::after,
+:where(.wk-root) *, :where(.wk-root) *::before, :where(.wk-root) *::after { box-sizing: border-box; }
+:where(.wk-root)[hidden], :where(.wk-root) [hidden] { display: none !important; }
+:where(.wk-root) {
+  background: var(--wk-color-bg);
+  color: var(--wk-color-text);
+  font-family: var(--wk-font-family);
+  font-size: var(--wk-font-size-base);
+  line-height: var(--wk-line-height);
+  font-feature-settings: var(--wk-font-features);
+  -webkit-font-smoothing: antialiased;
+  color-scheme: light;
+}
+/* color-scheme follows the tokens: <html data-theme> when set, else the system. */
+@media (prefers-color-scheme: dark) { :where(:root:not([data-theme="light"]).wk-root, :root:not([data-theme="light"]) .wk-root) { color-scheme: dark; } }
+:where(:root[data-theme="dark"].wk-root, :root[data-theme="dark"] .wk-root) { color-scheme: dark; }
+body:where(.wk-root), :where(.wk-root) body { margin: 0; }
+:where(.wk-root) button, :where(.wk-root) input, :where(.wk-root) select, :where(.wk-root) textarea { font: inherit; color: inherit; letter-spacing: inherit; }
+:where(.wk-root) code, :where(.wk-root) kbd, :where(.wk-root) samp, :where(.wk-root) pre { font-family: var(--wk-font-family-mono); font-size: .95em; }
+:where(.wk-root):focus-visible, :where(.wk-root) :focus-visible { outline: var(--wk-focus-width) solid var(--wk-color-accent); outline-offset: var(--wk-focus-offset); }
+:where(.wk-root):focus:not(:focus-visible), :where(.wk-root) :focus:not(:focus-visible) { outline: none; }
+
+/* Type scale */
+.wk-title { margin: 0; font-size: var(--wk-font-size-xl); line-height: var(--wk-line-height-tight); font-weight: 650; }
+.wk-title-2 { margin: 0; font-size: var(--wk-font-size-lg); line-height: var(--wk-line-height-tight); font-weight: var(--wk-font-weight-semibold); }
+.wk-heading { margin: 0; font-size: var(--wk-font-size-md); line-height: var(--wk-line-height-tight); font-weight: var(--wk-font-weight-semibold); }
+.wk-subheading { margin: 0; font-size: var(--wk-font-size-base); line-height: var(--wk-line-height); font-weight: var(--wk-font-weight-semibold); }
+.wk-body { font-size: var(--wk-font-size-base); font-weight: var(--wk-font-weight-regular); line-height: var(--wk-line-height); }
+.wk-caption { font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-regular); line-height: var(--wk-line-height); color: var(--wk-color-text-secondary); }
+.wk-small { font-size: var(--wk-font-size-xs); font-weight: var(--wk-font-weight-regular); line-height: var(--wk-line-height); color: var(--wk-color-text-secondary); }
+.wk-secondary { color: var(--wk-color-text-secondary); }
+.wk-num { font-variant-numeric: tabular-nums; }
+.wk-mono { font-family: var(--wk-font-family-mono); }
+.wk-figure { font-size: var(--wk-font-size-xl); line-height: 1; font-weight: var(--wk-font-weight-semibold); font-variant-numeric: tabular-nums; }

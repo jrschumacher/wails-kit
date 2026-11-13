@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en" class="wk-root">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>UI demo (prebuilt dist)</title>
+  <link rel="stylesheet" href="../dist/wails-kit-ui.css">
+  <link rel="stylesheet" href="demo.css">
+  <script type="module" src="../dist/wails-kit-ui.js"></script>
+  <script type="module" src="demo.js"></script>
+</head>
+<!-- A review page for @wails-kit/ui, not a window. Serve the package folder
+     and open demo/index.html. The prebuilt dist/ files, as an app without a bundler links them. -->
+<body data-demo="neutral" data-module="../dist/wails-kit-ui.js"><main id="demo" class="demo"></main></body>
+</html>

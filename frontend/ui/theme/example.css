@@ -1,0 +1,50 @@
+/* An example theme for @wails-kit/ui (see theme.css for what a theme may
+   set): a green accent, an amber working state and rounder corners. The
+   demo's themed page (demo/themed.html) shows the kit with it. It names a
+   system font, so it bundles nothing. */
+:root {
+  --wk-color-accent: #1f6b55;
+  --wk-color-on-accent: #ffffff;
+  --wk-color-selection: rgba(31, 107, 85, .12);
+  --wk-color-working: #b7791f;
+  /* Amber on the light ground is under 3:1; its ring is darker. */
+  --wk-color-working-ring: #94621a;
+  --wk-color-attention: #c4372b;
+  --wk-color-attention-text: #a32d22;
+  --wk-color-attention-fill: rgba(196, 55, 43, .08);
+  --wk-color-destructive-text: #a32d22;
+  --wk-color-chart-1: #1f6b55;
+  --wk-color-chart-3: #b7791f;
+  --wk-font-family: "Avenir Next", "Segoe UI Variable Text", system-ui, sans-serif;
+  --wk-font-features: normal;
+  --wk-radius-control: 7px;
+  --wk-radius-group: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --wk-color-accent: #7fcfb4;
+    --wk-color-on-accent: #0c1a15;
+    --wk-color-selection: rgba(127, 207, 180, .14);
+    --wk-color-working: #e5ad4f;
+    --wk-color-working-ring: #e5ad4f;
+    --wk-color-attention: #ee6b5f;
+    --wk-color-attention-text: #f48c82;
+    --wk-color-attention-fill: rgba(238, 107, 95, .12);
+    --wk-color-destructive-text: #f48c82;
+    --wk-color-chart-1: #7fcfb4;
+    --wk-color-chart-3: #e5ad4f;
+  }
+}
+:root[data-theme="dark"] {
+  --wk-color-accent: #7fcfb4;
+  --wk-color-on-accent: #0c1a15;
+  --wk-color-selection: rgba(127, 207, 180, .14);
+  --wk-color-working: #e5ad4f;
+  --wk-color-working-ring: #e5ad4f;
+  --wk-color-attention: #ee6b5f;
+  --wk-color-attention-text: #f48c82;
+  --wk-color-attention-fill: rgba(238, 107, 95, .12);
+  --wk-color-destructive-text: #f48c82;
+  --wk-color-chart-1: #7fcfb4;
+  --wk-color-chart-3: #e5ad4f;
+}
