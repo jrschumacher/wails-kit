@@ -257,25 +257,44 @@ function legend(spec) {
   return list;
 }
 
-// One ResizeObserver for every chart's plot. A redraw of the page replaces its charts without telling them,
-// and a removed element gets no resize notice, so each paint schedules a sweep: once the redraw has been put
-// in the document, plots no longer in it stop being observed and their charts can be freed.
-const sized = new Map(); // plot → its redraw
-let sizeObserver = null, sweepQueued = false;
-function sweepSizes() {
-  sweepQueued = false;
-  for (const plot of sized.keys()) if (!plot.isConnected) unwatchSize(plot);
+// Detached plots must not be retained by the shared ResizeObserver. Keep their
+// callbacks weakly, so charts made before attachment (or reattached later) can
+// resume observing without keeping discarded charts alive.
+const sized = new WeakMap(); // plot → its redraw
+const observing = new Set(); // only connected plots; swept on every DOM mutation
+let sizeObserver = null, connectionObserver = null;
+function syncSize(plot) {
+  if (!sized.has(plot)) return;
+  if (plot.isConnected) {
+    if (!observing.has(plot)) {
+      observing.add(plot);
+      sizeObserver.observe(plot);
+    }
+  } else if (observing.delete(plot)) sizeObserver.unobserve(plot);
+}
+function syncSizesIn(node) {
+  if (node.nodeType !== 1) return;
+  syncSize(node);
+  node.querySelectorAll('.wk-chart-plot').forEach(syncSize);
 }
 function watchSize(plot, redraw) {
   if (typeof ResizeObserver !== 'function') return null;
-  sizeObserver ??= new ResizeObserver(entries => { for (const e of entries) sized.get(e.target)?.(); });
+  sizeObserver ??= new ResizeObserver(entries => { for (const e of entries) if (e.target.isConnected) sized.get(e.target)?.(); });
+  connectionObserver ??= new MutationObserver(records => {
+    for (const observed of observing) if (!observed.isConnected) syncSize(observed);
+    for (const record of records) {
+      record.removedNodes.forEach(syncSizesIn);
+      record.addedNodes.forEach(syncSizesIn);
+    }
+  });
+  connectionObserver.observe(document, { childList: true, subtree: true });
   sized.set(plot, redraw);
-  sizeObserver.observe(plot);
-  if (!sweepQueued) { sweepQueued = true; setTimeout(sweepSizes, 0); }
+  syncSize(plot);
   return plot;
 }
 function unwatchSize(plot) {
-  if (sized.delete(plot)) sizeObserver?.unobserve(plot);
+  sized.delete(plot);
+  if (observing.delete(plot)) sizeObserver.unobserve(plot);
 }
 
 /** Builds the chart's <figure>. It redraws itself when its width changes. */

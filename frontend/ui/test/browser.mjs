@@ -823,9 +823,9 @@ try {
     assert.deepEqual(problems, []);
     await page.close();
   });
-  await check('chart: a chart a page redraw replaces stops being observed', async () => {
+  await check('chart: replacement, final removal, delayed attachment and reattachment manage observation', async () => {
     const { page, problems } = await open('/demo/index.html');
-    const live = await page.evaluate(async () => {
+    const result = await page.evaluate(async () => {
       // Count observed plots on the prototype: the kit's observer may exist before this patch.
       const P = ResizeObserver.prototype, { observe, unobserve } = P, seen = new Set();
       P.observe = function (el, o) { if (el.classList?.contains('wk-chart-plot')) seen.add(el); return observe.call(this, el, o); };
@@ -834,11 +834,40 @@ try {
       const host = document.createElement('div');
       document.body.append(host);
       const spec = { id: 'leak', kind: 'bars', label: 'Leak', categories: [{ label: 'a' }, { label: 'b' }], series: [{ key: 's', label: 'S', tone: 1, values: [1, 2] }] };
-      for (let i = 0; i < 6; i++) { host.replaceChildren(wkChart(spec)); await new Promise(r => setTimeout(r, 5)); }
+      const settle = async () => { for (let i = 0; i < 3; i++) await new Promise(requestAnimationFrame); };
+      for (let i = 0; i < 6; i++) { host.replaceChildren(wkChart(spec)); await settle(); }
+      const replaced = seen.size;
+      host.replaceChildren();
+      await settle();
+      const removed = seen.size;
+      const chart = wkChart(spec);
+      // Let the old implementation's initial cleanup tick run before attachment.
       await new Promise(r => setTimeout(r, 20));
-      return seen.size;
+      const detached = seen.size;
+      host.style.width = '410px';
+      host.append(chart);
+      await settle();
+      const attached = seen.size;
+      host.style.width = '270px';
+      await settle();
+      const plot = chart.querySelector('.wk-chart-plot');
+      const resized = { plot: plot.clientWidth, svg: plot.querySelector('svg').getBoundingClientRect().width };
+      host.remove();
+      host.replaceChildren();
+      await settle();
+      const removedHost = seen.size;
+      host.append(chart);
+      document.body.append(host);
+      await settle();
+      return { replaced, removed, detached, attached, resized, removedHost, reattached: seen.size };
     });
-    assert.equal(live, 1, 'only the chart in the page is observed');
+    assert.equal(result.replaced, 1, 'only the chart in the page is observed');
+    assert.equal(result.removed, 0, 'removing the last chart unobserves its plot without another paint');
+    assert.equal(result.detached, 0, 'a detached chart is not retained by ResizeObserver');
+    assert.equal(result.attached, 1, 'a chart attached after the initial tick becomes observed');
+    assert.ok(result.resized.plot > 0 && Math.abs(result.resized.svg - result.resized.plot) <= .5, 'a delayed chart redraws after a later resize');
+    assert.equal(result.removedHost, 0, 'removing a containing subtree unobserves the plot');
+    assert.equal(result.reattached, 1, 'reattaching a containing subtree resumes observation');
     assert.deepEqual(problems, []);
     await page.close();
   });
