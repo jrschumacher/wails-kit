@@ -24,42 +24,66 @@ alerts, shortcuts and the light or dark appearance.
 
 ## Use it
 
-### With a bundler (Vite and the like)
+The UI is not published to npm. Vendor the prebuilt files from a pinned
+repository release tag for both bundled and unbundled apps. Choose a tag that
+contains `frontend/ui/dist/`; until the first such release, this UI is unreleased.
+Do not substitute a moving branch such as `main` for the tag.
+
+Run this from the app's frontend directory, replacing the tag placeholder:
 
 ```sh
-npm install @wails-kit/ui
+tag='REPLACE_WITH_RELEASE_TAG'
+checkout=$(mktemp -d)
+git clone --depth 1 --branch "$tag" https://github.com/jrschumacher/wails-kit.git "$checkout"
+mkdir -p vendor/wails-kit-ui
+cp "$checkout/frontend/ui/dist/wails-kit-ui.css" vendor/wails-kit-ui/
+cp "$checkout/frontend/ui/dist/wails-kit-ui.js" vendor/wails-kit-ui/
+# Optional TypeScript declarations, named to match the vendored JS module.
+cp "$checkout/frontend/ui/src/index.d.ts" vendor/wails-kit-ui/wails-kit-ui.d.ts
+printf 'Source: https://github.com/jrschumacher/wails-kit\nTag: %s\nCommit: %s\n' \
+  "$tag" "$(git -C "$checkout" rev-parse HEAD)" > vendor/wails-kit-ui/SOURCES.md
+(cd vendor/wails-kit-ui && shasum -a 256 wails-kit-ui.css wails-kit-ui.js wails-kit-ui.d.ts > SHA256SUMS)
 ```
+
+Commit the vendored files, `SOURCES.md` and `SHA256SUMS` with the app. To update,
+repeat with a newer release tag and review the file and checksum changes. The
+temporary checkout can be deleted after copying. Neither the files nor the
+commands require npm installation or a local kit build.
+
+### With a bundler (Vite and the like)
+
+Import the vendored files using paths relative to your entry module:
 
 ```js
-import '@wails-kit/ui/ui.css';      // tokens, base, components, settings window
-import './theme.css';                // your theme, after the kit's stylesheet
-import { wkChart, WkSettings } from '@wails-kit/ui'; // also defines the wk-* elements
+import './vendor/wails-kit-ui/wails-kit-ui.css'; // tokens, components, settings window
+import './theme.css';                          // your theme, after the kit's stylesheet
+import { wkChart, WkSettings } from './vendor/wails-kit-ui/wails-kit-ui.js';
 ```
 
-Put `class="wk-root"` on `<html>` (or on the container that holds kit components).
+The JavaScript import also defines the `wk-*` elements. Put `class="wk-root"`
+on `<html>` (or on the container that holds kit components).
 
 ### Without a bundler
 
-Copy the two prebuilt files from a release, `dist/wails-kit-ui.css` and
-`dist/wails-kit-ui.js`, into the app's frontend folder, and link them:
+Use the same vendored files, served with the app's frontend assets:
 
 ```html
 <html lang="en" class="wk-root">
 <head>
-  <link rel="stylesheet" href="vendor/wails-kit-ui.css">
+  <link rel="stylesheet" href="vendor/wails-kit-ui/wails-kit-ui.css">
   <link rel="stylesheet" href="theme.css">
-  <script type="module" src="vendor/wails-kit-ui.js"></script>
+  <script type="module" src="vendor/wails-kit-ui/wails-kit-ui.js"></script>
 </head>
 ```
 
 ```js
-import { wkChart } from './vendor/wails-kit-ui.js';
+import { wkChart } from './vendor/wails-kit-ui/wails-kit-ui.js';
 ```
 
 `dist/wails-kit-ui.js` exports exactly what the package entry exports, and
 `dist/wails-kit-ui.css` is `src/ui.css` with its imports inlined. Neither loads
-anything else. Pin a release by copying the files from its tag and recording
-the version (the first line of each file names it).
+anything else. The first line of each file names the package version; the tag,
+commit and checksums recorded above identify the exact vendored release.
 
 ## Light and dark
 
