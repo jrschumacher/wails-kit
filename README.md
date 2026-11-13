@@ -8,7 +8,7 @@ wails-kit provides **desktop app infrastructure** — the plumbing that every Wa
 
 - Solve a problem **specific to desktop apps or Wails integration** (OS paths, keyring, window lifecycle)
 - Eliminate **real boilerplate** that multiple apps would otherwise copy-paste
-- Provide **infrastructure, not business logic** (storage, config, lifecycle — not domain models or UI)
+- Provide **infrastructure, not business logic** (storage, config, lifecycle, and base UI that looks the same in every app — not domain models or an app's own screens)
 
 Generic Go libraries (AI SDKs, HTTP clients, data processing) belong in standalone repos, not in the kit.
 
