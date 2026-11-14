@@ -823,6 +823,41 @@ try {
     assert.deepEqual(problems, []);
     await page.close();
   });
+  await check('chart: isolated band remains visible and accessible across gaps', async () => {
+    const { page, problems } = await open();
+    await page.evaluate(async () => {
+      const { wkChart } = await import('../src/index.js');
+      document.body.append(wkChart({ id: 'isolated', kind: 'line', label: 'Wait',
+        categories: ['Empty', 'Isolated', 'Gap', 'Pair A', 'Pair B'].map(label => ({ label })),
+        series: [{ label: 'p50', tone: 1, values: [null, 10, null, 12, 15] }],
+        band: { label: 'p90', tone: 1, values: [null, 30, null, 25, 35] } }));
+      document.body.append(wkChart({ id: 'close-band', kind: 'line', label: 'Close values',
+        categories: ['Equal', 'Gap', 'Near'].map(label => ({ label })),
+        series: [{ label: 'p50', tone: 1, values: [10, null, 10] }],
+        band: { label: 'p90', tone: 1, values: [10, null, 10.01] } }));
+    });
+    const chart = page.locator('#isolated');
+    const interval = chart.locator('.wk-chart-band-single');
+    assert.equal(await interval.count(), 1, 'one visible interval for the isolated bucket');
+    const geometry = await interval.evaluate(el => ({ height: el.getBBox().height, stroke: getComputedStyle(el).stroke, width: parseFloat(getComputedStyle(el).strokeWidth) }));
+    assert.ok(geometry.height > 0 && geometry.stroke !== 'none' && geometry.width > 0, 'p50 to p90 interval is painted');
+    assert.equal(await chart.locator('.wk-chart-band').count(), 1, 'the multi-point band remains');
+    const caps = await page.locator('#close-band .wk-chart-band-single').evaluateAll(els => els.map(el => ({ width: el.getBBox().width, stroke: getComputedStyle(el).stroke })));
+    assert.equal(caps.length, 2, 'equal and nearly equal values have caps');
+    assert.ok(caps.every(cap => cap.width >= 16 && cap.stroke !== 'none'), 'caps extend visibly beyond the median dot');
+    const plot = chart.locator('.wk-chart-plot');
+    assert.equal(await plot.getAttribute('role'), 'group');
+    assert.match(await plot.getAttribute('aria-label'), /Wait.*arrow keys/);
+    await plot.focus(); await page.keyboard.press('Home');
+    assert.equal(await chart.locator('[role=status]').textContent(), 'Empty: No data');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await chart.locator('[role=status]').textContent(), 'Isolated: p50 10, p90 30');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await chart.locator('[role=status]').textContent(), 'Gap: No data');
+    await chart.locator('input[value=table]').check({ force: true });
+    assert.deepEqual(await chart.locator('tbody tr').nth(1).locator('th, td').allTextContents(), ['Isolated', '10', '30']);
+    assert.deepEqual(problems, []); await page.close();
+  });
   await check('chart: replacement, final removal, delayed attachment and reattachment manage observation', async () => {
     const { page, problems } = await open('/demo/index.html');
     const result = await page.evaluate(async () => {
