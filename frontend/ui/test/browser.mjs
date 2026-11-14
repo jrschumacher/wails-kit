@@ -858,6 +858,53 @@ try {
     assert.deepEqual(await chart.locator('tbody tr').nth(1).locator('th, td').allTextContents(), ['Isolated', '10', '30']);
     assert.deepEqual(problems, []); await page.close();
   });
+  await check('chart: selection survives snapshot replacement and can be cleared', async () => {
+    const { page, problems } = await open('/demo/index.html');
+    await page.evaluate(async () => {
+      const { wkChart } = await import('../src/index.js');
+      const host = document.createElement('div'); host.id = 'snapshot-host'; document.body.append(host);
+      let selection = -1;
+      window.snapshot = value => {
+        host.replaceChildren(wkChart({ id: 'snapshot', kind: 'bars', label: 'Snapshot',
+          categories: [{ label: 'First' }, { label: 'Second' }],
+          series: [{ label: 'Count', values: [1, value] }], selection,
+          onselection: i => { selection = i; } }));
+      };
+      window.selectedIndex = () => selection;
+      window.snapshot(2);
+    });
+    const plot = page.locator('#snapshot .wk-chart-plot');
+    await plot.focus();
+    await page.keyboard.press('End');
+    assert.equal(await page.evaluate(() => window.selectedIndex()), 1);
+    for (const value of [3, 4]) {
+      await page.evaluate(v => window.snapshot(v), value);
+      await plot.focus(); // the consumer restores focus after replacing the element
+      assert.equal(await page.locator('#snapshot .wk-chart-readout').textContent(), `Second: Count ${value}`);
+      assert.equal(await page.locator('#snapshot .wk-chart-active').getAttribute('hidden'), null);
+      assert.equal(await page.evaluate(() => window.selectedIndex()), 1);
+    }
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => window.selectedIndex()), -1);
+    assert.equal(await page.locator('#snapshot .wk-chart-readout').textContent(), '');
+    await page.evaluate(() => window.snapshot(5));
+    assert.equal(await page.locator('#snapshot .wk-chart-readout').textContent(), '');
+    // Pointer selection reports the category as well as keyboard selection.
+    const svg = page.locator('#snapshot svg');
+    await svg.hover(); // Wait until the replacement chart is visible and stable.
+    const box = await svg.boundingBox();
+    await page.mouse.move(box.x + box.width * .75, box.y + box.height / 2);
+    assert.equal(await page.evaluate(() => window.selectedIndex()), 1);
+    await page.evaluate(() => {
+      for (const view of ['table', 'chart']) {
+        const input = document.querySelector(`#snapshot .wk-chart-view input[value=${view}]`);
+        input.checked = true; input.dispatchEvent(new Event('change'));
+      }
+    });
+    assert.equal(await page.locator('#snapshot .wk-chart-readout').textContent(), 'Second: Count 5');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
   await check('chart: replacement, final removal, delayed attachment and reattachment manage observation', async () => {
     const { page, problems } = await open('/demo/index.html');
     const result = await page.evaluate(async () => {
