@@ -172,6 +172,13 @@ function drawColumns(spec, width) {
     const x = i => m.l + (i + .5) * band;
     if (spec.band) {
       for (const run of runs(spec.band.values.map((v, i) => v != null && spec.series[0].values[i] != null ? v : null))) {
+        if (run.length === 1) {
+          const [i, v] = run[0], xx = n2(x(i)), yy = n2(y(v));
+          // A one-point band has no area. Show its range and cap the upper value.
+          svgEl('path', { class: 'wk-chart-line wk-chart-band-single', 'data-tone': spec.band.tone,
+            d: `M${xx} ${n2(y(spec.series[0].values[i]))}V${yy}M${n2(xx - 8)} ${yy}H${n2(xx + 8)}` }, svg);
+          continue;
+        }
         const up = run.map(([i, v]) => `${n2(x(i))} ${n2(y(v))}`);
         const down = run.map(([i]) => `${n2(x(i))} ${n2(y(spec.series[0].values[i]))}`).reverse();
         svgEl('path', { class: 'wk-chart-band', 'data-tone': spec.band.tone, d: `M${up.join('L')}L${down.join('L')}z` }, svg);
