@@ -744,6 +744,7 @@ export { WkMenu, WkContextMenu, WkTabs, WkTooltip, WkDialog, syncSteppers };
 //     shadeLabel: 'Weekend',            // names the shaded categories in the legend
 //     categoryHeader: 'Day',            // the table's first column
 //     view: 'chart' | 'table', onview: view => {},
+//     selection: -1, onselection: index => {}, // category index, or -1 for none
 //   }) -> <figure class="wk-chart">
 const SVG = 'http://www.w3.org/2000/svg';
 const GAP = 2;          // the surface between touching marks
@@ -1039,7 +1040,7 @@ export function wkChart(spec) {
   const body = htmlEl('div', 'wk-chart-body', null, fig);
   const status = htmlEl('p', 'wk-chart-readout', null, fig);
   status.setAttribute('role', 'status');
-  let observed = null, current = null, width = 0, activeIndex = -1;
+  let observed = null, current = null, width = 0, selection = Number.isInteger(spec.selection) ? spec.selection : -1, activeIndex = selection;
   const empty = spec.categories.length === 0 || spec.series.length === 0;
 
   function tooltip(plot, tip, at, i) {
@@ -1068,8 +1069,8 @@ export function wkChart(spec) {
     plot.querySelector('svg')?.remove();
     plot.prepend(drawn.svg);
     const tip = plot.querySelector('.wk-chart-tip');
-    const activate = i => { activeIndex = i; tooltip(plot, tip, drawn.show(i), i); };
-    const clear = () => { activeIndex = -1; drawn.hide(); tip.setAttribute('hidden', ''); status.textContent = ''; };
+    const activate = i => { activeIndex = i; selection = i; spec.onselection?.(i); tooltip(plot, tip, drawn.show(i), i); };
+    const clear = () => { activeIndex = -1; selection = -1; spec.onselection?.(-1); drawn.hide(); tip.setAttribute('hidden', ''); status.textContent = ''; };
     drawn.svg.addEventListener('pointermove', e => { const box = drawn.svg.getBoundingClientRect(); activate(drawn.index(e.clientX - box.left, e.clientY - box.top)); });
     drawn.svg.addEventListener('pointerleave', () => { if (document.activeElement !== plot) clear(); });
     plot.onkeydown = e => {
@@ -1085,7 +1086,7 @@ export function wkChart(spec) {
   }
 
   function paint() {
-    if (observed) unwatchSize(observed); observed = null; current = null; activeIndex = -1; status.textContent = '';
+    if (observed) unwatchSize(observed); observed = null; current = null; activeIndex = selection; status.textContent = '';
     body.replaceChildren();
     if (view === 'table') {
       const { head: header, rows } = tableModel(spec);

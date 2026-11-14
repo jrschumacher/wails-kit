@@ -33,6 +33,7 @@ export interface ChartSpec {
   format?: (v: number) => string; tableFormat?: (v: number) => string; ticks?: (max: number) => number[]; integer?: boolean;
   legendValues?: boolean; shadeLabel?: string; categoryHeader?: string; emptyText?: string;
   view?: 'chart' | 'table'; onview?: (view: 'chart' | 'table') => void;
+  selection?: number; onselection?: (index: number) => void;
 }
 export function wkChart(spec: ChartSpec): HTMLElement;
 export function niceTicks(max: number, count?: number, integer?: boolean): number[];
