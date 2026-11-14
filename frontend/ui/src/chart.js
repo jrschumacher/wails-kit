@@ -25,6 +25,7 @@
 //     categoryHeader: 'Day',            // the table's first column
 //     view: 'chart' | 'table', onview: view => {},
 //     selection: -1, onselection: index => {}, // category index, or -1 for none
+//     retainSelectionOnBlur: false,    // keep the readout when focus leaves the plot
 //   }) -> <figure class="wk-chart">
 const SVG = 'http://www.w3.org/2000/svg';
 const GAP = 2;          // the surface between touching marks
@@ -319,7 +320,7 @@ export function wkChart(spec) {
   toggle.setAttribute('role', 'radiogroup'); toggle.setAttribute('aria-label', `${spec.label} view`);
   for (const [value, text] of [['chart', 'Chart'], ['table', 'Table']]) {
     const label = htmlEl('label', null, null, toggle), input = htmlEl('input', null, null, label);
-    input.type = 'radio'; input.name = `${id}-view`; input.value = value; input.checked = value === view;
+    input.id = `${id}-view-${value}`; input.type = 'radio'; input.name = `${id}-view`; input.value = value; input.checked = value === view;
     htmlEl('span', null, text, label);
     input.addEventListener('change', () => { if (input.checked) { view = value; spec.onview?.(value); paint(); } });
   }
@@ -368,7 +369,7 @@ export function wkChart(spec) {
         activate(e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : Math.min(n - 1, Math.max(0, activeIndex < 0 ? (next > 0 ? 0 : n - 1) : activeIndex + next)));
       }
     };
-    plot.onblur = clear;
+    if (!spec.retainSelectionOnBlur) plot.onblur = clear;
     if (activeIndex >= 0) activate(Math.min(activeIndex, spec.categories.length - 1));
   }
 
@@ -391,7 +392,7 @@ export function wkChart(spec) {
     }
     if (empty) { htmlEl('p', 'wk-chart-none', spec.emptyText || 'No data', body); return; }
     const plot = htmlEl('div', 'wk-chart-plot', null, body);
-    plot.tabIndex = 0; plot.setAttribute('role', 'group');
+    plot.id = `${id}-plot`; plot.tabIndex = 0; plot.setAttribute('role', 'group');
     plot.setAttribute('aria-label', `${spec.label}${spec.summary ? `, ${spec.summary}` : ''}. Use the arrow keys to read each value.`);
     htmlEl('div', 'wk-chart-tip', null, plot).setAttribute('hidden', '');
     drawChart(plot, Math.round(plot.clientWidth) || 640);
