@@ -858,6 +858,48 @@ try {
     assert.deepEqual(await chart.locator('tbody tr').nth(1).locator('th, td').allTextContents(), ['Isolated', '10', '30']);
     assert.deepEqual(problems, []); await page.close();
   });
+  await check('chart: stable focus and opt-in selection survive replacements', async () => {
+    const { page, problems } = await open('/demo/index.html');
+    await page.evaluate(async () => {
+      const { wkChart } = await import('../src/index.js');
+      const host = document.createElement('div'); document.body.append(host);
+      let selection = -1, view = 'chart';
+      window.replaceChart = value => {
+        const focused = document.activeElement?.id;
+        host.replaceChildren(wkChart({ id: 'persistent', kind: 'bars', label: 'Snapshot',
+          categories: ['First', 'Second', 'Third'].map(label => ({ label })),
+          series: [{ label: 'Count', values: [1, value, 9] }], selection, view,
+          retainSelectionOnBlur: true, onselection: i => { selection = i; }, onview: v => { view = v; } }));
+        document.getElementById(focused)?.focus();
+      };
+      window.replaceChart(2);
+    });
+    await page.locator('#persistent-plot').focus();
+    await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight');
+    assert.equal(await page.locator('#persistent [role=status]').textContent(), 'Second: Count 2');
+    for (const value of [3, 4]) {
+      await page.evaluate(v => window.replaceChart(v), value);
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'persistent-plot');
+      assert.equal(await page.locator('#persistent [role=status]').textContent(), `Second: Count ${value}`);
+    }
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await page.locator('#persistent [role=status]').textContent(), 'Third: Count 9');
+    await page.locator('#persistent-view-table').focus();
+    assert.equal(await page.locator('#persistent [role=status]').textContent(), 'Third: Count 9', 'opt-in retains on blur');
+    await page.keyboard.press('Space');
+    await page.evaluate(() => window.replaceChart(5));
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'persistent-view-table');
+    assert.equal(await page.locator('#persistent-table').count(), 1);
+    await page.locator('#persistent-view-chart').check({ force: true });
+    await page.locator('#persistent-plot').focus(); await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#persistent [role=status]').textContent(), '');
+    // Existing consumers still clear on blur by default.
+    await page.locator('#demo-stacked .wk-chart-plot').focus(); await page.keyboard.press('Home');
+    assert.notEqual(await page.locator('#demo-stacked [role=status]').textContent(), '');
+    await page.locator('#persistent-view-chart').focus();
+    assert.equal(await page.locator('#demo-stacked [role=status]').textContent(), '');
+    assert.deepEqual(problems, []); await page.close();
+  });
   await check('chart: selection survives snapshot replacement and can be cleared', async () => {
     const { page, problems } = await open('/demo/index.html');
     await page.evaluate(async () => {

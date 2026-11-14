@@ -270,3 +270,5 @@ well as WebView2; these checks run in Chrome, so check WebKit by hand on a Mac
 for a change in behaviour.
 
 Chart callers can preserve the active category across replacement by retaining the index reported by `onselection(index)` and passing it as `selection` to the next `wkChart` call. `-1` means no selection. Pointer and keyboard interaction, clearing, and restoring a selection may invoke the callback; an out-of-range positive index is clamped to the last category. Callers manage focus when replacing a chart.
+
+Each chart uses its `id` (or a generated ID) to name its focusable plot (`<id>-plot`), view radios (`<id>-view-chart` and `<id>-view-table`), and table (`<id>-table`). A caller replacing a chart can restore focus to the corresponding ID. By default, blurring the plot clears selection; set `retainSelectionOnBlur: true` to retain it. Escape still clears selection, and pointer leave clears it when the plot is not focused.
