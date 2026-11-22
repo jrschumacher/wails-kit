@@ -185,6 +185,25 @@ ${section('table', 'Table', `
   </tbody>
 </table>`, 'The second row is the current one (aria-current="true"); aria-selected="true" looks the same inside a grid.')}
 
+${section('list', 'List', `
+<div class="demo-lists">
+  <div>
+    <h3 class="wk-list-heading">Active <span>3</span></h3>
+    <ul class="wk-list" role="listbox" aria-label="Active">
+      <li class="wk-list-row" role="option" aria-selected="true" tabindex="0"><span class="wk-dot-label"><span class="wk-dot" data-tone="working" aria-hidden="true"></span><b>Export the quarterly report</b></span><span class="wk-secondary demo-list-meta">Running · started 2 min ago</span><span class="demo-list-chips"><span class="wk-chip">PDF</span><span class="wk-chip">48 pages</span></span></li>
+      <li class="wk-list-row" role="option" aria-selected="false" tabindex="-1"><span class="wk-dot-label"><span class="wk-dot" data-shape="hollow" aria-hidden="true"></span><b>Sync the shared folder</b></span><span class="wk-secondary demo-list-meta">Queued · after the export</span></li>
+      <li class="wk-list-row" role="option" aria-selected="false" tabindex="-1"><span class="wk-dot-label"><span class="wk-dot" data-tone="attention" aria-hidden="true"></span><b>Upload figures.csv</b></span><span class="wk-secondary demo-list-meta">Failed · the server refused the file</span></li>
+    </ul>
+  </div>
+  <div>
+    <h3 class="wk-list-heading">Recent <span>41</span></h3>
+    <ul class="wk-list" role="listbox" aria-label="Recent">
+      <li class="wk-list-row" role="option" aria-selected="false" tabindex="0"><span class="wk-dot-label"><span class="wk-dot" aria-hidden="true"></span><b>Back up the workspace</b></span><span class="wk-secondary demo-list-meta">Done · 38 min ago</span></li>
+      <li class="wk-list-row" role="option" aria-selected="false" tabindex="-1"><span class="wk-dot-label"><span class="wk-dot" data-shape="bar" aria-hidden="true"></span><b>Rebuild the search index</b></span><span class="wk-secondary demo-list-meta">Skipped · 3 h ago</span></li>
+    </ul>
+  </div>
+</div>`, 'Rows of any height, laid out by the app; the first row is selected (aria-selected="true"; aria-current looks the same). Secondary text on the selected row uses wk-color-text-secondary-on-selected. The app moves focus between rows.')}
+
 ${section('layout', 'Three-pane layout: sidebar, toolbar, list, inspector', `
 <div class="wk-three-pane demo-frame">
   <nav class="wk-sidebar" aria-label="Sections">

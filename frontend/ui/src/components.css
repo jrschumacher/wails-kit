@@ -224,6 +224,24 @@ button.wk-chip:disabled { opacity: .45; cursor: default; }
 .wk-table tbody tr[aria-selected="true"] .wk-secondary,
 .wk-table tbody tr[aria-current]:not([aria-current="false"]) .wk-secondary { color: var(--wk-color-text-secondary-on-selected); }
 
+/* ---- List: selectable rows of any height ------------------------------- */
+/* For items that do not share columns: a <ul class="wk-list"> of
+   <li class="wk-list-row">, each laid out by the app (a title, a meta line,
+   chips). The selected row carries aria-selected="true" (role="option" in a
+   role="listbox") or aria-current; selection is the quiet tint, never the
+   accent. wk-list-heading names a group, with its count in a <span>. The app
+   moves focus between rows (one row tabindex="0", the rest "-1"). */
+.wk-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0 var(--wk-space-2) var(--wk-space-2); list-style: none; }
+.wk-list-row { display: block; padding: var(--wk-space-2) 10px; border-radius: var(--wk-radius-control); cursor: default; }
+.wk-list-row:hover { background: var(--wk-color-fill); }
+.wk-list-row[aria-selected="true"],
+.wk-list-row[aria-current]:not([aria-current="false"]) { background: var(--wk-color-selection); }
+.wk-list-row[aria-selected="true"] .wk-secondary,
+.wk-list-row[aria-current]:not([aria-current="false"]) .wk-secondary { color: var(--wk-color-text-secondary-on-selected); }
+.wk-list-row:focus-visible { outline-offset: -2px; }
+.wk-list-heading { display: flex; align-items: baseline; gap: var(--wk-space-2); margin: 0; padding: 10px 18px var(--wk-space-1); font-size: var(--wk-font-size-base); font-weight: var(--wk-font-weight-semibold); }
+.wk-list-heading > span { color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-regular); font-variant-numeric: tabular-nums; }
+
 /* ---- Sidebar ----------------------------------------------------------- */
 .wk-sidebar {
   display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow: auto;
@@ -615,6 +633,10 @@ wk-dialog { display: contents; }
   .wk-chip--attention { forced-color-adjust: none; border-color: CanvasText; background: CanvasText; color: Canvas; }
   .wk-table tbody tr[aria-selected="true"] > *,
   .wk-table tbody tr[aria-current]:not([aria-current="false"]) > * { border-top: 2px solid Highlight; border-bottom: 2px solid Highlight; }
+  .wk-list-row[aria-selected="true"],
+  .wk-list-row[aria-current]:not([aria-current="false"]) { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+  .wk-list-row[aria-selected="true"] .wk-secondary,
+  .wk-list-row[aria-current]:not([aria-current="false"]) .wk-secondary { color: HighlightText; }
   .wk-tablist [role="tab"] { forced-color-adjust: none; border-bottom-color: transparent; color: CanvasText; }
   .wk-tablist [role="tab"]:disabled, .wk-tablist [role="tab"][aria-disabled="true"] { color: GrayText; }
   .wk-tablist [role="tab"][aria-selected="true"] { border-bottom-color: Highlight; }

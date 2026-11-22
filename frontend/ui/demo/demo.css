@@ -28,6 +28,9 @@
 :where(.wk-root) .demo-dot-large { --wk-dot-size: 14px; border-width: 2px; }
 :where(.wk-root) .demo-state { display: inline-flex; align-items: center; gap: 7px; }
 :where(.wk-root) .demo-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+:where(.wk-root) .demo-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--wk-space-4); max-width: 720px; }
+:where(.wk-root) .demo-list-meta { display: block; margin: 2px 0 0 18px; font-size: var(--wk-font-size-sm); }
+:where(.wk-root) .demo-list-chips { display: flex; flex-wrap: wrap; gap: var(--wk-space-1); margin: 6px 0 0 18px; }
 :where(.wk-root) .demo-frame { height: 360px; border: var(--wk-hairline-width) solid var(--wk-color-hairline-strong); border-radius: var(--wk-radius-window); overflow: hidden; }
 .demo-frame .wk-pane-inspector { flex-basis: 240px; }
 .demo-frame .wk-pane-list > .wk-table { margin: var(--wk-space-2) var(--wk-space-4); width: auto; }

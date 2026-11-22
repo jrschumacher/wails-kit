@@ -1019,6 +1019,31 @@ try {
     await page.close();
   });
 
+  await check('list: the selected row carries the selection tint and darker secondary text, rows keep their own height, forced colours mark the selected row', async () => {
+    const { page, problems } = await open();
+    const read = p => p.locator('#list .wk-list').first().evaluate(list => {
+      const probe = (prop, token) => { const e = document.createElement('i'); e.style[prop] = `var(${token})`; list.append(e); const v = getComputedStyle(e)[prop]; e.remove(); return v; };
+      const rows = [...list.querySelectorAll('.wk-list-row')];
+      const row = r => ({ bg: getComputedStyle(r).backgroundColor, meta: getComputedStyle(r.querySelector('.wk-secondary')).color, height: r.getBoundingClientRect().height });
+      return { rows: rows.map(row), selection: probe('backgroundColor', '--wk-color-selection'), onSelected: probe('color', '--wk-color-text-secondary-on-selected'), secondary: probe('color', '--wk-color-text-secondary'), bullets: getComputedStyle(list).listStyleType };
+    });
+    const light = await read(page);
+    assert.equal(light.bullets, 'none');
+    assert.equal(light.rows[0].bg, light.selection, 'the selected row has the selection tint');
+    assert.equal(light.rows[0].meta, light.onSelected, 'secondary text on the selected row is the darker step');
+    assert.notEqual(light.rows[1].bg, light.selection);
+    assert.equal(light.rows[1].meta, light.secondary);
+    assert.ok(light.rows[0].height > light.rows[1].height, 'a row with chips is taller than one without');
+    assert.equal(await page.locator('#list .wk-list-heading > span').first().evaluate(s => getComputedStyle(s).fontVariantNumeric), 'tabular-nums');
+    assert.deepEqual(problems, []);
+    await page.close();
+    const forced = await open('/demo/index.html', { forcedColors: 'active', reducedMotion: 'reduce' });
+    const shots = await forced.page.locator('#list .wk-list').first().evaluate(list => [...list.querySelectorAll('.wk-list-row')].map(r => getComputedStyle(r).backgroundColor));
+    assert.notEqual(shots[0], shots[1], 'the selected row looks like the others in forced colours');
+    assert.deepEqual(forced.problems, []);
+    await forced.page.close();
+  });
+
   // ---- The prebuilt module and the settings window ----
   await check('dist/wails-kit-ui.js exports what src/index.js exports, and defines the same elements', async () => {
     const { page, problems } = await open('/demo/dist.html');

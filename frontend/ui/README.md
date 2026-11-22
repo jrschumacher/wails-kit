@@ -138,6 +138,7 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Filter buttons, segmented control | `wk-filters` / `wk-filter`, `wk-segmented` |
 | Chip and pill | `wk-chip`, `wk-pill` |
 | Table | `wk-table` |
+| List | `wk-list`, `wk-list-row` (`aria-selected` or `aria-current`), `wk-list-heading` |
 | Sidebar, toolbar, footer bar | `wk-sidebar`, `wk-toolbar`, `wk-footer-bar` |
 | Three-pane layout | `wk-panes`, `wk-pane-list`, `wk-pane-inspector` |
 | Tabs | `wk-tablist` inside `<wk-tabs>` |
