@@ -1052,14 +1052,15 @@ try {
       const hidden = t.querySelector('.wk-visually-hidden').getBoundingClientRect();
       const actions = rows[0].querySelector('.wk-table-actions');
       return {
-        fill: probe('backgroundColor', '--wk-color-fill'), secondary: probe('color', '--wk-color-text-secondary'), text: probe('color', '--wk-color-text'),
+        fill: probe('backgroundColor', '--wk-color-fill'), selection: probe('backgroundColor', '--wk-color-selection'), secondary: probe('color', '--wk-color-text-secondary'), text: probe('color', '--wk-color-text'),
         bgs: rows.map(r => getComputedStyle(r.cells[0]).backgroundColor),
         muted: { color: getComputedStyle(rows[2].cells[2]).color, line: getComputedStyle(rows[2].querySelector('.wk-table-name')).textDecorationLine },
         name: { color: getComputedStyle(name).color, weight: getComputedStyle(name).fontWeight, border: getComputedStyle(name).borderTopStyle, bg: getComputedStyle(name).backgroundColor },
         hidden: [hidden.width, hidden.height], actionsOneLine: actions.getBoundingClientRect().height < 30,
       };
     });
-    assert.deepEqual(look.bgs, ['rgba(0, 0, 0, 0)', look.fill, 'rgba(0, 0, 0, 0)', look.fill], 'every other row is tinted');
+    assert.notEqual(look.selection, look.fill);
+    assert.deepEqual(look.bgs, ['rgba(0, 0, 0, 0)', look.fill, 'rgba(0, 0, 0, 0)', look.selection], 'every other row is tinted, and the selected even row keeps the selection tint');
     assert.deepEqual(look.muted, { color: look.secondary, line: 'line-through' });
     assert.deepEqual(look.name, { color: look.text, weight: '600', border: 'none', bg: 'rgba(0, 0, 0, 0)' });
     assert.deepEqual(look.hidden, [1, 1]);

@@ -224,12 +224,13 @@ button.wk-chip:disabled { opacity: .45; cursor: default; }
 .wk-table tbody td, .wk-table tbody th { border-bottom: var(--wk-hairline-width) solid var(--wk-color-hairline); }
 .wk-table tbody tr:last-child > * { border-bottom: 0; }
 .wk-table .wk-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Zebra: every other row tinted, for wide tables read across. It comes
+   before the selection rules, so a selected or current row keeps its tint. */
+.wk-table--zebra tbody tr:nth-child(even) > * { background: var(--wk-color-fill); }
 .wk-table tbody tr[aria-selected="true"] > *,
 .wk-table tbody tr[aria-current]:not([aria-current="false"]) > * { background: var(--wk-color-selection); }
 .wk-table tbody tr[aria-selected="true"] .wk-secondary,
 .wk-table tbody tr[aria-current]:not([aria-current="false"]) .wk-secondary { color: var(--wk-color-text-secondary-on-selected); }
-/* Zebra: every other row tinted, for wide tables read across. */
-.wk-table--zebra tbody tr:nth-child(even) > * { background: var(--wk-color-fill); }
 /* data-muted: a row that no longer counts (a removed item), in secondary
    text with its name struck. */
 .wk-table tbody tr[data-muted] > * { color: var(--wk-color-text-secondary); }
@@ -449,7 +450,7 @@ wk-dialog { display: contents; }
 .wk-dot[data-shape="bar"] { background: linear-gradient(transparent 35%, var(--wk-dot-color) 35% 65%, transparent 65%); }
 /* Running: the filled working dot at the default size gets a halo, so it
    reads apart from a half dot at a glance. Set --wk-dot-ground on the dot
-   (or an ancestor) when it sits on something other than wk-color-bg. */
+   when it sits on something other than wk-color-bg. */
 .wk-dot[data-tone="working"]:not([data-shape]):not([data-size="sm"]),
 .wk-dot[data-tone="working"][data-shape="filled"]:not([data-size="sm"]) { box-shadow: 0 0 0 var(--wk-focus-offset) var(--wk-dot-ground), 0 0 0 calc(var(--wk-focus-offset) + 1.5px) var(--wk-dot-color); }
 /* A dot and the words it stands for, as one line ("Reconnecting"): the small

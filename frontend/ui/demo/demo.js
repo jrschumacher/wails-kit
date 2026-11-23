@@ -79,7 +79,7 @@ ${section('type', 'Type scale', `
 ${section('tokens', 'Tokens', `<div id="demo-swatches" class="demo-swatches"></div>
 <dl id="demo-values" class="demo-values"></dl>`)}
 
-${section('dots', 'Status dot', dots, 'Shapes × tones, small (data-size="sm", 8 px), at the default size and at 14 px. Tones: neutral, working, attention; the working tone draws its outline in wk-color-working-ring. No state names.')}
+${section('dots', 'Status dot', dots, 'Shapes × tones, small (data-size="sm", 8 px), at the default size and at 14 px. Tones: neutral, working, attention; the working tone draws its outline in wk-color-working-ring. A filled working dot at the default size and above shows the halo ring (running). No state names.')}
 
 ${section('buttons', 'Buttons and links', `
 <div class="demo-row">
@@ -193,9 +193,9 @@ ${section('table', 'Table', `
     <tr><td><button class="wk-table-name" type="button">alpha</button></td><td><span class="demo-state"><span class="wk-dot" data-tone="working" aria-hidden="true"></span>Running</span></td><td class="wk-num">19</td><td><span class="wk-table-actions"><button class="wk-button wk-button--small" type="button">Pause</button><button class="wk-button wk-button--small" type="button">Stop…</button></span></td></tr>
     <tr><td><button class="wk-table-name" type="button">beta</button></td><td><span class="demo-state"><span class="wk-dot" aria-hidden="true"></span>Ready</span></td><td class="wk-num">4</td><td><span class="wk-table-actions"><button class="wk-button wk-button--small" type="button">Pause</button><button class="wk-button wk-button--small" type="button">Stop…</button></span></td></tr>
     <tr data-muted><td><button class="wk-table-name" type="button">gamma</button></td><td><span class="demo-state"><span class="wk-dot" data-shape="dashed" aria-hidden="true"></span>Removed</span></td><td class="wk-num">0</td><td></td></tr>
-    <tr><td><button class="wk-table-name" type="button">delta</button></td><td><span class="demo-state"><span class="wk-dot" data-shape="half" aria-hidden="true"></span>On break</span></td><td class="wk-num">7</td><td><span class="wk-table-actions"><button class="wk-button wk-button--small" type="button">Resume</button></span></td></tr>
+    <tr aria-selected="true"><td><button class="wk-table-name" type="button">delta</button></td><td><span class="demo-state"><span class="wk-dot" data-shape="half" aria-hidden="true"></span>On break</span></td><td class="wk-num">7</td><td><span class="wk-table-actions"><button class="wk-button wk-button--small" type="button">Resume</button></span></td></tr>
   </tbody>
-</table>`, 'The first table\'s second row is the current one (aria-current="true"); aria-selected="true" looks the same inside a grid. The second is wk-table--zebra: each name is a wk-table-name button that opens the item, the actions sit in wk-table-actions (its header is wk-visually-hidden), and the third row no longer counts (data-muted). Its running dot has the halo: the filled working dot at the default size.')}
+</table>`, 'The first table\'s second row is the current one (aria-current="true"); aria-selected="true" looks the same inside a grid. The second is wk-table--zebra: each name is a wk-table-name button that opens the item, the actions sit in wk-table-actions (its header is wk-visually-hidden), the third row no longer counts (data-muted) and the fourth is selected (aria-selected="true"): selection wins over the zebra tint. Its running dot has the halo: the filled working dot at the default size.')}
 
 ${section('layout', 'Three-pane layout: sidebar, toolbar, list, inspector', `
 <div class="wk-three-pane demo-frame">
@@ -217,7 +217,7 @@ ${section('layout', 'Three-pane layout: sidebar, toolbar, list, inspector', `
   <section class="wk-pane-list" aria-label="List">
     <header class="wk-toolbar">
       <button class="wk-button wk-button--quiet wk-button--icon" type="button" aria-label="Toggle sidebar">${icons.panel}</button>
-      <h3 class="wk-toolbar-title">Now<span class="wk-toolbar-subtitle">last 14 days</span></h3>
+      <h3 class="wk-toolbar-title">Now <span class="wk-toolbar-subtitle">last 14 days</span></h3>
       <span class="wk-toolbar-spacer"></span>
       <div class="wk-search"><input class="wk-field demo-search" type="search" placeholder="Search" aria-label="Search"></div>
       <span class="wk-chip">Read only</span>

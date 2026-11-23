@@ -138,7 +138,7 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Filter buttons, segmented control | `wk-filters` / `wk-filter`, `wk-segmented` |
 | Chip and pill | `wk-chip` (a `<button class="wk-chip">` filters, with hover and disabled states; a leading `wk-dot data-size="sm"` then the item and its state in words; `--muted`, dashed, for an absence), `wk-pill` |
 | Table | `wk-table` (`--zebra` tints every other row); `wk-table-name`, the row's name as a `<button>` that opens the item; `wk-table-actions`, a cell's row actions on one line; `tr[data-muted]`, a row that no longer counts (secondary text, its name struck) |
-| Sidebar, toolbar, footer bar | `wk-sidebar` (`wk-sidebar-detail`: short trailing text on an item, "Running"), `wk-toolbar` (`wk-toolbar-subtitle` after the title: what the view counts over, "last 14 days"), `wk-footer-bar` |
+| Sidebar, toolbar, footer bar | `wk-sidebar` (`wk-sidebar-detail`: short trailing text on an item, "Running"), `wk-toolbar` (`wk-toolbar-subtitle` after the title: what the view counts over, "last 14 days"; keep a space before it, `Now <span class="wk-toolbar-subtitle">`, so the text reads "Now last 14 days" when copied or styles are off), `wk-footer-bar` |
 | Three-pane layout | `wk-panes`, `wk-pane-list`, `wk-pane-inspector`; `wk-pane-scroll`, a pane body that scrolls under a fixed toolbar (give it `tabindex="0"` and a name) |
 | Tabs | `wk-tablist` inside `<wk-tabs>` |
 | Menu, context menu, tooltip | `wk-menu` and its items, `wk-tooltip` |
