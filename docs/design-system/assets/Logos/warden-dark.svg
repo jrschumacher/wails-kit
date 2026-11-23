@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="200 190 624 624">
+  
+  <defs>
+    <path id="star" d="M0,-1 L.235,-.324 L.951,-.309 L.38,.124 L.588,.809 L0,.4 L-.588,.809 L-.38,.124 L-.951,-.309 L-.235,-.324Z"></path>
+  </defs>
+  <g class="red" transform="translate(9 7)" fill="#e0675c">
+    <path d="M300 432 C300 282 400 210 512 210 C624 210 724 282 724 432 Z"></path>
+    <rect x="236" y="418" width="552" height="42" rx="21"></rect>
+  </g>
+  <use href="#star" transform="translate(512 338) scale(48)" class="paper" fill="#1a2230"></use>
+  <g class="ink-line" fill="none" stroke="#ece2c8" stroke-width="12" stroke-linejoin="round">
+    <path d="M300 432 C300 282 400 210 512 210 C624 210 724 282 724 432"></path>
+    <rect x="236" y="418" width="552" height="42" rx="21"></rect>
+  </g>
+  <path d="M292 462 V742 H732 V462 H698 V712 H326 V462 Z" class="ink" fill="#ece2c8"></path>
+  <rect x="222" y="742" width="580" height="48" rx="20" class="ink" fill="#ece2c8"></rect>
+  <rect x="462" y="742" width="100" height="14" rx="7" class="paper" fill="#1a2230"></rect>
+  <g class="ink-line" fill="none" stroke="#ece2c8" stroke-width="32" stroke-linecap="square" stroke-linejoin="miter">
+    <path d="M392 536 L448 580 L392 624"></path>
+    <path d="M486 634 H566"></path>
+  </g>
+</svg>

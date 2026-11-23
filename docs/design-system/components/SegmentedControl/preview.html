@@ -1,0 +1,22 @@
+<!-- @dsCard group="Navigation" height=120 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SegmentedControl</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: grid; grid-template-columns: 120px 1fr; gap: var(--wk-space-3) var(--wk-space-4); align-items: center; padding: var(--wk-space-4); }
+  .spec > dt { color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+  .spec > dd { margin: 0; }
+</style>
+</head>
+<body class="wk-root">
+<dl class="spec">
+  <dt>Range</dt>
+  <dd><div class="wk-segmented" role="radiogroup" aria-label="Range"><label><input type="radio" name="range" value="24h"><span>24 hours</span></label><label><input type="radio" name="range" value="7d"><span>7 days</span></label><label><input type="radio" name="range" value="14d" checked><span>14 days</span></label></div></dd>
+  <dt>Not enough data yet</dt>
+  <dd><div class="wk-segmented" role="radiogroup" aria-label="Range"><label><input type="radio" name="range2" value="24h" checked><span>24 hours</span></label><label><input type="radio" name="range2" value="7d" disabled><span>7 days</span></label><label><input type="radio" name="range2" value="14d" disabled><span>14 days</span></label></div></dd>
+</dl>
+</body>
+</html>

@@ -1,0 +1,38 @@
+<!-- @dsCard group="Overlays" height=400 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Popover</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: flex; gap: var(--wk-space-4); align-items: flex-start; padding: var(--wk-space-4); }
+  .spec > .wk-popover { width: 280px; }
+  .job { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--wk-space-2); align-items: center; margin-top: 8px; }
+  .job > span:nth-child(3) { grid-column: 2; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec">
+  <div class="wk-popover" role="dialog" aria-label="Peanut">
+    <div class="wk-popover-header"><b>Peanut</b><span class="wk-toolbar-spacer"></span><span class="wk-dot-label"><span class="wk-dot" data-size="sm" aria-hidden="true"></span><span>Watching</span></span></div>
+    <div class="wk-popover-section"><label class="wk-check wk-check--row"><span>Watch for new reviews</span><input class="wk-switch" type="checkbox" role="switch" checked></label></div>
+    <div class="wk-popover-section"><h3 class="wk-section-heading">Active jobs<span class="wk-section-heading-aside">2</span></h3>
+      <div class="job"><span class="wk-dot" data-tone="working" aria-hidden="true" style="--wk-dot-ground:var(--wk-color-surface)"></span><span>Add KAS key rotation endpoint</span><span>Running · opentdf/platform#2210</span></div>
+      <div class="job"><span class="wk-dot" data-shape="hollow" aria-hidden="true"></span><span>Bump Wails to v3.1.1</span><span>Queued · jrschumacher/muster#88</span></div>
+    </div>
+    <div class="wk-popover-section" style="padding:4px"><div class="wk-menu wk-menu--inline" role="menu" aria-label="Peanut">
+      <button role="menuitem" type="button">Check PR now…<span class="wk-menu-shortcut">⌘R</span></button>
+      <button role="menuitem" type="button">Open Peanut<span class="wk-menu-shortcut">⌘O</span></button>
+      <div role="separator"></div>
+      <button role="menuitem" type="button">Quit Peanut<span class="wk-menu-shortcut">⌘Q</span></button>
+    </div></div>
+  </div>
+  <div class="wk-popover" role="dialog" aria-label="Muster">
+    <div class="wk-popover-header"><b>Muster</b><span class="wk-toolbar-spacer"></span><span class="wk-dot-label"><span class="wk-dot" data-size="sm" data-shape="hollow" aria-hidden="true"></span><span>Can’t reach HQ</span></span></div>
+    <div class="wk-popover-section"><p style="margin:0">Trying again every 5 seconds.</p></div>
+    <div class="wk-popover-footer"><span class="wk-small">hq.schumacher.home</span><button class="wk-button wk-button--small" type="button">Open Muster</button></div>
+  </div>
+</div>
+</body>
+</html>

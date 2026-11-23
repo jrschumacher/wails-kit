@@ -1,0 +1,23 @@
+<!-- @dsCard group="Status" height=150 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pip</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: grid; grid-template-columns: 120px 1fr; gap: var(--wk-space-3) var(--wk-space-4); align-items: center; padding: var(--wk-space-4); }
+  .spec > dt { color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+  .spec > dd { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wk-space-5); margin: 0; }
+  .one { display: inline-flex; align-items: center; gap: var(--wk-space-2); }
+</style>
+</head>
+<body class="wk-root">
+<dl class="spec">
+  <dt>One slot</dt>
+  <dd><span class="one"><span class="mu-pip" data-state="busy" aria-hidden="true"></span>Busy</span><span class="one"><span class="mu-pip" aria-hidden="true"></span>Free</span><span class="one"><span class="mu-pip" data-state="off" aria-hidden="true"></span>Off (on break, off duty)</span></dd>
+  <dt>A machine's slots</dt>
+  <dd><span class="one"><span class="mu-pips" aria-hidden="true"><span class="mu-pip" data-state="busy"></span><span class="mu-pip"></span></span><span class="wk-num">1 of 2</span></span><span class="one"><span class="mu-pips" aria-hidden="true"><span class="mu-pip" data-state="busy"></span><span class="mu-pip" data-state="busy"></span></span><span class="wk-num">2 of 2</span></span><span class="one"><span class="mu-pips" aria-hidden="true"><span class="mu-pip" data-state="off"></span><span class="mu-pip" data-state="off"></span></span><span class="wk-secondary">none</span></span><span class="one"><span class="mu-pips" aria-hidden="true"><span class="mu-pip" data-state="busy"></span><span class="mu-pip" data-state="busy"></span><span class="mu-pip"></span><span class="mu-pip"></span></span><span class="wk-num">2 of 4</span></span></dd>
+</dl>
+</body>
+</html>

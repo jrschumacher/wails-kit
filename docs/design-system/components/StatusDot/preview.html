@@ -1,0 +1,36 @@
+<!-- @dsCard group="Status" height=360 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>StatusDot</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { padding: var(--wk-space-3) var(--wk-space-4); }
+  .spec table { width: 100%; border-collapse: collapse; }
+  .spec th { padding: 0 var(--wk-space-2) var(--wk-space-1); color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-semibold); text-align: left; }
+  .spec td { padding: 5px var(--wk-space-2); border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+  .spec td:nth-child(2), .spec td:nth-child(3), .spec th:nth-child(2), .spec th:nth-child(3) { width: 44px; text-align: center; }
+  .spec td:last-child { color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec">
+<table>
+  <thead><tr><th>State</th><th>md</th><th>sm</th><th>Shape · tone</th></tr></thead>
+  <tbody>
+    <tr><td>On duty · Running 1 job.</td><td><span class="wk-dot" data-tone="working"></span></td><td><span class="wk-dot" data-tone="working" data-size="sm"></span></td><td>filled · working, halo at md</td></tr>
+    <tr><td>On duty · Waiting for jobs from HQ.</td><td><span class="wk-dot"></span></td><td><span class="wk-dot" data-size="sm"></span></td><td>filled · neutral</td></tr>
+    <tr><td>Standing by</td><td><span class="wk-dot" data-shape="ringed"></span></td><td><span class="wk-dot" data-shape="ringed" data-size="sm"></span></td><td>ringed · neutral</td></tr>
+    <tr><td>Standing down</td><td><span class="wk-dot" data-shape="half" data-tone="working"></span></td><td><span class="wk-dot" data-shape="half" data-tone="working" data-size="sm"></span></td><td>half · working</td></tr>
+    <tr><td>On break</td><td><span class="wk-dot" data-shape="half"></span></td><td><span class="wk-dot" data-shape="half" data-size="sm"></span></td><td>half · neutral</td></tr>
+    <tr><td>Off duty</td><td><span class="wk-dot" data-shape="bar"></span></td><td><span class="wk-dot" data-shape="bar" data-size="sm"></span></td><td>bar · neutral</td></tr>
+    <tr><td>Can't reach HQ · Offline</td><td><span class="wk-dot" data-shape="hollow"></span></td><td><span class="wk-dot" data-shape="hollow" data-size="sm"></span></td><td>hollow · neutral</td></tr>
+    <tr><td>Removed</td><td><span class="wk-dot" data-shape="dashed"></span></td><td><span class="wk-dot" data-shape="dashed" data-size="sm"></span></td><td>dashed · neutral</td></tr>
+    <tr><td>Needs attention · Can't start jobs.</td><td><span class="wk-dot" data-tone="attention"></span></td><td><span class="wk-dot" data-tone="attention" data-size="sm"></span></td><td>filled · attention</td></tr>
+    <tr><td>With its words</td><td colspan="2"><span class="wk-dot-label"><span class="wk-dot" data-size="sm"></span><span>Connected</span></span></td><td><span class="wk-dot-label"><span class="wk-dot" data-tone="working"></span><span>On duty since 1:32 pm</span></span></td></tr>
+  </tbody>
+</table>
+</div>
+</body>
+</html>
