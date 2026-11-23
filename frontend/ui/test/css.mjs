@@ -63,3 +63,21 @@ export function backdropProblems(css) {
 // The literals a component rule may not use: system colours only inside a
 // forced-colors block, every other literal nowhere.
 export const banned = (r, value) => colourLiterals(value).filter(l => !(r.forced && l.startsWith('system:')));
+
+// The selectors of every rule in a sheet, one per comma-separated part, with
+// the at-rules each sits in: [{ selector, atRules, decls }].
+export function selectorsOf(css) {
+  return rules(css).flatMap(r => splitSelectors(r.selector).map(selector => ({ selector, atRules: r.atRules, decls: r.decls, forced: r.forced })));
+}
+// A selector list split at top-level commas (not those inside :where() etc).
+export function splitSelectors(list) {
+  const out = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i < list.length; i++) {
+    if (list[i] === '(') depth++;
+    else if (list[i] === ')') depth--;
+    else if (list[i] === ',' && depth === 0) { out.push(list.slice(start, i).trim()); start = i + 1; }
+  }
+  out.push(list.slice(start).trim());
+  return out;
+}

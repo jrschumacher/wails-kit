@@ -1,0 +1,35 @@
+<!-- @dsCard group="Data" height=420 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Table</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: flex; flex-direction: column; gap: var(--wk-space-2); padding: var(--wk-space-4); }
+  .spec .wk-section-heading + .wk-table { margin-bottom: var(--wk-space-3); }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec">
+  <h3 class="wk-section-heading">Machines <a class="wk-link" href="#machines">All machines</a></h3>
+  <table class="wk-table">
+    <thead><tr><th>Machine</th><th>State</th><th>Busy</th><th class="wk-num">Jobs since 8:02 am</th></tr></thead>
+    <tbody>
+      <tr aria-selected="true"><td><button class="wk-table-name" type="button">macbookpro <span class="wk-secondary">· this Mac</span></button></td><td><span class="wk-dot-label"><span class="wk-dot" data-tone="working" style="--wk-dot-ground: var(--wk-color-bg)"></span>On duty since 1:32 pm</span></td><td><span class="mu-pips" aria-hidden="true"><span class="mu-pip" data-state="busy"></span><span class="mu-pip"></span></span> <span class="wk-num">1 of 2</span></td><td class="wk-num">4</td></tr>
+      <tr><td><button class="wk-table-name" type="button">unraid</button></td><td><span class="wk-dot-label"><span class="wk-dot" data-shape="half"></span>On break</span></td><td><span class="mu-pips" aria-hidden="true"><span class="mu-pip" data-state="off"></span><span class="mu-pip" data-state="off"></span></span> <span class="wk-secondary">none</span></td><td class="wk-num">19</td></tr>
+      <tr data-muted><td><button class="wk-table-name" type="button">ryans-mbp</button></td><td><span class="wk-dot-label"><span class="wk-dot" data-shape="dashed"></span>Removed 3 Nov</span></td><td>–</td><td class="wk-num">–</td></tr>
+    </tbody>
+  </table>
+  <h3 class="wk-section-heading">Running and waiting</h3>
+  <table class="wk-table wk-table--zebra">
+    <thead><tr><th>Repository</th><th>Workflow · job</th><th>Machine</th><th class="wk-num">Running</th><th></th></tr></thead>
+    <tbody>
+      <tr><td><span class="wk-secondary">jrschumacher/</span>muster</td><td>ci · lint</td><td>unraid</td><td class="wk-num">0:41</td><td><span class="wk-table-actions"><a class="wk-link" href="#run">View run</a><button class="wk-button wk-button--small" type="button" aria-disabled="true" data-locked title="Needs manage access"><svg viewBox="0 0 12 12" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="5.2" width="8" height="5.6" rx="1"/><path d="M3.8 5.2V3.8a2.2 2.2 0 0 1 4.4 0v1.4"/></g></svg>Stop…</button></span></td></tr>
+      <tr><td><span class="wk-secondary">jrschumacher/</span>specgraph</td><td>muster-smoke · smoke (ARM64)</td><td>macbookpro</td><td class="wk-num">3:18</td><td><span class="wk-table-actions"><a class="wk-link" href="#run">View run</a><button class="wk-button wk-button--small" type="button" aria-disabled="true" data-locked title="Needs manage access"><svg viewBox="0 0 12 12" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="5.2" width="8" height="5.6" rx="1"/><path d="M3.8 5.2V3.8a2.2 2.2 0 0 1 4.4 0v1.4"/></g></svg>Stop…</button></span></td></tr>
+      <tr><td><span class="wk-secondary">jrschumacher/</span>laurel</td><td>ci · build</td><td class="wk-secondary">Waiting · Any Linux</td><td class="wk-num wk-secondary">waited 34 s</td><td></td></tr>
+    </tbody>
+  </table>
+</div>
+</body>
+</html>

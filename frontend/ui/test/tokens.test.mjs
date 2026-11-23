@@ -25,8 +25,9 @@ const kitTokens = () => tokens(read(path.join(src, 'tokens.css')));
 
 const kitSource = () => read(path.join(src, 'tokens.css'));
 const fixtures = path.join(root, 'test', 'fixtures');
-// Properties a component sets on itself for its variants to change.
-const LOCAL = new Set(['--wk-dot-color', '--wk-chart-c']);
+// Properties a component sets on itself for its variants to change, and
+// --wk-range-value, which the app sets on a wk-range.
+const LOCAL = new Set(['--wk-dot-color', '--wk-dot-ground', '--wk-chart-c', '--wk-range-value']);
 
 test('the colour check catches every kind of literal', () => {
   const component = { selector: '.wk-x', forced: false };
@@ -87,6 +88,14 @@ test('token blocks: light on :root, dark under the media query and again under d
     assert.ok(t.dark.size > 0, `${rel(file)} has no dark tokens`);
     assert.deepEqual([...t.attrDark.entries()].sort(), [...t.dark.entries()].sort(), `${rel(file)}: the data-theme="dark" block must hold the media query's dark values`);
   }
+});
+
+test('--wk-dot-ground, the surface a status dot sits on, follows wk-color-bg in light and dark', () => {
+  const kit = kitTokens();
+  const dot = rules(read(path.join(src, 'components.css'))).find(r => r.selector === '.wk-dot' && !r.atRules.length);
+  const ground = Object.fromEntries(dot.decls)['--wk-dot-ground'];
+  assert.equal(ground, 'var(--wk-color-bg)');
+  assert.ok(kit.light.has('--wk-color-bg') && kit.dark.has('--wk-color-bg') && kit.attrDark.has('--wk-color-bg'), 'wk-color-bg has light and dark values');
 });
 
 test('every colour token has a light and a dark value', () => {
@@ -295,4 +304,11 @@ test('nothing names an app, and nothing loads from outside the package', () => {
       for (const ref of refs) if (!/^node:/.test(ref)) assert.ok(!outside(ref), `${rel(file)} loads ${ref} from outside the package`);
     }
   }
+});
+
+test('the design system\'s names: wk-code and wk-chip--access, not the old wk-codeblock and wk-chip--lock', () => {
+  const files = [...walk(src), ...themes, ...walk(path.join(root, 'demo')), ...walk(path.join(root, 'dist')), ...walk(path.join(root, 'test')).filter(p => !p.endsWith('tokens.test.mjs')), path.join(root, 'README.md')];
+  for (const file of files) assert.doesNotMatch(read(file), /wk-codeblock|wk-chip--lock/, `${rel(file)} uses an old name`);
+  const css = read(path.join(src, 'components.css'));
+  for (const selector of ['.wk-code {', '.wk-code--scroll > pre', '.wk-chip--access > svg', '.wk-chip--access[data-level="manage"]']) assert.ok(css.includes(selector), `components.css defines ${selector}`);
 });
