@@ -757,7 +757,7 @@ try {
   await check('link with aria-expanded draws a chevron that turns down when open; scrolling regions take focus', async () => {
     const { page, problems } = await open();
     const chevron = sel => page.locator(sel).evaluate(el => ({ content: getComputedStyle(el, '::before').content, transform: getComputedStyle(el, '::before').transform }));
-    const closed = await chevron('button.wk-link[aria-expanded=false]'), open_ = await chevron('button.wk-link[aria-expanded=true]');
+    const closed = await chevron('#buttons button.wk-link[aria-expanded=false]'), open_ = await chevron('#buttons button.wk-link[aria-expanded=true]');
     assert.notEqual(closed.content, 'none'); assert.notEqual(closed.transform, open_.transform);
     assert.equal(await page.locator('a.wk-link').first().evaluate(el => getComputedStyle(el, '::before').content), 'none');
     for (const sel of ['.wk-code--scroll > pre', '.wk-errorbox > pre', '#demo-long-sheet .wk-dialog-scroll']) {
@@ -1025,6 +1025,373 @@ try {
     assert.deepEqual(problems, []);
     await page.close();
   });
+  // ---- Diff (wk-diff) ----
+  // The lines a diff shows, as [kind, old, new, code]: a unified row is one
+  // line; a split row is its old half, then its new half unless that is the
+  // same context line.
+  const diffLines = (page, id) => page.locator(`#${id}`).evaluate(root => {
+    const out = [];
+    for (const row of root.querySelectorAll('.wk-diff-line')) {
+      const halves = row.classList.contains('wk-diff-pair') ? [...row.children] : [row];
+      for (const h of halves) {
+        if (h.dataset.kind === 'empty' || (h.dataset.side === 'new' && h.dataset.kind === 'context')) continue;
+        const nums = [...h.querySelectorAll('.wk-diff-num')].map(n => n.textContent);
+        const old = h.dataset.side ? (h.dataset.side === 'old' ? nums[0] : '') : nums[0];
+        const neu = h.dataset.side ? (h.dataset.side === 'new' ? nums[0] : (h.dataset.kind === 'context' ? row.lastElementChild.querySelector('.wk-diff-num').textContent : '')) : nums[1];
+        out.push([h.dataset.kind, old, neu, h.querySelector('.wk-diff-code').textContent]);
+      }
+    }
+    return out;
+  });
+
+  await check('diff: unified and split show the same lines with the right numbers, markers, labels and word marks; chips, counts and collapsed files', async () => {
+    const { page, problems } = await open();
+    const unified = await diffLines(page, 'demo-diff');
+    await page.locator('#demo-diff-split').scrollIntoViewIfNeeded();
+    const split = await diffLines(page, 'demo-diff-split');
+    // The split specimen holds the first two files of the unified one.
+    assert.ok(split.length > 20);
+    const sorted = list => list.map(l => JSON.stringify(l)).sort();
+    assert.deepEqual(sorted(split), sorted(unified.slice(0, split.length)), 'split and unified show the same lines');
+    // Switching the view rebuilds the same lines.
+    await page.locator('#demo-diff-split-view-unified').check({ force: true });
+    assert.deepEqual(await diffLines(page, 'demo-diff-split'), unified.slice(0, split.length));
+    await page.locator('#demo-diff-split-view-split').check({ force: true });
+    // Line numbers follow the hunk headers.
+    assert.deepEqual(unified.slice(0, 5), [
+      ['context', '11', '11', 'type Server struct {'], ['context', '12', '12', '\taddr    string'], ['del', '13', '', '\ttimeout time.Duration'],
+      ['add', '', '13', '\ttimeout  time.Duration'], ['add', '', '14', '\tmaxBytes int64'],
+    ]);
+    assert.deepEqual(unified.find(l => l[3] === '\t}()'), ['context', '35', '38', '\t}()']);
+    // Markers and screen-reader labels, not colour alone.
+    const first = page.locator('#demo-diff .wk-diff-line[data-kind=del]').first();
+    assert.equal(await first.locator('.wk-diff-mark').textContent(), '−');
+    assert.equal(await page.locator('#demo-diff .wk-diff-line[data-kind=add] .wk-diff-mark').first().textContent(), '+');
+    assert.equal(await first.locator('.wk-diff-sr').textContent(), 'Removed 13: ');
+    const tree = await axTree(page);
+    const names = tree.map(n => n.name?.value?.trim()).filter(Boolean);
+    assert.ok(names.includes('Added 13:') && names.includes('Removed 13:'), `each line's kind reaches the accessibility tree: ${names.filter(n => /^(Added|Removed) /.test(n)).slice(0, 4)}`);
+    assert.ok(!names.includes('\u2212'), 'the markers are hidden from the accessibility tree');
+    // Word marks: only what changed, on the stronger tint.
+    const marks = await page.locator('#demo-diff-file-1 mark.wk-diff-word').allTextContents();
+    assert.deepEqual(marks, ['Serving', 'Running the server', 'five', 'ten']);
+    const probe = token => page.evaluate(tok => { const s = document.createElement('span'); s.style.backgroundColor = `var(${tok})`; document.body.append(s); const c = getComputedStyle(s).backgroundColor; s.remove(); return c; }, token);
+    const bg = loc => loc.evaluate(el => getComputedStyle(el).backgroundColor);
+    assert.equal(await bg(page.locator('#demo-diff-file-1 .wk-diff-line[data-kind=del] mark').first()), await probe('--wk-color-diff-del-strong'));
+    assert.equal(await bg(page.locator('#demo-diff-file-1 .wk-diff-line[data-kind=add] mark').first()), await probe('--wk-color-diff-add-strong'));
+    assert.equal(await bg(first), await probe('--wk-color-diff-del'));
+    assert.equal(await bg(page.locator('#demo-diff .wk-diff-line[data-kind=add]').first()), await probe('--wk-color-diff-add'));
+    // Headers: a rename reads old → new, chips and counts; binary and generated files start collapsed.
+    const heads = await page.locator('#demo-diff .wk-diff-file').evaluateAll(files => files.map(f => ({
+      path: f.querySelector('.wk-diff-toggle').textContent, open: f.querySelector('.wk-diff-toggle').getAttribute('aria-expanded'),
+      chips: [...f.querySelectorAll('.wk-diff-chip')].map(c => c.textContent), counts: f.querySelector('.wk-diff-counts [aria-hidden]')?.textContent ?? null,
+      rows: f.querySelectorAll('.wk-diff-line').length,
+    })));
+    assert.deepEqual(heads, [
+      { path: 'server/server.go', open: 'true', chips: [], counts: '+10−7', rows: 28 },
+      { path: 'docs/serve.md →  renamed to docs/running.md', open: 'true', chips: ['renamed'], counts: '+2−2', rows: 6 },
+      { path: 'assets/icon.png', open: 'false', chips: ['binary'], counts: null, rows: 0 },
+      { path: 'data/index.lock.json', open: 'false', chips: ['generated'], counts: '+300−300', rows: 0 },
+      { path: 'server/limits.go', open: 'true', chips: ['added'], counts: '+4−0', rows: 4 },
+    ]);
+    assert.equal(await page.locator('#demo-diff-file-3 .wk-diff-counts .wk-diff-sr').textContent(), '300 lines added, 300 lines removed');
+    // Expanding builds the rows then; collapsing hides them.
+    await page.locator('#demo-diff-file-2-toggle').click();
+    assert.equal(await page.locator('#demo-diff-file-2 .wk-diff-note').textContent(), 'Binary file not shown.');
+    await page.locator('#demo-diff-file-3-toggle').click();
+    assert.equal(await page.locator('#demo-diff-file-3 .wk-diff-line').count(), 603);
+    await page.locator('#demo-diff-file-3-toggle').click();
+    assert.equal(await page.locator('#demo-diff-file-3-body').isVisible(), false);
+    // Show more fetches the hidden context above a hunk and numbers it.
+    const more = page.locator('#demo-diff-file-0 .wk-diff-more').first();
+    assert.equal(await more.textContent(), 'Show 10 hidden lines');
+    await more.click();
+    await until(page, () => !document.querySelector('#demo-diff-file-0 .wk-diff-hunk[data-hunk="0"] .wk-diff-more'));
+    const top = (await diffLines(page, 'demo-diff')).slice(0, 2);
+    assert.deepEqual(top, [['context', '1', '1', 'package server'], ['context', '2', '2', '']]);
+    assert.equal(await active(page), (await page.locator('#demo-diff-file-0 .wk-diff-hunk').first().textContent()), 'focus moves to the hunk when its button goes');
+    const second = page.locator('#demo-diff-file-0 .wk-diff-more');
+    assert.equal(await second.textContent(), 'Show 8 hidden lines');
+    await second.click();
+    await until(page, () => !document.querySelector('#demo-diff-file-0 .wk-diff-more'));
+    assert.deepEqual((await diffLines(page, 'demo-diff')).find(l => l[1] === '20'), ['context', '20', '21', '}']);
+    // Gutters, markers and labels cannot be selected; long lines scroll in the unified view and wrap in the split one.
+    const look = await page.evaluate(() => {
+      const css = sel => getComputedStyle(document.querySelector(sel));
+      return {
+        select: ['.wk-diff-num', '.wk-diff-mark', '.wk-diff-sr'].map(s => css(`#demo-diff ${s}`).userSelect),
+        code: css('#demo-diff .wk-diff-code').userSelect,
+        unified: css('#demo-diff .wk-diff-code').whiteSpace, split: css('#demo-diff-split .wk-diff-code').whiteSpace,
+      };
+    });
+    assert.deepEqual(look, { select: ['none', 'none', 'none'], code: 'auto', unified: 'pre', split: 'pre-wrap' });
+    // Dark has its own tints.
+    const dark = await open('/demo/index.html', { colorScheme: 'dark' });
+    const darkAdd = await dark.page.locator('#demo-diff .wk-diff-line[data-kind=add]').first().evaluate(el => getComputedStyle(el).backgroundColor);
+    assert.notEqual(darkAdd, await probe('--wk-color-diff-add'));
+    assert.deepEqual(dark.problems, []); await dark.page.close();
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff: n and p move between hunks, ] and [ between files; copying takes the code without gutters or markers', async () => {
+    const { page, problems } = await open();
+    const diff = page.locator('#demo-diff');
+    assert.equal(await diff.getAttribute('tabindex'), '0');
+    assert.equal(await diff.getAttribute('aria-label'), 'Changes in this example');
+    assert.equal(await diff.getAttribute('aria-keyshortcuts'), 'n p ] [');
+    await diff.focus();
+    const hunk = () => page.evaluate(() => { const a = document.activeElement; return a.classList.contains('wk-diff-hunk') ? `${a.closest('.wk-diff-file').id}#${a.dataset.hunk}` : a.id || a.tagName; });
+    await page.keyboard.press('n'); assert.equal(await hunk(), 'demo-diff-file-0#0');
+    await page.keyboard.press('n'); assert.equal(await hunk(), 'demo-diff-file-0#1');
+    await page.keyboard.press('n'); assert.equal(await hunk(), 'demo-diff-file-1#0');
+    await page.keyboard.press('n'); assert.equal(await hunk(), 'demo-diff-file-4#0', 'collapsed files are skipped');
+    await page.keyboard.press('n'); assert.equal(await hunk(), 'demo-diff-file-4#0', 'the last hunk stays');
+    await page.keyboard.press('p'); assert.equal(await hunk(), 'demo-diff-file-1#0');
+    await page.keyboard.press('['); assert.equal(await hunk(), 'demo-diff-file-1-toggle');
+    await page.keyboard.press('['); assert.equal(await hunk(), 'demo-diff-file-0-toggle');
+    await page.keyboard.press(']'); await page.keyboard.press(']'); assert.equal(await hunk(), 'demo-diff-file-2-toggle', 'files move through collapsed ones too');
+    await page.keyboard.press('n'); assert.equal(await hunk(), 'demo-diff-file-4#0');
+    // The keys do nothing with a modifier.
+    await page.keyboard.press('Control+p'); assert.equal(await hunk(), 'demo-diff-file-4#0');
+    // Copy: a selection across rows gives the code only, one line each.
+    const copied = id => page.evaluate(id => {
+      const rows = [...document.querySelectorAll(`#${id}-file-0 .wk-diff-line`)].slice(1, 5);
+      const range = document.createRange();
+      range.setStart(rows[0], 0); range.setEnd(rows.at(-1), rows.at(-1).childNodes.length);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+      const data = new DataTransfer();
+      const e = new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true });
+      document.getElementById(id).querySelector('.wk-diff-line').dispatchEvent(e);
+      return { text: data.getData('text/plain'), handled: e.defaultPrevented, native: sel.toString() };
+    }, id);
+    const u = await copied('demo-diff');
+    assert.ok(u.handled);
+    assert.equal(u.text, '\taddr    string\n\ttimeout time.Duration\n\ttimeout  time.Duration\n\tmaxBytes int64');
+    for (const glyph of ['−', 'Added', 'Removed', '13']) assert.ok(!u.native.includes(glyph), `the browser's own selection leaves out ${glyph}`);
+    // Split: only the side the selection starts on.
+    const sp = await copied('demo-diff-split');
+    assert.equal(sp.text, '\taddr    string\n\ttimeout time.Duration\n\tmux     *http.ServeMux');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff: forced colours keep added and removed apart, by marker and by bar', async () => {
+    const { page, problems } = await open('/demo/index.html', { forcedColors: 'active' });
+    const look = await page.evaluate(() => {
+      const row = sel => { const el = document.querySelector(`#demo-diff ${sel}`); const cs = getComputedStyle(el); return { style: cs.borderInlineStartStyle, width: cs.borderInlineStartWidth, mark: el.querySelector('.wk-diff-mark').textContent }; };
+      const word = getComputedStyle(document.querySelector('#demo-diff mark.wk-diff-word')).textDecorationLine;
+      const probe = document.createElement('span'); probe.style.backgroundColor = 'Canvas'; document.body.append(probe);
+      const canvas = getComputedStyle(probe).backgroundColor; probe.remove();
+      const marks = [...document.querySelectorAll('mark.wk-diff-word')].map(m => getComputedStyle(m).backgroundColor);
+      return { canvas, marks: [...new Set(marks)], count: marks.length, add: row('.wk-diff-line[data-kind=add]'), del: row('.wk-diff-line[data-kind=del]'), half: getComputedStyle(document.querySelector('#demo-diff-split .wk-diff-half[data-kind=del]')).borderInlineStartStyle, word };
+    });
+    const { canvas, marks, count, ...rest } = look;
+    assert.ok(count > 10, `${count} word marks`);
+    assert.deepEqual(marks, [canvas], 'every word mark, added or removed, is on Canvas in forced colours');
+    assert.deepEqual(rest, { add: { style: 'solid', width: '4px', mark: '+' }, del: { style: 'dashed', width: '4px', mark: '−' }, half: 'dashed', word: 'underline' });
+    const shot = sel => page.locator(sel).first().screenshot();
+    await page.locator('#demo-diff-file-1').scrollIntoViewIfNeeded();
+    // Two rows with the same text apart from their kind still look different.
+    const [del, add] = await Promise.all([shot('#demo-diff-file-1 .wk-diff-line[data-kind=del] .wk-diff-mark'), shot('#demo-diff-file-1 .wk-diff-line[data-kind=add] .wk-diff-mark')]);
+    assert.ok(!del.equals(add));
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff: parsed input with unknown kinds and no line numbers; highlight that throws; an empty diff; onrender', async () => {
+    const { page, problems } = await open();
+    const r = await page.evaluate(async () => {
+      const { wkDiff } = await import('../src/index.js');
+      const out = {};
+      const t = performance.now();
+      const parsed = [{ path: 'x.txt', hunks: [{ header: '@@ -5,3 +5,3 @@', lines: [{ kind: 'context', text: 'a' }, { kind: 'added', text: 'odd' }, { kind: 'del', text: 'b' }, { kind: 'add', text: 'c' }] }] }];
+      for (const view of ['unified', 'split']) {
+        const el = wkDiff({ id: `kinds-${view}`, diff: parsed, view });
+        out[view] = [...el.querySelectorAll('.wk-diff-sr')].filter(x => !x.closest('[aria-hidden]')).map(x => x.textContent).filter(x => /^(Line|Added|Removed) /.test(x)); // what a screen reader reaches
+      }
+      out.fast = performance.now() - t < 1000;
+      const lit = wkDiff({ id: 'lit', diff: 'diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-foo bar\n+foo baz\n', highlight: (f, l) => { if (l.kind === 'del') throw new Error('boom'); const s = document.createElement('b'); s.textContent = l.text; return s; } });
+      out.lit = [...lit.querySelectorAll('.wk-diff-code')].map(c => [c.textContent, c.querySelectorAll('b').length, c.querySelectorAll('mark').length]);
+      const shared = document.createElement('span'); shared.className = 'lit'; shared.textContent = 'same';
+      const frag = document.createDocumentFragment(); frag.append(Object.assign(document.createElement('i'), { textContent: 'frag' }));
+      const reuse = wkDiff({ id: 'reuse', diff: 'diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,3 +1,3 @@\n a\n-b\n+c\n', highlight: (f, l) => l.kind === 'add' ? frag : shared });
+      out.reuse = [...reuse.querySelectorAll('.wk-diff-code')].map(c => c.textContent);
+      const placed = document.createElement('b'); placed.textContent = 'on page'; document.body.append(placed);
+      const onPage = wkDiff({ id: 'onpage', diff: 'diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-x\n+y\n', highlight: () => placed });
+      out.onPage = [placed.parentNode === document.body, ...[...onPage.querySelectorAll('.wk-diff-code')].map(c => c.textContent)];
+      placed.remove();
+      const empty = wkDiff({ id: 'none', diff: '', emptyText: 'Nothing changed' });
+      out.empty = [empty.textContent, empty.querySelectorAll('.wk-diff-head, .wk-segmented').length, empty.hasAttribute('tabindex')];
+      const calls = [];
+      const big = 'diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1,500 +1,500 @@\n' + Array.from({ length: 500 }, (_, i) => ` line ${i}`).join('\n') + '\n';
+      const wide = 'diff --git a/m.js b/m.js\n--- a/m.js\n+++ b/m.js\n@@ -1 +1 @@\n-' + 'a'.repeat(120000) + '\n+' + 'b'.repeat(120000) + '\n';
+      const two = wkDiff({ id: 'hooks', diff: big + wide + 'diff --git a/s b/s\n--- a/s\n+++ b/s\n@@ -1 +1 @@\n-x\n+y\n', onrender: (box, file) => calls.push(`${box.id}:${file.path}`) });
+      document.body.append(two);
+      out.collapsedByChars = two.querySelector('#hooks-file-1-toggle').getAttribute('aria-expanded');
+      out.afterBuild = [...calls];
+      two.querySelector('#hooks-file-0-toggle').click();
+      out.afterExpand = [...calls];
+      two.querySelector('#hooks-view-split').click();
+      out.afterSwitch = [...calls];
+      two.remove();
+      return out;
+    });
+    assert.ok(r.fast);
+    assert.deepEqual(r.unified, ['Line 5: ', 'Line 6: ', 'Removed 7: ', 'Added 7: '], 'an unknown kind reads as context; numbers come from the header');
+    assert.deepEqual(r.split, r.unified);
+    assert.deepEqual(r.lit, [['foo bar', 0, 1], ['foo baz', 1, 1]], 'a highlighter that throws leaves plain text (with its word marks) for that line');
+    assert.deepEqual(r.reuse, ['same', 'same', 'frag'], 'a node returned for every line is copied, not moved');
+    assert.deepEqual(r.onPage, [true, 'on page', 'on page'], 'a node already on the page stays there; the line gets a copy');
+    assert.deepEqual(r.empty, ['Nothing changed', 0, false]);
+    assert.equal(r.collapsedByChars, 'false', 'a file over 200,000 characters starts collapsed');
+    assert.deepEqual(r.afterBuild, ['hooks-file-2:s']);
+    assert.deepEqual(r.afterExpand, ['hooks-file-2:s', 'hooks-file-0:a']);
+    assert.deepEqual(r.afterSwitch.slice(2).sort(), ['hooks-file-0:a', 'hooks-file-2:s']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff: Show more keeps working through a view switch, keeps its button on errors, and goes on an empty result', async () => {
+    const { page, problems } = await open();
+    const r = await page.evaluate(async () => {
+      const { wkDiff } = await import('../src/index.js');
+      const text = 'diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -30,3 +30,3 @@\n a\n-b\n+c\n d\n';
+      const source = Array.from({ length: 100 }, (_, i) => `line ${i + 1}`);
+      const tick = () => new Promise(res => setTimeout(res, 0));
+      const out = {};
+      // A view switch while the lines load: they land in the view shown then.
+      let release;
+      const race = wkDiff({ id: 'race', diff: text, getContext: (f, range) => new Promise(res => { release = () => res(source.slice(range.oldStart - 1, range.oldEnd)); }) });
+      document.body.append(race);
+      race.querySelector('.wk-diff-more').click(); await tick();
+      race.querySelector('#race-view-split').click(); await tick();
+      out.pendingDisabled = race.querySelector('.wk-diff-more').disabled;
+      release(); await tick(); await tick();
+      out.split = [...race.querySelectorAll('.wk-diff-half[data-side=old]')].map(h => h.dataset.old).join(',');
+      out.label = race.querySelector('.wk-diff-more')?.textContent;
+      race.querySelector('#race-view-unified').click();
+      out.unified = [...race.querySelectorAll('.wk-diff-line')].map(h => h.dataset.old ?? '-').join(',');
+      // Errors: rejected, then thrown; the button stays, with a note; a retry that works clears it.
+      for (const kind of ['rejects', 'throws']) {
+        let fail = true;
+        const el = wkDiff({ id: `err-${kind}`, diff: text, getContext: (f, range) => {
+          if (fail) { if (kind === 'throws') throw new Error('x'); return Promise.reject(new Error('net')); }
+          return source.slice(range.oldStart - 1, range.oldEnd);
+        } });
+        document.body.append(el);
+        el.querySelector('.wk-diff-more').click(); await tick(); await tick();
+        const more = el.querySelector('.wk-diff-more'), note = el.querySelector('.wk-diff-more-note');
+        out[kind] = { button: Boolean(more), disabled: more?.disabled, note: note.textContent, live: note.getAttribute('aria-live'), color: getComputedStyle(note).color };
+        fail = false;
+        more.click(); await tick(); await tick();
+        out[kind].retry = [el.querySelector('.wk-diff-more-note').textContent, el.querySelectorAll('.wk-diff-line').length];
+        el.remove();
+      }
+      const probe = document.createElement('span'); probe.style.color = 'var(--wk-color-text-secondary)'; document.body.append(probe);
+      out.secondary = getComputedStyle(probe).color; probe.remove();
+      const empty = wkDiff({ id: 'empty-ctx', diff: text, getContext: () => [] });
+      document.body.append(empty);
+      empty.querySelector('.wk-diff-more').focus(); empty.querySelector('.wk-diff-more').click(); await tick(); await tick();
+      out.empty = [empty.querySelectorAll('.wk-diff-more').length, document.activeElement.classList.contains('wk-diff-hunk')];
+      return out;
+    });
+    const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+    assert.equal(r.pendingDisabled, true, 'the rebuilt button waits for the pending load');
+    assert.equal(r.split, range(10, 32).join(','), 'the loaded lines appear in the view shown when they arrive');
+    assert.equal(r.label, 'Show 9 hidden lines');
+    assert.equal(r.unified, [...range(10, 31), '-', 32].join(','));
+    for (const kind of ['rejects', 'throws']) {
+      assert.deepEqual(r[kind], { button: true, disabled: false, note: 'Couldn’t load lines', live: 'polite', color: r.secondary, retry: ['', 24] }, kind);
+    }
+    assert.deepEqual(r.empty, [0, true], 'an empty result removes the button and focus goes to the hunk');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff: a wrapped line hangs under its indent, and copying still gives its own whitespace', async () => {
+    const { page, problems } = await open('/demo/index.html', { viewport: { width: 700, height: 900 } });
+    const r = await page.evaluate(async () => {
+      const { wkDiff } = await import('../src/index.js');
+      const long = 'word '.repeat(40).trim();
+      const el = wkDiff({ id: 'hang', wrap: true, diff: `diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n \t\t${long}\n-  ${long}\n+  ${long}!\n` });
+      document.body.prepend(el);
+      const codes = [...el.querySelectorAll('.wk-diff-code')];
+      const geometry = codes.map(c => {
+        const rects = [...(() => { const r = document.createRange(); r.selectNodeContents(c); return r.getClientRects(); })()];
+        const lines = [...new Set(rects.map(x => Math.round(x.top)))].length;
+        const range = document.createRange(); range.setStart(c.firstChild.nodeType === 3 ? c.firstChild : c.querySelector('mark')?.firstChild || c.firstChild, 0); range.collapse(true);
+        return { indent: c.style.getPropertyValue('--wk-diff-indent'), lines, padding: parseFloat(getComputedStyle(c).paddingInlineStart), textIndent: parseFloat(getComputedStyle(c).textIndent) };
+      });
+      const range = document.createRange(); range.selectNodeContents(el.querySelector('.wk-diff-rows'));
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+      const data = new DataTransfer();
+      el.querySelector('.wk-diff-line').dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }));
+      return { geometry, copied: data.getData('text/plain'), long };
+    });
+    assert.deepEqual(r.geometry.map(g => g.indent), ['8', '2', '2'], 'tabs count to the next multiple of 4');
+    for (const g of r.geometry) {
+      assert.ok(g.lines > 1, 'the line wraps');
+      assert.ok(g.padding > 0 && Math.abs(g.padding + g.textIndent) < .5, 'the first line starts at the edge and the rest hang under the indent');
+    }
+    assert.equal(r.copied, `\t\t${r.long}\n  ${r.long}\n  ${r.long}!`);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff: a split-view selection that starts on a header copies one side only', async () => {
+    const { page, problems } = await open();
+    const r = await page.evaluate(() => {
+      const copy = (start, so, end, eo) => {
+        const range = document.createRange(); range.setStart(start, so); range.setEnd(end, eo);
+        const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+        const data = new DataTransfer();
+        document.querySelector('#demo-diff-split .wk-diff-line').dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }));
+        return data.getData('text/plain');
+      };
+      const split = document.getElementById('demo-diff-split');
+      const rows = [...split.querySelectorAll('#demo-diff-split-file-0 .wk-diff-line')];
+      const oldCode = rows[2].querySelector('[data-side=old] .wk-diff-code');
+      return {
+        toNew: copy(split.querySelector('.wk-diff-hunk'), 0, rows[3], rows[3].childNodes.length),
+        toOld: copy(split.querySelector('.wk-diff-file-head'), 0, oldCode, oldCode.childNodes.length),
+      };
+    });
+    assert.equal(r.toNew, 'type Server struct {\n\taddr    string\n\ttimeout  time.Duration\n\tmaxBytes int64', 'it ends on the new side');
+    assert.equal(r.toOld, 'type Server struct {\n\taddr    string\n\ttimeout time.Duration', 'it ends on the old side');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff: a 5,000-line diff builds and expands within a budget, and stays inside a narrow page', async () => {
+    const { page, problems } = await open('/demo/index.html', { viewport: { width: 380, height: 800 } });
+    const timing = await page.evaluate(async () => {
+      const { wkDiff } = await import('../src/index.js');
+      const body = [];
+      for (let i = 1; i <= 2500; i++) body.push(`-\tvalue_${i} := compute(${i}, "old")`, `+\tvalue_${i} := compute(${i}, "new", true)`);
+      const text = `diff --git a/big.go b/big.go\n--- a/big.go\n+++ b/big.go\n@@ -1,2500 +1,2500 @@\n${body.join('\n')}\n`;
+      let t = performance.now();
+      const el = wkDiff({ id: 'big', diff: text, collapseAbove: 400 });
+      document.body.append(el); void el.offsetHeight;
+      const build = performance.now() - t;
+      const collapsed = el.querySelector('.wk-diff-toggle').getAttribute('aria-expanded');
+      t = performance.now();
+      el.querySelector('.wk-diff-toggle').click(); void el.offsetHeight;
+      const expand = performance.now() - t;
+      return { build, expand, collapsed, rows: el.querySelectorAll('.wk-diff-line').length, marks: el.querySelectorAll('mark').length,
+        page: [el, ...document.querySelectorAll('#demo-diff, #demo-diff .wk-diff-file, #demo-diff .wk-diff-body, #big .wk-diff-file, #big .wk-diff-body')].every(x => x.getBoundingClientRect().right <= innerWidth + .5), scrolls: el.querySelector('.wk-diff-body').scrollWidth > el.querySelector('.wk-diff-body').clientWidth };
+    });
+    assert.equal(timing.collapsed, 'false', 'a large file starts collapsed');
+    assert.equal(timing.rows, 5000);
+    assert.equal(timing.marks, 7500, 'three changed words in each pair');
+    assert.ok(timing.build < 200, `built in ${timing.build.toFixed(0)} ms`);
+    assert.ok(timing.expand < 2500, `expanded 5,000 rows in ${timing.expand.toFixed(0)} ms`);
+    assert.ok(timing.page, 'no diff reaches past the page');
+    assert.ok(timing.scrolls, 'long lines scroll inside the file');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
   await check('footer bar: a hairline above, the first link at the start, the last at the end, a hidden one leaves the rest at the start', async () => {
     const { page, problems } = await open();
     const [two, one] = await page.locator('#footer-bar .wk-footer-bar').evaluateAll(bars => bars.map(b => {

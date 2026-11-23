@@ -27,7 +27,7 @@ const kitSource = () => read(path.join(src, 'tokens.css'));
 const fixtures = path.join(root, 'test', 'fixtures');
 // Properties a component sets on itself for its variants to change, and
 // --wk-range-value, which the app sets on a wk-range.
-const LOCAL = new Set(['--wk-dot-color', '--wk-dot-ground', '--wk-chart-c', '--wk-range-value']);
+const LOCAL = new Set(['--wk-dot-color', '--wk-dot-ground', '--wk-chart-c', '--wk-range-value', '--wk-diff-digits', '--wk-diff-indent']);
 
 test('the colour check catches every kind of literal', () => {
   const component = { selector: '.wk-x', forced: false };
@@ -303,6 +303,34 @@ test('nothing names an app, and nothing loads from outside the package', () => {
       for (const ref of refs) if (!allowed(ref)) assert.ok(!outside(ref) && !/(^|\/)\.\.(\/|$)/.test(ref), `${rel(file)} loads ${ref} from outside its folder`);
     } else {
       for (const ref of refs) if (!/^node:/.test(ref)) assert.ok(!outside(ref), `${rel(file)} loads ${ref} from outside the package`);
+    }
+  }
+});
+
+test('diff tints: text and secondary text on every diff tint reach 4.5:1, and the tints differ in light and dark', () => {
+  const kit = kitTokens();
+  for (const block of ['light', 'dark']) {
+    const v = name => kit[block].get(name) || kit.light.get(name);
+    const tints = ['--wk-color-diff-add', '--wk-color-diff-del', '--wk-color-diff-add-strong', '--wk-color-diff-del-strong'];
+    for (const tint of tints) assert.ok(kit[block].has(tint), `${tint} has no ${block} value`);
+    for (const surface of ['--wk-color-surface', '--wk-color-bg']) {
+      for (const tint of tints) {
+        const row = over(v(tint), v(surface));
+        const text = contrast(v('--wk-color-text'), row);
+        assert.ok(text >= 4.5, `${block}: text on ${tint} over ${surface} is ${text.toFixed(2)}:1`);
+        // The gutter's numbers and the markers sit on the row tints.
+        if (!tint.endsWith('-strong')) {
+          const secondary = contrast(v('--wk-color-text-secondary'), row);
+          assert.ok(secondary >= 4.5, `${block}: secondary text on ${tint} over ${surface} is ${secondary.toFixed(2)}:1`);
+        }
+        // A changed word inside a paired line sits on the strong tint over the row tint.
+        if (tint.endsWith('-strong')) {
+          const word = over(v(tint), over(v(tint.replace('-strong', '')), v(surface)));
+          const ratio = contrast(v('--wk-color-text'), word);
+          assert.ok(ratio >= 4.5, `${block}: text on a changed word (${tint}) over ${surface} is ${ratio.toFixed(2)}:1`);
+        }
+      }
+      assert.notEqual(over(v('--wk-color-diff-add'), v(surface)), over(v('--wk-color-diff-del'), v(surface)));
     }
   }
 });

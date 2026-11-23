@@ -2,7 +2,7 @@
 
 Base UI for Wails desktop apps: design tokens in light and dark, a type scale,
 CSS components on native elements, a few custom elements where behaviour needs
-them, charts, a small theme file an app overrides, and a settings window drawn
+them, charts, a diff view, a small theme file an app overrides, and a settings window drawn
 from wails-kit's [`settings`](../../settings/README.md) schema.
 
 The kit is one design of its own on every platform. It does not imitate macOS
@@ -221,6 +221,7 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Stepper | `wk-stepper` (an input and two arrow buttons; see `syncSteppers`) |
 | Range | `wk-range` on `<input type="range">`, drawn the same on WebKit and Chromium. The app sets `--wk-range-value` to the filled share (`el.style.setProperty('--wk-range-value', '60%')`, which a Content-Security-Policy allows where a `style` attribute is blocked) and updates it on `input`; show the value beside it in an `<output>`. |
 | Chart | `wk-chart`, built by `wkChart()` |
+| Diff | `wk-diff`, built by `wkDiff()` |
 
 `demo/index.html` shows every component in each state it can show without a
 pointer, the tokens and every status dot. Serve the package folder (for
@@ -238,10 +239,99 @@ example `npx serve .`) and open `/demo/index.html`.
 | `syncSteppers(root?)` | redraws stepper arrows after the app sets a value itself |
 | `wkChart(spec)` | bars, stacked bars, or a line with a band, as plain SVG, with a legend, hover and keyboard readout, and a Chart/Table switch; colours from `--wk-color-chart-1` to `-5` (`tone` 1 to 5 or `"neutral"`) |
 | `niceTicks`, `labelStep`, `runs`, `roundedTop`, `roundedEnd`, `tableModel`, `readout` | the chart's layout rules, with no DOM |
+| `wkDiff(spec)` | a read-only diff of one or more files, unified or split, with collapsible files, word marks, keyboard navigation and "Show more" context; see [Diff](#diff) |
+| `parseUnifiedDiff`, `diffSplitRows`, `diffWordRanges` | the diff's parser, split-view pairing and word marks, with no DOM |
 
 Every element works when the app builds the DOM imperatively: it may be
 connected before its children exist, moved, or removed while open, and it
 removes everything it added to the document when it is disconnected.
+
+## Diff
+
+`wkDiff(spec)` returns a `<section class="wk-diff">`: a focusable region with
+a Unified/Split switch and one card per file. It builds plain DOM and has no
+dependencies.
+
+```js
+import { wkDiff } from './vendor/wails-kit-ui/wails-kit-ui.js';
+
+pane.append(wkDiff({
+  id: 'changes',                 // names the parts: changes-file-0, changes-file-0-toggle, …
+  label: 'Changes',              // the region's accessible name
+  diff: patchText,               // git's unified diff (one or more files), or parsed files
+  view: 'unified',               // or 'split'; onview(view) reports the switch
+  wrap: false,                   // unified: wrap long lines, or scroll the file sideways
+  collapseAbove: 400,            // files with more lines start collapsed,
+  collapseCharsAbove: 200000,    // and files with more characters
+  generated: file => file.path.endsWith('.lock'),     // these start collapsed too
+  headingLevel: 3,               // each file's header is a heading of this level (2 to 6)
+  emptyText: 'No changes',       // all a diff with no files shows
+  getContext: (file, range) => readLines(file.path, range.newStart, range.newEnd),
+  highlight: (file, line) => null,                     // a DocumentFragment, or null for plain text
+  onrender: (fileElement, file) => {},                 // after a file's rows are (re)built
+}));
+```
+
+- **Input.** A unified diff string (git format or `diff -u`, LF or CRLF), or
+  files already parsed: `{ path, oldPath, status, hunks: [{ header, lines:
+  [{ kind: 'context'|'add'|'del', old, new, text }] }] }`, where `status` is
+  `modified`, `added`, `deleted`, `renamed`, `copied` or `binary`. Counts and
+  hunk ranges are filled in when missing; lines without `old`/`new` are
+  numbered from the hunk's start (context takes both, `del` the old number,
+  `add` the new), and a line of any other kind is shown as context.
+  `parseUnifiedDiff(text)` returns the
+  same shape, with `binary`, `oldMode`/`newMode`, `additions`/`deletions` and a
+  `noNewline` flag on a line that ended its file without a newline. Paths come
+  without git's prefixes, whichever it wrote (`a/` `b/`, `--no-prefix`,
+  `diff.mnemonicPrefix`, `--src-prefix`/`--dst-prefix`); in a plain diff,
+  a first folder that differs between the `---` and `+++` paths of the same
+  file is taken as the prefix. A hunk whose header claims more lines than
+  follow ends at the next file. Combined diffs (`diff --cc`, from a merge)
+  are not supported: such a file shows "No changes to show".
+- **Per file.** A header (a `wk-link` disclosure naming the path, `old → new`
+  for a rename, status chips, `+n −m` counts in tabular figures). Large,
+  generated and binary files start collapsed (a parsed file's `collapsed`
+  overrides this; its `generated` marks it generated); rows are built when a
+  file is first expanded. The empty text is all an empty diff shows. A binary file
+  shows "Binary file not shown."
+- **Lines.** Old and new line numbers in a gutter; added and removed rows are
+  tinted and carry a `+` or `−` marker, and each row has a screen-reader label,
+  the same in both views ("Added 14:", "Removed 13:", "Line 10:", or "Line
+  10, now 12:" for an unchanged line whose number moved). When removed lines are followed by added ones,
+  they pair up and the changed words are marked (`<mark class="wk-diff-word">`;
+  not for a line over 10,000 characters).
+  The split view puts old beside new, row by row, and always wraps long lines
+  so its halves stay aligned.
+- **Context.** With `getContext(file, { oldStart, oldEnd, newStart, newEnd })`
+  (1-based, inclusive; returns the lines as strings, or a promise of them),
+  each hunk header offers "Show more" for the unchanged lines above it,
+  `contextStep` (20) at a time. If the callback throws or rejects, the button
+  stays and a note says "Couldn’t load lines" (announced politely); an empty
+  result removes the button. Lines that arrive after a view switch go into
+  the view then shown. A wrapped line hangs under its own indent.
+- **Highlighting** is not built in: `highlight(file, line)` may return a node
+  (a `DocumentFragment` of spans) to use as the line's code. Word marks are
+  laid over it when its text is the line's text. If it throws, that line is
+  plain text.
+- **Keyboard.** While focus is in the diff, `n` and `p` move to the next or
+  previous hunk (in expanded files), `]` and `[` to the next or previous file.
+  Copying copies the code alone: the gutter, the markers and the labels are
+  not selectable, and in the split view only the side the selection starts on
+  is copied.
+- **Colours.** `--wk-color-diff-add` and `--wk-color-diff-del` tint rows;
+  `--wk-color-diff-add-strong` and `--wk-color-diff-del-strong` mark changed
+  words. Removed uses the attention hue, added a blue rather than a green, so
+  the pair stays distinct with red-green colour blindness; text reaches 4.5:1
+  on every tint (checked by `npm test`). In forced colours the tints become a
+  bar at the start of the row, solid for added and dashed for removed, and the
+  markers stay.
+- **Hooks for comments.** Each file card has `data-path`. A unified row has
+  `data-kind` and its `data-old` and `data-new` numbers (one of them for an
+  added or removed line); a split half has `data-kind`, `data-side` (`old` or
+  `new`) and only its own side's number (`data-old` on the old half,
+  `data-new` on the new). A file's rows are built lazily and rebuilt on a
+  view switch, so anything an app adds among them belongs in `onrender`,
+  which runs after every build of a file's rows.
 
 ## Settings window
 
@@ -307,7 +397,7 @@ renderers: `settingsModel(schema, values, errors)`, `conditionMet`,
 | Path | |
 |---|---|
 | `src/ui.css` | the stylesheet entry: `tokens.css`, `base.css`, `components.css`, `settings.css` |
-| `src/index.js` | the module entry: `kit.js` (custom elements), `chart.js`, `settings-model.js`, `settings.js` |
+| `src/index.js` | the module entry: `kit.js` (custom elements), `chart.js`, `diff.js`, `settings-model.js`, `settings.js` |
 | `src/index.d.ts` | TypeScript types |
 | `theme/theme.css`, `theme/example.css` | the theme file and an example theme |
 | `theme/check.mjs` | the theme check, shipped: checks a theme against `THEMING.md` |
@@ -332,13 +422,15 @@ token has light and dark values (and the same values in both dark blocks),
 that themes set only theme tokens and meet the contrast rules, that colours in
 component rules come from tokens, that every selector is scoped, that nothing
 loads from outside the package or names an app, the chart's layout rules, the
+diff's parser, pairing and word marks, the contrast of text on the diff tints, the
 settings window's rules, and that `dist/` matches a fresh build.
 
 `npm run test:browser` drives the review pages with `playwright-core` and
 Chrome (set `CHROME_PATH`, or have it at `/usr/bin/google-chrome` or the macOS
 default; without Chrome it skips, unless `CI` is set). It covers the
 WAI-ARIA keyboard patterns of every custom element, focus return, imperative
-construction and clean-up, forced colours, the chart, the prebuilt module's
+construction and clean-up, forced colours, the chart, the diff (lines in both
+views, keyboard, copy, forced colours, a 5,000-line diff), the prebuilt module's
 exports, and the settings window. The kit targets WebKit (Wails on macOS) as
 well as WebView2; these checks run in Chrome, so check WebKit by hand on a Mac
 for a change in behaviour.

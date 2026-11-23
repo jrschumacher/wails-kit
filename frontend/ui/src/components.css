@@ -674,6 +674,61 @@ wk-dialog { display: contents; }
 .wk-chart-none { margin: 0; padding: var(--wk-space-4) 0; color: var(--wk-color-text-secondary); }
 .wk-chart-readout { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
+/* ---- Diff (wk-diff, built by diff.js) --------------------------------- */
+/* A region of file cards, each on the surface colour: a header (a wk-link
+   disclosure naming the path, status chips, +n −m counts) over a body of
+   rows. An added or removed row is tinted and carries a + or − marker; the
+   words that changed inside a paired line are a <mark class="wk-diff-word">
+   on the stronger tint. The gutter, the markers and the screen-reader labels
+   cannot be selected, so copying takes the code alone. diff.js sets
+   --wk-diff-digits on a body to the width of its largest line number, and
+   --wk-diff-indent on a code cell (see the hanging indent below). */
+.wk-diff { display: flex; flex-direction: column; gap: var(--wk-space-3); min-width: 0; }
+.wk-diff:focus-visible { outline-offset: var(--wk-focus-offset); }
+.wk-diff-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--wk-space-2) var(--wk-space-3); }
+.wk-diff-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--wk-space-2); margin: 0; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+.wk-diff-none { margin: 0; padding: var(--wk-space-4) 0; color: var(--wk-color-text-secondary); }
+.wk-diff-counts { display: inline-flex; gap: 6px; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wk-diff-counts > span[aria-hidden] { display: inline-flex; gap: 6px; }
+.wk-diff-count-add, .wk-diff-count-del { font-weight: var(--wk-font-weight-medium); }
+.wk-diff-file { position: relative; min-width: 0; overflow: hidden; border: var(--wk-hairline-width) solid var(--wk-color-hairline); border-radius: var(--wk-radius-group); background: var(--wk-color-surface); }
+.wk-diff-file-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--wk-space-2); min-height: 36px; padding: 6px var(--wk-space-3); }
+.wk-diff-file-title { flex: 1 1 14em; min-width: 0; margin: 0; font-size: var(--wk-font-size-base); font-weight: var(--wk-font-weight-semibold); line-height: var(--wk-line-height); }
+.wk-diff-toggle.wk-link { display: inline-flex; flex-wrap: wrap; max-width: 100%; color: var(--wk-color-text); font-family: var(--wk-font-family-mono); font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-semibold); text-align: left; }
+.wk-diff-toggle > .wk-diff-path { min-width: 0; overflow-wrap: anywhere; }
+.wk-diff-arrow { flex: none; color: var(--wk-color-text-secondary); white-space: pre; }
+.wk-diff-body { position: relative; overflow-x: auto; border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); font-family: var(--wk-font-family-mono); font-size: var(--wk-font-size-sm); line-height: 20px; }
+.wk-diff-rows { width: max-content; min-width: 100%; }
+.wk-diff-body[data-wrap] > .wk-diff-rows { width: auto; }
+.wk-diff-note { margin: 0; padding: var(--wk-space-3); color: var(--wk-color-text-secondary); font-family: var(--wk-font-family); font-size: var(--wk-font-size-base); }
+.wk-diff-hunk { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--wk-space-3); min-height: 28px; padding: 4px var(--wk-space-3); border-block: var(--wk-hairline-width) solid var(--wk-color-hairline); background: var(--wk-color-fill); color: var(--wk-color-text-secondary); }
+.wk-diff-rows > .wk-diff-hunk:first-child { border-top: 0; }
+.wk-diff-hunk:focus-visible { outline-offset: calc(-1 * var(--wk-focus-width)); }
+.wk-diff-hunk-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.wk-diff-more.wk-link { font-family: var(--wk-font-family); font-size: var(--wk-font-size-sm); }
+.wk-diff-more-note { color: var(--wk-color-text-secondary); font-family: var(--wk-font-family); font-size: var(--wk-font-size-sm); }
+.wk-diff-more-note:empty { display: none; }
+.wk-diff-line { display: grid; grid-template-columns: calc(var(--wk-diff-digits) * 1ch + 20px) calc(var(--wk-diff-digits) * 1ch + 20px) 1.75em minmax(0, 1fr); }
+.wk-diff-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.wk-diff-half { display: grid; grid-template-columns: calc(var(--wk-diff-digits) * 1ch + 20px) 1.75em minmax(0, 1fr); min-width: 0; }
+.wk-diff-half + .wk-diff-half { border-left: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+.wk-diff-line[data-kind="add"], .wk-diff-half[data-kind="add"] { background: var(--wk-color-diff-add); }
+.wk-diff-line[data-kind="del"], .wk-diff-half[data-kind="del"] { background: var(--wk-color-diff-del); }
+.wk-diff-half[data-kind="empty"] { background: var(--wk-color-fill); }
+.wk-diff-num, .wk-diff-mark, .wk-diff-eof, .wk-diff-sr { -webkit-user-select: none; user-select: none; }
+.wk-diff-num { padding: 0 10px; color: var(--wk-color-text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
+.wk-diff-mark { color: var(--wk-color-text-secondary); text-align: center; }
+[data-kind="add"] > .wk-diff-mark, [data-kind="del"] > .wk-diff-mark { color: var(--wk-color-text); font-weight: var(--wk-font-weight-semibold); }
+.wk-diff-code { min-width: 0; padding-right: var(--wk-space-3); color: var(--wk-color-text); white-space: pre; tab-size: 4; }
+.wk-diff-body[data-wrap] .wk-diff-code { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* A wrapped line hangs under its own indent: diff.js sets --wk-diff-indent
+   on the cell to its leading whitespace, in columns. */
+.wk-diff-body[data-wrap] .wk-diff-code { padding-inline-start: calc(var(--wk-diff-indent, 0) * 1ch); text-indent: calc(var(--wk-diff-indent, 0) * -1ch); }
+.wk-diff-word { border-radius: 2px; background: var(--wk-color-diff-add-strong); color: inherit; }
+[data-kind="del"] .wk-diff-word { background: var(--wk-color-diff-del-strong); }
+.wk-diff-eof { grid-column: -2; padding: 0 var(--wk-space-3) 2px 0; color: var(--wk-color-text-secondary); font-family: var(--wk-font-family); font-size: var(--wk-font-size-xs); }
+.wk-diff-sr { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
 /* ---- Forced colours (Windows High Contrast) ---------------------------
    The system replaces backgrounds, shadows and most border colours with its
    own. Where a state is drawn only with those, these rules redraw it with
@@ -724,4 +779,13 @@ wk-dialog { display: contents; }
   /* The running dot's halo: an outline, since the gap's ground is a token. */
   .wk-dot[data-tone="working"]:not([data-shape]):not([data-size="sm"]),
   .wk-dot[data-tone="working"][data-shape="filled"]:not([data-size="sm"]) { outline: 1.5px solid CanvasText; outline-offset: 2px; box-shadow: none; }
+  /* Diff: tints become a bar at the start of the row, solid for added and
+     dashed for removed, and the changed words are underlined; the + and −
+     markers stay. */
+  .wk-diff-line, .wk-diff-half { border-inline-start: 4px solid Canvas; }
+  .wk-diff-pair { border-inline-start: 0; }
+  .wk-diff-line[data-kind="add"], .wk-diff-half[data-kind="add"] { border-inline-start: 4px solid CanvasText; }
+  .wk-diff-line[data-kind="del"], .wk-diff-half[data-kind="del"] { border-inline-start: 4px dashed CanvasText; }
+  .wk-diff-word, [data-kind="add"] .wk-diff-word, [data-kind="del"] .wk-diff-word { forced-color-adjust: none; background: Canvas; color: CanvasText; text-decoration: underline; text-decoration-thickness: 2px; }
+  .wk-diff-hunk { border-color: GrayText; }
 }
