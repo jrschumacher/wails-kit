@@ -1,0 +1,26 @@
+<!-- @dsCard group="Navigation" height=110 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FilterButtons</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: flex; flex-direction: column; gap: var(--wk-space-3); padding: var(--wk-space-4); }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec">
+  <div class="wk-filters" role="group" aria-label="Show">
+    <button class="wk-filter" type="button" aria-pressed="false">Active <span class="wk-filter-count">3</span></button>
+    <button class="wk-filter" type="button" aria-pressed="false">Done <span class="wk-filter-count">41</span></button>
+    <button class="wk-filter" type="button" aria-pressed="true">All <span class="wk-filter-count">44</span></button>
+  </div>
+  <div class="wk-filters" role="group" aria-label="Reviewer">
+    <button class="wk-filter" type="button" aria-pressed="true">claude-opus <span class="wk-filter-count">18</span></button>
+    <button class="wk-filter" type="button" aria-pressed="true">codex-high <span class="wk-filter-count">22</span></button>
+    <button class="wk-filter" type="button" aria-pressed="false" disabled>agy-pro <span class="wk-filter-count">0</span></button>
+  </div>
+</div>
+</body>
+</html>

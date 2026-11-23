@@ -1,0 +1,28 @@
+<!-- @dsCard group="Actions" height=200 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Link</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: grid; grid-template-columns: 120px 1fr; gap: var(--wk-space-3) var(--wk-space-4); align-items: baseline; padding: var(--wk-space-4); }
+  .spec > dt { color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+  .spec > dd { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--wk-space-4); margin: 0; }
+  .spec p { margin: 0; }
+  .small { font-size: var(--wk-font-size-sm); }
+</style>
+</head>
+<body class="wk-root">
+<dl class="spec">
+  <dt>In a sentence</dt>
+  <dd><p>These should match what the person who sent the code sees. <button class="wk-link" type="button">Why?</button></p></dd>
+  <dt>On its own</dt>
+  <dd><button class="wk-link" type="button">Review Settings</button><a class="wk-link" href="#run">View run</a><button class="wk-link" type="button">Open HQ</button><span class="small"><button class="wk-link" type="button">See queued runs on GitHub</button></span><span class="small"><button class="wk-link" type="button">Stop…</button></span></dd>
+  <dt>Shows a section</dt>
+  <dd><button class="wk-link" type="button" aria-expanded="false">Where do I get a join code?</button><button class="wk-link" type="button" aria-expanded="true">Advanced</button></dd>
+  <dt>Disabled</dt>
+  <dd><button class="wk-link" type="button" disabled>Stop…</button></dd>
+</dl>
+</body>
+</html>
