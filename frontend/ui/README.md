@@ -95,31 +95,43 @@ repeated on `:root[data-theme="dark"]`.
 
 ## The theme file
 
-[`theme/theme.css`](theme/theme.css) lists the values an app sets to make the
-kit its own, with the kit's defaults. Copy it into the app, change the values,
-and link it after the kit's stylesheet. A theme sets only these:
+An app makes the kit its own with one theme file, linked after the kit's
+stylesheet. [THEMING.md](THEMING.md) is the contract:
 
-| Group | Tokens | What they colour |
-|---|---|---|
-| Accent | `--wk-color-accent`, `--wk-color-on-accent`, `--wk-color-selection` | primary buttons, links, the focus ring, selected rows and tabs |
-| Working | `--wk-color-working`, `--wk-color-working-ring` | the "something is happening" tone; the ring is a darker step where working is under 3:1 on the background |
-| Attention | `--wk-color-attention`, `--wk-color-attention-text`, `--wk-color-attention-fill`, `--wk-color-destructive-text` | someone must act; destructive buttons |
-| Charts | `--wk-color-chart-1`, `--wk-color-chart-3` | the series that usually follow the accent and working |
-| Type | `--wk-font-family`, `--wk-font-features` | the font and its OpenType features |
-| Corners | `--wk-radius-control`, `--wk-radius-group` | controls; groups and panels |
+| | Tokens |
+|---|---|
+| Must set (identity) | `--wk-color-accent`, `--wk-color-on-accent`, `--wk-color-working`, `--wk-color-attention`, `--wk-color-attention-text` |
+| May set (grounds, all ten or none) | `--wk-color-bg`, `-sidebar`, `-surface`, `-control`, `-hairline`, `-hairline-strong`, `-control-border`, `-field-border`, `-text`, `-text-secondary` |
+| May set | `--wk-font-family` (fallbacks after the kit's first family); `--wk-radius-control`, `-group`, `-window` (within 2px of the kit's) |
+| Must not set (derived) | `--wk-color-selection`, `-chart-1`, `-destructive-text`, `-attention-fill`: the kit derives them from the accent and attention with `color-mix()` inside `@supports` |
 
 Each colour needs a light value and a dark value, written in the two dark
-blocks with the same values. A font the theme names is the app's to bundle:
-add an `@font-face` in the theme that points at a file the app ships, and never
-load a font from the network. [`theme/example.css`](theme/example.css) is an
-example theme (a green accent, an amber working tone, rounder corners), shown
-on `demo/themed.html`.
+blocks with the same values. [`theme/theme.css`](theme/theme.css) lists them
+with the kit's defaults: copy it, change the values, and link it after the
+kit's stylesheet. [`theme/example.css`](theme/example.css) is an example theme
+(a green accent, an amber working tone, rounder corners), shown on
+`demo/themed.html`.
 
-The package's checks hold every theme in `theme/` to these rules: only theme
-tokens, light and dark for each colour, the same values in both dark blocks,
-4.5:1 for secondary text on a selection and for text on the accent, and 3:1
-for the working ring on the background. An app should check its own theme the
-same way.
+There are three state tones (neutral, working, attention) and no warning tone.
+Text fields, selects, checkboxes and the like are outlined in
+`--wk-color-field-border` (3:1 or more on the window); buttons keep the soft
+`--wk-color-control-border`. `color-mix()` needs Safari 16.2 or later (on
+macOS 11 and later), WebView2 Chromium 111 or WebKitGTK 2.40; below that the
+kit's literals apply, and on older Linux the app runs headless.
+
+[`theme/check.mjs`](theme/check.mjs) ships with the package and checks a theme
+against the contract: its blocks, the tokens it sets (opaque `#rrggbb`
+colours), all-or-none grounds, radii, and contrast (text 4.5:1 on every ground,
+the field border 3:1, working and attention 3:1 on the window and 1.5:1 apart).
+The package's tests run it on the kit, both theme files in `theme/` and a
+tinted-grounds fixture. An app runs it on its own theme, with no dependencies:
+
+```sh
+node node_modules/@wails-kit/ui/theme/check.mjs path/to/theme.css
+```
+
+It exits 1 when there are problems. As a module it is
+`@wails-kit/ui/theme/check` (`checkTheme`).
 
 ## Components
 
@@ -242,6 +254,8 @@ renderers: `settingsModel(schema, values, errors)`, `conditionMet`,
 | `src/index.js` | the module entry: `kit.js` (custom elements), `chart.js`, `settings-model.js`, `settings.js` |
 | `src/index.d.ts` | TypeScript types |
 | `theme/theme.css`, `theme/example.css` | the theme file and an example theme |
+| `theme/check.mjs` | the theme check, shipped: checks a theme against `THEMING.md` |
+| `THEMING.md` | the theme contract |
 | `dist/wails-kit-ui.css`, `dist/wails-kit-ui.js` | the prebuilt files, committed and checked against `src/` |
 | `demo/` | review pages: `index.html`, `themed.html`, `dist.html`, `settings.html` |
 | `scripts/build.mjs` | builds `dist/` with no dependencies |

@@ -1,0 +1,27 @@
+/* Fixture: a gold working tone from the design system, with the steel blue
+   accent and red attention that go with it, on the kit's grounds.
+   Its gold is 2.6:1 on the light window, a gap the design system records:
+   the check fails on it, and test/tokens.test.mjs names the exception. */
+:root {
+  --wk-color-accent: #2f4f8f;
+  --wk-color-on-accent: #ffffff;
+  --wk-color-working: #c9961a;
+  --wk-color-attention: #c8402f;
+  --wk-color-attention-text: #a8301f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --wk-color-accent: #8fb2f0;
+    --wk-color-on-accent: #0f1520;
+    --wk-color-working: #e2b23e;
+    --wk-color-attention: #ef6a5e;
+    --wk-color-attention-text: #f58d83;
+  }
+}
+:root[data-theme="dark"] {
+  --wk-color-accent: #8fb2f0;
+  --wk-color-on-accent: #0f1520;
+  --wk-color-working: #e2b23e;
+  --wk-color-attention: #ef6a5e;
+  --wk-color-attention-text: #f58d83;
+}

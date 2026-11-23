@@ -53,7 +53,7 @@ button.wk-link:disabled { color: var(--wk-color-text-secondary); text-decoration
 .wk-field {
   -webkit-appearance: none; appearance: none;
   min-width: 0; min-height: var(--wk-control-height); padding: 4px 8px;
-  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border: var(--wk-hairline-width) solid var(--wk-color-field-border);
   border-radius: var(--wk-radius-control);
   background: var(--wk-color-control); color: var(--wk-color-text);
   font-size: var(--wk-font-size-base); line-height: var(--wk-line-height);
@@ -88,7 +88,7 @@ textarea.wk-field { min-height: 64px; padding: 6px 8px; resize: vertical; }
   -webkit-appearance: none; appearance: none;
   display: inline-grid; place-content: center; flex: none;
   width: 14px; height: 14px; margin: 0;
-  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border: var(--wk-hairline-width) solid var(--wk-color-field-border);
   border-radius: var(--wk-radius-small);
   background: var(--wk-color-control); box-shadow: var(--wk-shadow-control);
   vertical-align: -2px; cursor: pointer;
@@ -104,7 +104,7 @@ textarea.wk-field { min-height: 64px; padding: 6px 8px; resize: vertical; }
   -webkit-appearance: none; appearance: none;
   display: inline-grid; place-content: center; flex: none;
   width: 14px; height: 14px; margin: 0;
-  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border: var(--wk-hairline-width) solid var(--wk-color-field-border);
   border-radius: 50%;
   background: var(--wk-color-control); box-shadow: var(--wk-shadow-control);
   vertical-align: -2px; cursor: pointer;
@@ -119,7 +119,7 @@ textarea.wk-field { min-height: 64px; padding: 6px 8px; resize: vertical; }
   -webkit-appearance: none; appearance: none;
   position: relative; flex: none; display: inline-block;
   width: 34px; height: 20px; margin: 0;
-  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border: var(--wk-hairline-width) solid var(--wk-color-field-border);
   border-radius: var(--wk-radius-pill);
   background: var(--wk-color-fill-strong);
   vertical-align: middle; cursor: pointer;
@@ -151,7 +151,7 @@ textarea.wk-field { min-height: 64px; padding: 6px 8px; resize: vertical; }
 .wk-select {
   -webkit-appearance: none; appearance: none;
   min-height: var(--wk-control-height); padding: 0 26px 0 8px;
-  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border: var(--wk-hairline-width) solid var(--wk-color-field-border);
   border-radius: var(--wk-radius-control);
   background-color: var(--wk-color-control); color: var(--wk-color-text);
   background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
@@ -453,11 +453,9 @@ wk-dialog { display: contents; }
 
 /* ---- Status dot: shapes and tones, no state names ---------------------- */
 /* Sizes: wk-dot-size, or wk-dot-size-small with data-size="sm" (a dot beside
-   small text: a sidebar item, a connection line). The working tone draws its
-   outline in wk-color-working-ring, so the mark reaches 3:1 on the ground
-   where the working colour alone does not. --wk-dot-ground is the surface
-   the dot sits on (wk-color-bg unless set): the gap in the running dot's
-   halo is drawn in it. */
+   small text: a sidebar item, a connection line). --wk-dot-ground is the
+   surface the dot sits on (wk-color-bg unless set): the gap in the running
+   dot's halo is drawn in it. */
 .wk-dot {
   --wk-dot-color: var(--wk-color-text);
   --wk-dot-ground: var(--wk-color-bg);
@@ -466,7 +464,7 @@ wk-dialog { display: contents; }
   background: var(--wk-dot-color); vertical-align: middle;
 }
 .wk-dot[data-size="sm"] { width: var(--wk-dot-size-small); height: var(--wk-dot-size-small); }
-.wk-dot[data-tone="working"] { --wk-dot-color: var(--wk-color-working); border-color: var(--wk-color-working-ring); }
+.wk-dot[data-tone="working"] { --wk-dot-color: var(--wk-color-working); }
 .wk-dot[data-tone="attention"] { --wk-dot-color: var(--wk-color-attention); }
 .wk-dot[data-shape="ringed"] { background: radial-gradient(circle, var(--wk-dot-color) 0 36%, transparent 40%); }
 .wk-dot[data-shape="half"] { background: linear-gradient(90deg, var(--wk-dot-color) 50%, transparent 50%); }
@@ -609,7 +607,7 @@ wk-dialog { display: contents; }
    not the browser's own spinner: the arrows are the stepper's. */
 .wk-stepper > .wk-field[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 .wk-stepper > .wk-field[type="number"]::-webkit-inner-spin-button, .wk-stepper > .wk-field[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-.wk-stepper-arrows { display: inline-flex; flex-direction: column; overflow: hidden; border: var(--wk-hairline-width) solid var(--wk-color-control-border); border-radius: var(--wk-radius-control); background: var(--wk-color-control); }
+.wk-stepper-arrows { display: inline-flex; flex-direction: column; overflow: hidden; border: var(--wk-hairline-width) solid var(--wk-color-field-border); border-radius: var(--wk-radius-control); background: var(--wk-color-control); }
 .wk-stepper-arrows > button { display: grid; place-items: center; flex: 1; width: 18px; padding: 0; border: 0; background: none; color: var(--wk-color-text); cursor: pointer; }
 .wk-stepper-arrows > button + button { border-top: var(--wk-hairline-width) solid var(--wk-color-control-border); }
 .wk-stepper-arrows > button:hover:not(:disabled) { background: var(--wk-color-fill-strong); }

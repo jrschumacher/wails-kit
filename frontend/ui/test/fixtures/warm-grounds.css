@@ -1,0 +1,55 @@
+/* Fixture: a theme that tints all ten grounds warm, as an app's theme may
+   (THEMING.md, "May set"). test/tokens.test.mjs holds it to the contract. */
+:root {
+  --wk-color-accent: #2d6a45;
+  --wk-color-on-accent: #ffffff;
+  --wk-color-working: #b4740f;
+  --wk-color-attention: #a9372a;
+  --wk-color-attention-text: #982f23;
+  --wk-color-bg: #fbfaf7;
+  --wk-color-sidebar: #f1efe9;
+  --wk-color-surface: #ffffff;
+  --wk-color-control: #ffffff;
+  --wk-color-hairline: #e8e5de;
+  --wk-color-hairline-strong: #d6d2c8;
+  --wk-color-control-border: #d2cec4;
+  --wk-color-field-border: #8a857a;
+  --wk-color-text: #23201b;
+  --wk-color-text-secondary: #655f53;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --wk-color-accent: #84c99a;
+    --wk-color-on-accent: #0e1a12;
+    --wk-color-working: #e4a94a;
+    --wk-color-attention: #e8604f;
+    --wk-color-attention-text: #f08a7d;
+    --wk-color-bg: #1b1916;
+    --wk-color-sidebar: #15130f;
+    --wk-color-surface: #23201c;
+    --wk-color-control: #2a2722;
+    --wk-color-hairline: #2f2b26;
+    --wk-color-hairline-strong: #403b34;
+    --wk-color-control-border: #403b34;
+    --wk-color-field-border: #7a746b;
+    --wk-color-text: #efebe4;
+    --wk-color-text-secondary: #a8a194;
+  }
+}
+:root[data-theme="dark"] {
+  --wk-color-accent: #84c99a;
+  --wk-color-on-accent: #0e1a12;
+  --wk-color-working: #e4a94a;
+  --wk-color-attention: #e8604f;
+  --wk-color-attention-text: #f08a7d;
+  --wk-color-bg: #1b1916;
+  --wk-color-sidebar: #15130f;
+  --wk-color-surface: #23201c;
+  --wk-color-control: #2a2722;
+  --wk-color-hairline: #2f2b26;
+  --wk-color-hairline-strong: #403b34;
+  --wk-color-control-border: #403b34;
+  --wk-color-field-border: #7a746b;
+  --wk-color-text: #efebe4;
+  --wk-color-text-secondary: #a8a194;
+}
