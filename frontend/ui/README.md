@@ -136,16 +136,17 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Checkbox, radio, switch | `wk-check`, `wk-checkbox`, `wk-radio`, `wk-switch` (`role="switch"`); `wk-check--row`, `wk-check--top` |
 | Select | `wk-select` |
 | Filter buttons, segmented control | `wk-filters` / `wk-filter`, `wk-segmented` |
-| Chip and pill | `wk-chip`, `wk-pill` |
-| Table | `wk-table` |
-| Sidebar, toolbar, footer bar | `wk-sidebar`, `wk-toolbar`, `wk-footer-bar` |
-| Three-pane layout | `wk-panes`, `wk-pane-list`, `wk-pane-inspector` |
+| Chip and pill | `wk-chip` (a `<button class="wk-chip">` filters, with hover and disabled states; a leading `wk-dot data-size="sm"` then the item and its state in words; `--muted`, dashed, for an absence), `wk-pill` |
+| Table | `wk-table` (`--zebra` tints every other row); `wk-table-name`, the row's name as a `<button>` that opens the item; `wk-table-actions`, a cell's row actions on one line; `tr[data-muted]`, a row that no longer counts (secondary text, its name struck) |
+| Sidebar, toolbar, footer bar | `wk-sidebar` (`wk-sidebar-detail`: short trailing text on an item, "Running"), `wk-toolbar` (`wk-toolbar-subtitle` after the title: what the view counts over, "last 14 days"), `wk-footer-bar` |
+| Three-pane layout | `wk-panes`, `wk-pane-list`, `wk-pane-inspector`; `wk-pane-scroll`, a pane body that scrolls under a fixed toolbar (give it `tabindex="0"` and a name) |
 | Tabs | `wk-tablist` inside `<wk-tabs>` |
 | Menu, context menu, tooltip | `wk-menu` and its items, `wk-tooltip` |
 | Dialog, sheet, popover surface | `wk-dialog` (`--alert`, sheets), `wk-popover` |
 | Settings group, row and tabs | `wk-settings-heading`, `wk-settings-group`, `wk-settings-row`, `wk-settings-label`, `wk-settings-help`, `wk-settings-note`, `wk-settings-tabs` / `wk-settings-tab` (`data-attention`) |
 | Panel, facts, section heading | `wk-panel` (`--rows`, `--dashed`), `wk-facts`, `wk-section-heading` |
-| Status dot | `wk-dot` with `data-shape` (`filled`, `ringed`, `half`, `hollow`, `dashed`, `bar`), `data-tone` (`neutral`, `working`, `attention`) and `data-size="sm"`. It has no state names: the app maps its own states onto shapes and tones. |
+| Status dot | `wk-dot` with `data-shape` (`filled`, `ringed`, `half`, `hollow`, `dashed`, `bar`), `data-tone` (`neutral`, `working`, `attention`) and `data-size="sm"`. It has no state names: the app maps its own states onto shapes and tones. The filled working dot at the default size has a halo (running), its gap drawn in `--wk-dot-ground`; set that on the dot when it sits on something other than `wk-color-bg`. |
+| Utilities | `wk-visually-hidden`: read by assistive technology, not drawn |
 | Empty state, notice, error box | `wk-empty`, `wk-notice`, `wk-error-box` |
 | Stat, code block, copy button | `wk-stat`, `wk-code`, `wk-copy` |
 | Stepper | `wk-stepper` (an input and two arrow buttons; see `syncSteppers`) |
