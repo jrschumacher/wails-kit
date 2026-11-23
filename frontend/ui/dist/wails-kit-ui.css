@@ -452,6 +452,24 @@ button.wk-chip:disabled { opacity: .45; cursor: default; }
 .wk-table tbody tr[aria-selected="true"] .wk-secondary,
 .wk-table tbody tr[aria-current]:not([aria-current="false"]) .wk-secondary { color: var(--wk-color-text-secondary-on-selected); }
 
+/* ---- List: selectable rows of any height ------------------------------- */
+/* For items that do not share columns: a <ul class="wk-list"> of
+   <li class="wk-list-row">, each laid out by the app (a title, a meta line,
+   chips). The selected row carries aria-selected="true" (role="option" in a
+   role="listbox") or aria-current; selection is the quiet tint, never the
+   accent. wk-list-heading names a group, with its count in a <span>. The app
+   moves focus between rows (one row tabindex="0", the rest "-1"). */
+.wk-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0 var(--wk-space-2) var(--wk-space-2); list-style: none; }
+.wk-list-row { display: block; padding: var(--wk-space-2) 10px; border-radius: var(--wk-radius-control); cursor: default; }
+.wk-list-row:hover { background: var(--wk-color-fill); }
+.wk-list-row[aria-selected="true"],
+.wk-list-row[aria-current]:not([aria-current="false"]) { background: var(--wk-color-selection); }
+.wk-list-row[aria-selected="true"] .wk-secondary,
+.wk-list-row[aria-current]:not([aria-current="false"]) .wk-secondary { color: var(--wk-color-text-secondary-on-selected); }
+.wk-list-row:focus-visible { outline-offset: -2px; }
+.wk-list-heading { display: flex; align-items: baseline; gap: var(--wk-space-2); margin: 0; padding: 10px 18px var(--wk-space-1); font-size: var(--wk-font-size-base); font-weight: var(--wk-font-weight-semibold); }
+.wk-list-heading > span { color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-regular); font-variant-numeric: tabular-nums; }
+
 /* ---- Sidebar ----------------------------------------------------------- */
 .wk-sidebar {
   display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow: auto;
@@ -543,6 +561,12 @@ wk-context-menu { display: contents; }
 .wk-menu-heading { padding: 4px 10px 2px; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-xs); font-weight: var(--wk-font-weight-semibold); }
 .wk-menu-shortcut { margin-left: auto; padding-left: var(--wk-space-4); color: var(--wk-color-text-secondary); }
 .wk-menu [role^="menuitem"]:focus .wk-menu-shortcut { color: inherit; opacity: .75; }
+/* An <a href role="menuitem"> for a URL: no underline, like the others. */
+.wk-menu a[role^="menuitem"] { text-decoration: none; }
+/* Inline: the same items laid out in place (in a popover, say), with no
+   float, border or shadow. Wrap it in <wk-menu> with no button for the
+   menu's keys; it never opens or closes. */
+.wk-menu--inline { position: static; z-index: auto; min-width: 0; max-width: none; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 
 /* ---- Tooltip (wk-tooltip) ---------------------------------------------- */
 wk-tooltip { display: inline-block; }
@@ -782,6 +806,20 @@ wk-dialog { display: contents; }
 .wk-stepper-arrows > button::before { content: ""; width: 5px; height: 5px; border-left: 1.5px solid currentColor; border-top: 1.5px solid currentColor; transform: translateY(1px) rotate(45deg); }
 .wk-stepper-arrows > button + button::before { transform: translateY(-1px) rotate(225deg); }
 
+/* ---- Range: a slider drawn the same on WebKit and Chromium --------------- */
+/* <input class="wk-range" type="range">, with the value in words beside it
+   (an <output>). The track cannot know its value from CSS: the app sets
+   --wk-range-value to the filled share with
+   el.style.setProperty('--wk-range-value', '60%') (a Content-Security-Policy
+   blocks a style attribute) and updates it on input. The arrow keys step it natively. */
+.wk-range { -webkit-appearance: none; appearance: none; width: 100%; height: 20px; margin: 0; background: transparent; cursor: pointer; }
+.wk-range::-webkit-slider-runnable-track { height: 4px; border-radius: var(--wk-radius-pill); background: linear-gradient(var(--wk-color-accent), var(--wk-color-accent)) 0 / var(--wk-range-value, 50%) 100% no-repeat, var(--wk-color-fill-strong); }
+.wk-range::-moz-range-track { height: 4px; border-radius: var(--wk-radius-pill); background: linear-gradient(var(--wk-color-accent), var(--wk-color-accent)) 0 / var(--wk-range-value, 50%) 100% no-repeat, var(--wk-color-fill-strong); }
+.wk-range::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%; background: var(--wk-color-thumb); box-shadow: var(--wk-shadow-raised), 0 0 0 1px var(--wk-color-control-border); }
+.wk-range::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: var(--wk-color-thumb); box-shadow: var(--wk-shadow-raised), 0 0 0 1px var(--wk-color-control-border); }
+.wk-range:disabled { opacity: .45; cursor: default; }
+.wk-range:focus-visible { outline-offset: 2px; }
+
 /* ---- Chart (wk-chart, built by chart.js) -------------------------------- */
 /* A figure on the surface colour: the 2 px gaps between marks show it. A mark's
    colour is its data-tone: "1" to "5" are the chart series, "neutral" a secondary
@@ -843,11 +881,17 @@ wk-dialog { display: contents; }
   .wk-chip--attention { forced-color-adjust: none; border-color: CanvasText; background: CanvasText; color: Canvas; }
   .wk-table tbody tr[aria-selected="true"] > *,
   .wk-table tbody tr[aria-current]:not([aria-current="false"]) > * { border-top: 2px solid Highlight; border-bottom: 2px solid Highlight; }
+  .wk-list-row[aria-selected="true"],
+  .wk-list-row[aria-current]:not([aria-current="false"]) { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+  .wk-list-row[aria-selected="true"] .wk-secondary,
+  .wk-list-row[aria-current]:not([aria-current="false"]) .wk-secondary { color: HighlightText; }
   .wk-tablist [role="tab"] { forced-color-adjust: none; border-bottom-color: transparent; color: CanvasText; }
   .wk-tablist [role="tab"]:disabled, .wk-tablist [role="tab"][aria-disabled="true"] { color: GrayText; }
   .wk-tablist [role="tab"][aria-selected="true"] { border-bottom-color: Highlight; }
   .wk-settings-tab[aria-selected="true"], .wk-settings-tab[aria-selected="true"] > svg { forced-color-adjust: none; border-color: Highlight; background: Highlight; color: HighlightText; }
   .wk-settings-tab[data-attention]::after { forced-color-adjust: none; background: CanvasText; }
+  /* A link item would take LinkText: draw it as the other items. */
+  .wk-menu a[role^="menuitem"] { color: CanvasText; }
   .wk-menu [role^="menuitem"]:focus { forced-color-adjust: none; background: Highlight; color: HighlightText; }
   .wk-menu [role^="menuitem"][aria-disabled="true"]:focus { background: Canvas; color: GrayText; outline: 2px solid Highlight; outline-offset: -2px; }
   .wk-radio::before { forced-color-adjust: none; background: Canvas; }
@@ -855,6 +899,18 @@ wk-dialog { display: contents; }
   .wk-radio:checked::before { background: HighlightText; }
   .wk-chart-key, .wk-chart-bar, .wk-chart-band, .wk-chart-dot { forced-color-adjust: none; fill: CanvasText; background: CanvasText; }
   .wk-chart-line { forced-color-adjust: none; stroke: CanvasText; }
+  /* The track and thumb are drawn with backgrounds and shadows, which the
+     system drops: redraw them. */
+  .wk-range::-webkit-slider-runnable-track { forced-color-adjust: none; background: CanvasText; }
+  .wk-range::-moz-range-track { forced-color-adjust: none; background: CanvasText; }
+  .wk-range::-webkit-slider-thumb { forced-color-adjust: none; background: ButtonFace; box-shadow: 0 0 0 1px ButtonText; }
+  .wk-range::-moz-range-thumb { forced-color-adjust: none; background: ButtonFace; box-shadow: 0 0 0 1px ButtonText; }
+  /* Disabled: GrayText, not a faded CanvasText. */
+  .wk-range:disabled { opacity: 1; }
+  .wk-range:disabled::-webkit-slider-runnable-track { background: GrayText; }
+  .wk-range:disabled::-moz-range-track { background: GrayText; }
+  .wk-range:disabled::-webkit-slider-thumb { background: Canvas; box-shadow: 0 0 0 1px GrayText; }
+  .wk-range:disabled::-moz-range-thumb { background: Canvas; box-shadow: 0 0 0 1px GrayText; }
   .wk-dot, .wk-dot[data-tone] { forced-color-adjust: none; --wk-dot-color: CanvasText; border-color: CanvasText; }
 }
 
