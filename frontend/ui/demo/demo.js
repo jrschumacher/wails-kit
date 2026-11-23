@@ -202,7 +202,7 @@ ${section('list', 'List', `
       <li class="wk-list-row" role="option" aria-selected="false" tabindex="-1"><span class="wk-dot-label"><span class="wk-dot" data-shape="bar" aria-hidden="true"></span><b>Rebuild the search index</b></span><span class="wk-secondary demo-list-meta">Skipped · 3 h ago</span></li>
     </ul>
   </div>
-</div>`, 'Rows of any height, laid out by the app; the first row is selected (aria-selected="true"; aria-current looks the same). Secondary text on the selected row uses wk-color-text-secondary-on-selected. The app moves focus between rows.')}
+</div>`, 'Rows of any height, laid out by the app; the first row is selected (aria-selected="true"; aria-current looks the same). Secondary text on the selected row uses wk-color-text-secondary-on-selected. The app moves focus between rows; this page does it as the design system describes: Up and Down move, Home and End jump, Space or a click selects.')}
 
 ${section('layout', 'Three-pane layout: sidebar, toolbar, list, inspector', `
 <div class="wk-three-pane demo-frame">
@@ -354,6 +354,13 @@ ${section('code', 'Code block', `
   <div class="wk-codeblock wk-codeblock--scroll"><pre tabindex="0" role="region" aria-label="Log">${Array.from({ length: 14 }, (_, i) => `12:${String(i).padStart(2, '0')}:07 step ${i + 1} finished`).join('\n')}</pre></div>
 </div>`, 'One value with the copy button; lines in a pre (wk-codeblock--scroll stops at 200 px; a pre that scrolls takes focus, with a role and a name, so the keyboard can scroll it).')}
 
+${section('range', 'Range', `
+<div class="demo-ranges" id="demo-ranges">
+  <span>First share</span><input class="wk-range" id="demo-range" type="range" min="0" max="100" step="5" value="60" aria-label="First share"><output for="demo-range">60%</output>
+  <span>Second share</span><input class="wk-range" type="range" min="0" max="100" step="5" value="30" aria-label="Second share"><output>30%</output>
+  <span>Disabled</span><input class="wk-range" type="range" min="0" max="100" value="25" aria-label="Disabled example" disabled><output>25%</output>
+</div>`, 'The app sets --wk-range-value to the filled share and updates it on input, with the value in words beside the slider. The arrow keys step it.')}
+
 ${section('steppers', 'Stepper', `
 <div class="demo-row">
   <label class="wk-label" for="demo-stepper">Jobs at once</label>${stepper('demo-stepper', 'Jobs at once', 2)}
@@ -420,6 +427,18 @@ ${section('menus', 'Menu, context menu, tooltip', `
     <div role="menuitemcheckbox" aria-checked="true">Compact rows</div>
   </div>
   <span class="wk-tooltip demo-in-flow">Copies the code to the clipboard</span>
+</div>
+<p class="wk-caption demo-note">Inline (wk-menu--inline in a &lt;wk-menu&gt; with no button), in a popover surface: the same keys, in place, one tab stop. The first item is a link.</p>
+<div class="wk-popover demo-inline-menu">
+  <wk-menu id="demo-inline">
+    <div role="menu" class="wk-menu wk-menu--inline" aria-label="App">
+      <a role="menuitem" href="#menus" data-value="help">Help<span class="wk-menu-shortcut">F1</span></a>
+      <button role="menuitem" type="button" data-value="settings">Settings…<span class="wk-menu-shortcut">Ctrl+,</span></button>
+      <button role="menuitem" type="button" aria-disabled="true" data-value="update">Check for updates (disabled)</button>
+      <div role="separator"></div>
+      <button role="menuitem" type="button" data-value="quit">Quit<span class="wk-menu-shortcut">Ctrl+Q</span></button>
+    </div>
+  </wk-menu>
 </div>`)}
 
 ${section('dialogs', 'Dialog, sheet, popover surface', `
@@ -521,6 +540,31 @@ document.getElementById('demo-filters').addEventListener('click', e => {
   const b = e.target.closest('.wk-filter');
   if (b && !b.disabled) b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true'));
 });
+// The list rows: what an app does for a wk-list (roving focus, Up and Down
+// move, Home and End jump, Space or a click selects the row).
+for (const list of document.querySelectorAll('#list .wk-list')) {
+  const rows = () => [...list.querySelectorAll('.wk-list-row')];
+  const focusRow = row => { for (const r of rows()) r.tabIndex = r === row ? 0 : -1; row.focus(); };
+  const select = row => { for (const r of rows()) r.setAttribute('aria-selected', String(r === row)); };
+  list.addEventListener('click', e => { const row = e.target.closest('.wk-list-row'); if (row) { focusRow(row); select(row); } });
+  list.addEventListener('keydown', e => {
+    const all = rows(), at = all.indexOf(e.target.closest('.wk-list-row'));
+    if (at < 0) return;
+    const to = { ArrowDown: Math.min(at + 1, all.length - 1), ArrowUp: Math.max(at - 1, 0), Home: 0, End: all.length - 1 }[e.key];
+    if (to !== undefined) { e.preventDefault(); focusRow(all[to]); }
+    else if (e.key === ' ') { e.preventDefault(); select(all[at]); }
+  });
+}
+// A range's filled share follows its value. Set from script (CSSOM), which
+// a Content-Security-Policy without 'unsafe-inline' allows; a style=""
+// attribute it would block.
+const rangeShare = r => {
+  const share = `${Math.round((r.value - r.min) / (r.max - r.min) * 100)}%`;
+  r.style.setProperty('--wk-range-value', share);
+  r.nextElementSibling.textContent = share;
+};
+document.querySelectorAll('#demo-ranges .wk-range').forEach(rangeShare);
+document.getElementById('demo-ranges').addEventListener('input', e => rangeShare(e.target));
 const log = document.getElementById('demo-log');
 window.kitEvents = [];
 for (const type of ['wk-open', 'wk-close', 'wk-select', 'wk-change', 'wk-toggle']) {

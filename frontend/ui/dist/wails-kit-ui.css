@@ -561,6 +561,12 @@ wk-context-menu { display: contents; }
 .wk-menu-heading { padding: 4px 10px 2px; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-xs); font-weight: var(--wk-font-weight-semibold); }
 .wk-menu-shortcut { margin-left: auto; padding-left: var(--wk-space-4); color: var(--wk-color-text-secondary); }
 .wk-menu [role^="menuitem"]:focus .wk-menu-shortcut { color: inherit; opacity: .75; }
+/* An <a href role="menuitem"> for a URL: no underline, like the others. */
+.wk-menu a[role^="menuitem"] { text-decoration: none; }
+/* Inline: the same items laid out in place (in a popover, say), with no
+   float, border or shadow. Wrap it in <wk-menu> with no button for the
+   menu's keys; it never opens or closes. */
+.wk-menu--inline { position: static; z-index: auto; min-width: 0; max-width: none; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 
 /* ---- Tooltip (wk-tooltip) ---------------------------------------------- */
 wk-tooltip { display: inline-block; }
@@ -800,6 +806,19 @@ wk-dialog { display: contents; }
 .wk-stepper-arrows > button::before { content: ""; width: 5px; height: 5px; border-left: 1.5px solid currentColor; border-top: 1.5px solid currentColor; transform: translateY(1px) rotate(45deg); }
 .wk-stepper-arrows > button + button::before { transform: translateY(-1px) rotate(225deg); }
 
+/* ---- Range: a slider drawn the same on WebKit and Chromium --------------- */
+/* <input class="wk-range" type="range">, with the value in words beside it
+   (an <output>). The track cannot know its value from CSS: the app sets
+   --wk-range-value to the filled share (style="--wk-range-value: 60%") and
+   updates it on input. The arrow keys step it natively. */
+.wk-range { -webkit-appearance: none; appearance: none; width: 100%; height: 20px; margin: 0; background: transparent; cursor: pointer; }
+.wk-range::-webkit-slider-runnable-track { height: 4px; border-radius: var(--wk-radius-pill); background: linear-gradient(var(--wk-color-accent), var(--wk-color-accent)) 0 / var(--wk-range-value, 50%) 100% no-repeat, var(--wk-color-fill-strong); }
+.wk-range::-moz-range-track { height: 4px; border-radius: var(--wk-radius-pill); background: linear-gradient(var(--wk-color-accent), var(--wk-color-accent)) 0 / var(--wk-range-value, 50%) 100% no-repeat, var(--wk-color-fill-strong); }
+.wk-range::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%; background: var(--wk-color-thumb); box-shadow: var(--wk-shadow-raised), 0 0 0 1px var(--wk-color-control-border); }
+.wk-range::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: var(--wk-color-thumb); box-shadow: var(--wk-shadow-raised), 0 0 0 1px var(--wk-color-control-border); }
+.wk-range:disabled { opacity: .45; cursor: default; }
+.wk-range:focus-visible { outline-offset: 2px; }
+
 /* ---- Chart (wk-chart, built by chart.js) -------------------------------- */
 /* A figure on the surface colour: the 2 px gaps between marks show it. A mark's
    colour is its data-tone: "1" to "5" are the chart series, "neutral" a secondary
@@ -877,6 +896,12 @@ wk-dialog { display: contents; }
   .wk-radio:checked::before { background: HighlightText; }
   .wk-chart-key, .wk-chart-bar, .wk-chart-band, .wk-chart-dot { forced-color-adjust: none; fill: CanvasText; background: CanvasText; }
   .wk-chart-line { forced-color-adjust: none; stroke: CanvasText; }
+  /* The track and thumb are drawn with backgrounds and shadows, which the
+     system drops: redraw them. */
+  .wk-range::-webkit-slider-runnable-track { forced-color-adjust: none; background: CanvasText; }
+  .wk-range::-moz-range-track { forced-color-adjust: none; background: CanvasText; }
+  .wk-range::-webkit-slider-thumb { forced-color-adjust: none; background: ButtonFace; box-shadow: 0 0 0 1px ButtonText; }
+  .wk-range::-moz-range-thumb { forced-color-adjust: none; background: ButtonFace; box-shadow: 0 0 0 1px ButtonText; }
   .wk-dot, .wk-dot[data-tone] { forced-color-adjust: none; --wk-dot-color: CanvasText; border-color: CanvasText; }
 }
 

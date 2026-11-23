@@ -1044,6 +1044,142 @@ try {
     await forced.page.close();
   });
 
+  await check('list: Up and Down move focus between rows (one tab stop), Home and End jump, Space selects', async () => {
+    const { page, problems } = await open();
+    const list = page.locator('#list .wk-list').first();
+    const state = () => list.evaluate(l => [...l.querySelectorAll('.wk-list-row')].map(r => ({ tab: r.tabIndex, sel: r.getAttribute('aria-selected'), focus: r === document.activeElement, bg: getComputedStyle(r).backgroundColor })));
+    await list.locator('.wk-list-row').first().focus();
+    await page.keyboard.press('ArrowDown');
+    let rows = await state();
+    assert.deepEqual(rows.map(r => r.focus), [false, true, false]);
+    assert.deepEqual(rows.map(r => r.tab), [-1, 0, -1], 'only the focused row is in the tab order');
+    assert.deepEqual(rows.map(r => r.sel), ['true', 'false', 'false'], 'moving does not select');
+    await page.keyboard.press(' ');
+    rows = await state();
+    assert.deepEqual(rows.map(r => r.sel), ['false', 'true', 'false'], 'Space selects the focused row');
+    const selection = await list.evaluate(l => { const e = document.createElement('i'); e.style.backgroundColor = 'var(--wk-color-selection)'; l.append(e); const v = getComputedStyle(e).backgroundColor; e.remove(); return v; });
+    assert.equal(rows[1].bg, selection, 'the newly selected row takes the selection tint');
+    assert.notEqual(rows[0].bg, selection);
+    await page.keyboard.press('End');
+    assert.deepEqual((await state()).map(r => r.focus), [false, false, true]);
+    await page.keyboard.press('ArrowDown');
+    assert.deepEqual((await state()).map(r => r.focus), [false, false, true], 'Down stops at the last row');
+    await page.keyboard.press('Home');
+    await page.keyboard.press('ArrowUp');
+    assert.deepEqual((await state()).map(r => r.focus), [true, false, false]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('inline menu: in place and always shown, one tab stop, arrow keys move through every item (a link too), Enter follows the link', async () => {
+    const { page, problems } = await open();
+    const menu = page.locator('#demo-inline [role=menu]');
+    const look = await menu.evaluate(m => {
+      const s = getComputedStyle(m), a = getComputedStyle(m.querySelector('a'));
+      return { hidden: m.hidden, position: s.position, shadow: s.boxShadow, border: s.borderTopWidth, bg: s.backgroundColor, underline: a.textDecorationLine, tabs: [...m.querySelectorAll('[role^=menuitem]')].map(i => i.tabIndex) };
+    });
+    assert.deepEqual(look, { hidden: false, position: 'static', shadow: 'none', border: '0px', bg: 'rgba(0, 0, 0, 0)', underline: 'none', tabs: [0, -1, -1, -1] });
+    // Tab reaches the menu once, on its first item.
+    await page.locator('#demo-context-target').focus();
+    const at = async () => (await active(page)).replace(/(F1|Ctrl\+.)$/, '');
+    await page.keyboard.press('Tab'); // the tooltip's button
+    await page.keyboard.press('Tab');
+    assert.equal(await at(), 'Help');
+    await page.keyboard.press('Tab');
+    assert.equal(await active(page), 'demo-dialog-open', 'the menu is one tab stop');
+    await page.keyboard.press('Shift+Tab');
+    assert.equal(await at(), 'Help');
+    const order = [await at()];
+    for (let i = 0; i < 4; i++) { await page.keyboard.press('ArrowDown'); order.push(await at()); }
+    assert.deepEqual(order, ['Help', 'Settings…', 'Check for updates (disabled)', 'Quit', 'Help'], 'Down moves through every item and wraps');
+    await page.keyboard.press('ArrowUp');
+    assert.equal(await at(), 'Quit');
+    await page.keyboard.press('Home');
+    assert.equal(await at(), 'Help');
+    await page.keyboard.press('End');
+    assert.equal(await at(), 'Quit');
+    assert.deepEqual(await menu.evaluate(m => [...m.querySelectorAll('[role^=menuitem]')].map(i => i.tabIndex)), [-1, -1, -1, 0], 'the focused item is the tab stop');
+    // Escape is left to the page: the menu stays.
+    await page.keyboard.press('Escape');
+    assert.equal(await at(), 'Quit');
+    assert.equal(await menu.evaluate(m => m.hidden), false);
+    // Activating an item keeps the menu in place; a disabled one does nothing.
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('Enter');
+    let selects = (await events(page, 'wk-select')).filter(e => e.target === 'demo-inline');
+    assert.deepEqual(selects.map(e => e.value), ['settings']);
+    assert.equal(await menu.evaluate(m => m.hidden), false);
+    // The link item: Enter follows its link and reports the selection.
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Enter');
+    await until(page, () => location.hash === '#menus');
+    selects = (await events(page, 'wk-select')).filter(e => e.target === 'demo-inline');
+    assert.deepEqual(selects.map(e => e.value), ['settings', 'help']);
+    // Items added later: still one tab stop.
+    await menu.evaluate(m => { m.querySelector('a').remove(); const b = document.createElement('button'); b.setAttribute('role', 'menuitem'); b.textContent = 'Later'; m.append(b); });
+    await until(page, () => [...document.querySelectorAll('#demo-inline [role^=menuitem]')].filter(i => i.tabIndex === 0).length === 1);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('menu: a link item in a floating menu follows its link on Enter; a disabled link does not', async () => {
+    const { page, problems } = await open();
+    await page.evaluate(() => {
+      const menu = document.querySelector('#demo-menu [role=menu]');
+      menu.insertAdjacentHTML('afterbegin', '<a role="menuitem" href="#tabs" data-value="go">Go to tabs</a><a role="menuitem" href="#dialogs" aria-disabled="true" data-value="nope">Disabled link</a>');
+    });
+    await page.locator('#demo-menu > button').focus();
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await active(page), 'Go to tabs');
+    assert.equal(await page.locator('#demo-menu a').first().evaluate(a => getComputedStyle(a).textDecorationLine), 'none');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    assert.notEqual(await page.evaluate(() => location.hash), '#dialogs');
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('Enter');
+    await until(page, () => location.hash === '#tabs');
+    assert.equal(await page.evaluate(() => document.querySelector('#demo-menu [role=menu]').hidden), true, 'the menu closed');
+    assert.deepEqual((await events(page, 'wk-select')).map(e => e.value), ['go']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('range: --wk-range-value: 30% fills 30% of the track in the accent; input updates it', async () => {
+    const { page, problems } = await open();
+    const range = page.locator('#demo-ranges .wk-range').nth(1);
+    // The thumb sits at the value: move the value to 0 so it does not cover
+    // the end of the fill, which follows --wk-range-value alone.
+    await range.evaluate(r => { r.value = 0; r.style.setProperty('--wk-range-value', '30%'); });
+    const png = (await range.screenshot()).toString('base64');
+    const accent = await range.evaluate(r => { const e = document.createElement('i'); e.style.color = 'var(--wk-color-accent)'; r.parentElement.append(e); const v = getComputedStyle(e).color; e.remove(); return v.match(/\d+/g).map(Number); });
+    const fill = await page.evaluate(async ({ png, accent }) => {
+      const img = new Image();
+      img.src = `data:image/png;base64,${png}`;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0);
+      const y = Math.floor(img.height / 2);
+      const row = g.getImageData(0, y, img.width, 1).data;
+      let last = -1;
+      for (let x = 0; x < img.width; x++) {
+        const [r, gg, b] = row.slice(x * 4, x * 4 + 3);
+        if (Math.abs(r - accent[0]) + Math.abs(gg - accent[1]) + Math.abs(b - accent[2]) < 24) last = x;
+      }
+      return { last, width: img.width };
+    }, { png, accent });
+    const share = (fill.last + 1) / fill.width;
+    assert.ok(Math.abs(share - .3) < .02, `the fill ends at ${(share * 100).toFixed(1)}% of the track`);
+    // The demo sets the share on input, as an app does.
+    await range.evaluate(r => { r.value = 70; r.dispatchEvent(new Event('input', { bubbles: true })); });
+    assert.equal(await range.evaluate(r => [r.style.getPropertyValue('--wk-range-value'), r.nextElementSibling.textContent].join(' ')), '70% 70%');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
   // ---- The prebuilt module and the settings window ----
   await check('dist/wails-kit-ui.js exports what src/index.js exports, and defines the same elements', async () => {
     const { page, problems } = await open('/demo/dist.html');
