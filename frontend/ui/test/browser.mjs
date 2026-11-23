@@ -1857,6 +1857,193 @@ try {
     await page.close();
   });
 
+  // ---- Busy controls, the spinner and the progress bar (BEHAVIOUR.md) ----
+  await check('busy button: keeps focus and its accessible name, ignores a second press (pointer and keys), and does not look disabled', async () => {
+    const { page, problems } = await open();
+    // What the task helper will do: busy at once on the press, the spinner
+    // later (the test adds it itself rather than wait for the delay).
+    await page.evaluate(() => {
+      const b = document.createElement('button');
+      b.className = 'wk-button';
+      b.type = 'button';
+      b.id = 'test-busy';
+      b.textContent = 'Export';
+      document.getElementById('demo-busy').append(b);
+      window.presses = 0;
+      b.addEventListener('click', () => { window.presses++; b.setAttribute('aria-disabled', 'true'); b.dataset.busy = ''; });
+      document.addEventListener('click', e => { if (e.target === b) window.presses += 100; });
+    });
+    const b = page.locator('#test-busy');
+    const width = await b.evaluate(el => el.getBoundingClientRect().width);
+    await b.click();
+    assert.equal(await page.evaluate(() => window.presses), 101, 'the first press reaches the app');
+    // A second press, by pointer and by keyboard, does nothing; focus stays.
+    // (force: Playwright would otherwise wait for aria-disabled to go.)
+    await b.click({ force: true });
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Space');
+    assert.equal(await page.evaluate(() => window.presses), 101);
+    assert.equal(await active(page), 'test-busy');
+    const look = sel => page.evaluate(s => {
+      const cs = getComputedStyle(document.querySelector(s));
+      return { opacity: cs.opacity, cursor: cs.cursor, face: cs.backgroundImage, shadow: cs.boxShadow };
+    }, sel);
+    const busy = await look('#test-busy');
+    assert.equal(busy.opacity, '1');
+    assert.equal(busy.cursor, 'progress');
+    assert.match(busy.face, /linear-gradient/, 'the pressed face');
+    assert.notEqual(busy.shadow, 'none');
+    // A busy button looks nothing like a disabled or a merely aria-disabled one.
+    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#buttons button[disabled]')).opacity), '0.45');
+    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#buttons .wk-button--locked')).opacity), '0.45');
+    // The spinner takes the label's place: the width holds, the label is
+    // not painted, the spinner is centred, and the name stays.
+    await b.evaluate(el => { const s = document.createElement('span'); s.className = 'wk-spinner'; s.setAttribute('aria-hidden', 'true'); el.prepend(s); });
+    assert.equal(await b.evaluate(el => el.getBoundingClientRect().width), width);
+    assert.equal(await b.evaluate(el => getComputedStyle(el).webkitTextFillColor), 'rgba(0, 0, 0, 0)');
+    const spin = await b.evaluate(el => {
+      const s = el.querySelector('.wk-spinner').getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      return { dx: Math.abs((s.left + s.width / 2) - (r.left + r.width / 2)), dy: Math.abs((s.top + s.height / 2) - (r.top + r.height / 2)), w: el.querySelector('.wk-spinner').offsetWidth };
+    });
+    assert.ok(spin.dx < 1 && spin.dy < 1, `the spinner is centred: ${JSON.stringify(spin)}`);
+    assert.equal(spin.w, 14);
+    const named = (await axTree(page)).filter(n => n.role?.value === 'button' && n.name?.value === 'Export');
+    assert.ok(named.length >= 2, 'the busy buttons keep their accessible names');
+    await b.click({ force: true });
+    assert.equal(await page.evaluate(() => window.presses), 101, 'a press on the spinner does nothing either');
+    assert.equal(await active(page), 'test-busy');
+    // The static specimens: a small button's spinner is 12 px.
+    assert.equal(await page.evaluate(() => document.querySelector('#demo-busy .wk-button--small > .wk-spinner').offsetWidth), 12);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('busy: a busy link-button, filter or chip ignores presses too; a busy link does not navigate', async () => {
+    const { page, problems } = await open();
+    const out = await page.evaluate(() => {
+      const host = document.createElement('div');
+      host.innerHTML = '<button class="wk-filter" type="button" aria-disabled="true" data-busy>F</button><a class="wk-button" href="#elsewhere" aria-disabled="true" data-busy><span>Go</span></a>';
+      document.getElementById('busy').append(host);
+      let n = 0;
+      host.addEventListener('click', () => n++);
+      for (const el of host.children) el.click();
+      host.querySelector('a span').click();
+      return { n, hash: location.hash };
+    });
+    assert.deepEqual(out, { n: 0, hash: '' });
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('progress bar: setProgress keeps aria-valuenow and aria-valuetext in step, moves the fill alone with { aria: false }, and an indeterminate bar has no value', async () => {
+    const { page, problems } = await open();
+    const ax = async name => (await axTree(page)).find(n => n.role?.value === 'progressbar' && n.name?.value === name);
+    const state = () => page.evaluate(() => {
+      const bar = document.getElementById('demo-progress');
+      const a = n => bar.getAttribute(`aria-value${n}`);
+      // The fill eases to its new share; read where it ends.
+      for (const t of bar.getAnimations()) t.finish();
+      return { min: a('min'), max: a('max'), now: a('now'), text: a('text'), fill: getComputedStyle(bar).backgroundSize.split(',')[0].trim(), height: bar.getBoundingClientRect().height };
+    });
+    assert.deepEqual(await state(), { min: '0', max: '40', now: '12', text: '12 of 40 files', fill: '30% 100%', height: 4 });
+    // The accessibility tree carries the value (DevTools leaves valuetext empty).
+    const node = await ax('Copying files');
+    assert.deepEqual([node.value?.value, node.properties.find(p => p.name === 'valuemax')?.value.value], [12, 40]);
+    await page.evaluate(async () => {
+      const { setProgress } = await import('/src/index.js');
+      setProgress(document.getElementById('demo-progress'), { done: 20, total: 40, unit: 'files' }, { aria: false });
+    });
+    const moved = await state();
+    assert.equal(moved.fill, '50% 100%', 'the fill moves');
+    assert.deepEqual([moved.now, moved.text], ['12', '12 of 40 files'], 'the value attributes wait');
+    await page.evaluate(async () => {
+      const { setProgress } = await import('/src/index.js');
+      setProgress(document.getElementById('demo-progress'), { done: 21, total: 40, text: 'Step 2 of 3 · 21 of 40 files' });
+    });
+    const both = await state();
+    assert.deepEqual([both.now, both.text, both.fill], ['21', 'Step 2 of 3 · 21 of 40 files', '52.5% 100%']);
+    // A first call with { aria: false } still makes the bar determinate.
+    const first = await page.evaluate(async () => {
+      const { setProgress } = await import('/src/index.js');
+      const bar = document.createElement('div');
+      bar.className = 'wk-progress';
+      bar.setAttribute('role', 'progressbar');
+      document.getElementById('busy').append(bar);
+      setProgress(bar, { done: 3, total: 4 }, { aria: false });
+      let threw = false;
+      try { setProgress(bar, { done: 1, total: 0 }); } catch (e) { threw = e instanceof RangeError; }
+      return [bar.getAttribute('aria-valuenow'), bar.getAttribute('aria-valuetext'), threw];
+    });
+    assert.deepEqual(first, ['3', '3 of 4', true]);
+    const sweep = await page.evaluate(() => {
+      const bar = document.getElementById('demo-progress-sweep');
+      return { values: [...bar.attributes].filter(a => a.name.startsWith('aria-value')).length, animation: getComputedStyle(bar, '::before').animationName };
+    });
+    assert.deepEqual(sweep, { values: 0, animation: 'wk-progress-sweep' });
+    const indeterminate = (await axTree(page)).filter(n => n.role?.value === 'progressbar' && n.name?.value === 'Fetching runs');
+    assert.equal(indeterminate.length, 2, 'the standalone spinner and the indeterminate bar');
+    for (const n of indeterminate) assert.equal(n.value, undefined);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('reduced motion: the spinner still turns, the indeterminate bar fades in place, and nothing slides', async () => {
+    const { page, problems } = await open('/demo/index.html', { reducedMotion: 'reduce' });
+    const out = await page.evaluate(() => {
+      const running = document.getAnimations().filter(a => a.playState === 'running');
+      const names = running.map(a => a.animationName);
+      // Only the spinner's turn may transform; nothing translates or scales.
+      const moving = running.filter(a => a.animationName !== 'wk-spin' && a.effect.getKeyframes().some(k => k.transform && k.transform !== 'none')).map(a => a.animationName);
+      const sweep = getComputedStyle(document.getElementById('demo-progress-sweep'), '::before');
+      const sw = document.querySelector('.wk-switch');
+      return {
+        spinners: running.filter(a => a.animationName === 'wk-spin').length,
+        spinnersInPage: document.querySelectorAll('.wk-spinner').length,
+        fade: names.includes('wk-progress-fade'), sweep: names.includes('wk-progress-sweep'),
+        width: sweep.width === getComputedStyle(document.getElementById('demo-progress-sweep')).width,
+        moving, bar: getComputedStyle(document.getElementById('demo-progress')).transitionDuration,
+        switch: [getComputedStyle(sw).transitionDuration, getComputedStyle(sw, '::before').transitionDuration],
+      };
+    });
+    assert.equal(out.spinners, out.spinnersInPage, 'every spinner turns');
+    assert.ok(out.spinners > 0);
+    assert.deepEqual([out.fade, out.sweep, out.width], [true, false, true]);
+    assert.deepEqual(out.moving, []);
+    assert.equal(out.bar, '0s');
+    assert.deepEqual(out.switch, ['0s', '0s']);
+    // Without reduced motion: the switch uses --wk-duration-fast (100 ms).
+    const normal = await open();
+    assert.equal(await normal.page.evaluate(() => getComputedStyle(document.querySelector('.wk-switch')).transitionDuration), '0.1s, 0.1s');
+    assert.deepEqual(problems, []);
+    assert.deepEqual(normal.problems, []);
+    await page.close();
+    await normal.page.close();
+  });
+
+  await check('forced colours: the bar is Highlight in a CanvasText outline, the spinner keeps its border, and a busy button\'s label stays hidden under its spinner', async () => {
+    const { page, problems } = await open('/demo/index.html', { forcedColors: 'active', reducedMotion: 'reduce' });
+    const out = await page.evaluate(() => {
+      const bar = getComputedStyle(document.getElementById('demo-progress'));
+      const sweep = getComputedStyle(document.getElementById('demo-progress-sweep'), '::before');
+      const spinner = getComputedStyle(document.getElementById('demo-spinner'));
+      return { outline: bar.outlineStyle, fill: bar.backgroundImage, sweep: sweep.backgroundColor, spinner: [spinner.borderTopStyle, spinner.borderTopColor !== 'rgba(0, 0, 0, 0)', spinner.borderRightColor] };
+    });
+    assert.equal(out.outline, 'solid');
+    assert.match(out.fill, /linear-gradient/);
+    assert.notEqual(out.sweep, 'rgba(0, 0, 0, 0)');
+    assert.deepEqual(out.spinner, ['solid', true, 'rgba(0, 0, 0, 0)']);
+    // The label is not painted: the button looks the same with no text.
+    const button = page.locator('#demo-busy .wk-button:not(.wk-button--small):not(.wk-button--primary):not(.wk-button--quiet):has(> .wk-spinner)');
+    await page.evaluate(() => document.querySelectorAll('.wk-spinner').forEach(s => { s.style.animation = 'none'; }));
+    const withLabel = await button.screenshot();
+    await button.evaluate(el => { const w = el.getBoundingClientRect().width; el.lastChild.textContent = ''; el.style.width = `${w}px`; });
+    const without = await button.screenshot();
+    assert.equal(Buffer.compare(withLabel, without), 0, 'the label shows through in forced colours');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
   // ---- The prebuilt module and the settings window ----
   await check('dist/wails-kit-ui.js exports what src/index.js exports, and defines the same elements', async () => {
     const { page, problems } = await open('/demo/dist.html');

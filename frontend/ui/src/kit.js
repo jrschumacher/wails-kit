@@ -20,6 +20,11 @@
 // arrow at the input's min or max. syncSteppers() redraws the arrows after the
 // app sets a value itself.
 //
+// A busy control (data-busy, with aria-disabled="true"; BEHAVIOUR.md) ignores
+// presses: this module stops its clicks, from the pointer or the keyboard,
+// before they reach the app. setProgress() sets a progress bar's fill and
+// its value attributes together.
+//
 // Every element works when the app builds the DOM imperatively: it may be
 // connected before its children exist (it wires itself when they arrive, and
 // rewires when they are replaced), moved (disconnected and reconnected), or
@@ -764,6 +769,34 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('input', e => { if (e.target instanceof Element && e.target.matches('.wk-stepper > input')) syncSteppers(e.target.closest('.wk-stepper')); });
 
+// A busy control keeps focus and its name, and a second press does nothing:
+// aria-disabled alone doesn't stop a click, so drop it here, in the capture
+// phase, before any listener of the app's on the document or below.
+window.addEventListener('click', e => {
+  if (e.target instanceof Element && e.target.closest('[data-busy]')) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
+}, true);
+
+// Makes a wk-progress bar determinate and moves it: the fill follows done of
+// total, and aria-valuemin, -max, -now and -valuetext change together (the
+// words default to "12 of 40 files" from unit). With { aria: false } only
+// the fill moves, so a caller can change the value attributes at most every
+// timings.progressValueEvery; the first call always sets them, because a bar
+// without aria-valuenow is indeterminate.
+function setProgress(bar, { done = 0, total, unit = '', text } = {}, { aria = true } = {}) {
+  const max = Number(total);
+  if (!Number.isFinite(max) || max <= 0) throw new RangeError(`setProgress: total must be a positive number, not ${total}`);
+  const now = Math.min(Math.max(Number(done) || 0, 0), max);
+  bar.style.setProperty('--wk-progress-value', `${Math.round(now / max * 10_000) / 100}%`);
+  if (!aria && bar.hasAttribute('aria-valuenow')) return;
+  bar.setAttribute('aria-valuemin', '0');
+  bar.setAttribute('aria-valuemax', String(max));
+  bar.setAttribute('aria-valuenow', String(now));
+  bar.setAttribute('aria-valuetext', text ?? `${now} of ${max}${unit ? ` ${unit}` : ''}`);
+}
+
 const define = (name, cls) => { if (!customElements.get(name)) customElements.define(name, cls); };
 define('wk-menu', WkMenu);
 define('wk-context-menu', WkContextMenu);
@@ -771,4 +804,4 @@ define('wk-tabs', WkTabs);
 define('wk-tooltip', WkTooltip);
 define('wk-dialog', WkDialog);
 
-export { WkMenu, WkContextMenu, WkTabs, WkTooltip, WkDialog, syncSteppers };
+export { WkMenu, WkContextMenu, WkTabs, WkTooltip, WkDialog, syncSteppers, setProgress };

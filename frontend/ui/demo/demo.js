@@ -4,7 +4,7 @@
 // theme/example.css) and dist.html (the prebuilt dist/ files). The body's
 // data-module names the module the page loaded, so the charts and the diff
 // come from it.
-const { wkChart, wkDiff } = await import(document.body.dataset.module || '../src/index.js');
+const { wkChart, wkDiff, setProgress, timings } = await import(document.body.dataset.module || '../src/index.js');
 
 const themed = document.body.dataset.demo === 'themed';
 const pages = [['index.html', 'Neutral'], ['themed.html', 'Example theme'], ['dist.html', 'Prebuilt dist'], ['settings.html', 'Settings window']];
@@ -113,6 +113,24 @@ ${section('buttons', 'Buttons and links', `
   <span class="wk-caption">A link that shows a section in place: aria-expanded draws the chevron.</span>
 </div>
 <p id="demo-more" class="wk-caption" hidden>The section it shows.</p>`)}
+
+${section('busy', 'Busy, spinner and progress', `
+<div class="demo-row" id="demo-busy">
+  <button class="wk-button" type="button" aria-disabled="true" data-busy>Pressed</button>
+  <button class="wk-button" type="button" aria-disabled="true" data-busy><span class="wk-spinner" aria-hidden="true"></span>Export</button>
+  <button class="wk-button wk-button--primary" type="button" aria-disabled="true" data-busy><span class="wk-spinner" aria-hidden="true"></span>Keep running</button>
+  <button class="wk-button wk-button--small" type="button" aria-disabled="true" data-busy><span class="wk-spinner" aria-hidden="true"></span>Check</button>
+  <button class="wk-button wk-button--quiet" type="button" aria-disabled="true" data-busy><span class="wk-spinner" aria-hidden="true"></span>Refresh</button>
+  <button class="wk-button" type="button" id="demo-busy-try">Try it</button>
+  <span class="wk-caption" id="demo-busy-words"></span>
+</div>
+<div class="demo-row">
+  <span class="wk-spinner" role="progressbar" aria-label="Fetching runs" id="demo-spinner"></span><span class="wk-caption">Fetching runs…</span>
+</div>
+<div class="demo-progress">
+  <div class="demo-stack"><div class="wk-progress" role="progressbar" aria-label="Copying files" id="demo-progress"></div><span class="wk-caption">12 of 40 files</span></div>
+  <div class="demo-stack"><div class="wk-progress" role="progressbar" aria-label="Fetching runs" id="demo-progress-sweep"></div><span class="wk-caption">Fetching runs…</span></div>
+</div>`, 'A busy control (aria-disabled plus data-busy) keeps its pressed face, its focus and its name; a second press does nothing. After 400 ms a spinner takes the label\'s place and the width holds. "Try it" runs the timings: busy at once, the spinner at 400 ms, done after 2 s. Below, a standalone spinner, a determinate bar (setProgress) and an indeterminate one; with reduced motion the sweep becomes a fade.')}
 
 ${section('fields', 'Fields', `
 <div class="demo-grid">
@@ -583,6 +601,29 @@ const rangeShare = r => {
 };
 document.querySelectorAll('#demo-ranges .wk-range').forEach(rangeShare);
 document.getElementById('demo-ranges').addEventListener('input', e => rangeShare(e.target));
+// Progress and busy: a determinate bar, and a button that runs the
+// lifecycle's timings the way the task helper will.
+setProgress(document.getElementById('demo-progress'), { done: 12, total: 40, unit: 'files' });
+{
+  const button = document.getElementById('demo-busy-try');
+  const words = document.getElementById('demo-busy-words');
+  button.addEventListener('click', () => {
+    words.textContent = '';
+    button.setAttribute('aria-disabled', 'true');
+    button.dataset.busy = '';
+    const spinner = document.createElement('span');
+    spinner.className = 'wk-spinner';
+    spinner.setAttribute('aria-hidden', 'true');
+    const show = setTimeout(() => button.prepend(spinner), timings.indicatorDelay);
+    setTimeout(() => {
+      clearTimeout(show);
+      spinner.remove();
+      button.removeAttribute('aria-disabled');
+      delete button.dataset.busy;
+      words.textContent = 'Done';
+    }, 2_000);
+  });
+}
 const log = document.getElementById('demo-log');
 window.kitEvents = [];
 for (const type of ['wk-open', 'wk-close', 'wk-select', 'wk-change', 'wk-toggle']) {
