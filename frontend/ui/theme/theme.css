@@ -2,7 +2,7 @@
    Copy this file into the app, change the values, and link it after the
    kit's stylesheet (dist/wails-kit-ui.css or src/ui.css) so it wins. As
    shipped it holds the kit's own defaults, so linking it unchanged changes
-   nothing. THEMING.md is the contract; test/theme-check.mjs checks it.
+   nothing. THEMING.md is the contract; theme/check.mjs checks it.
 
    Must set      identity: --wk-color-accent, --wk-color-on-accent,
                  --wk-color-working, --wk-color-attention,
@@ -37,13 +37,13 @@
   --wk-color-hairline: #e6e7ea;
   --wk-color-hairline-strong: #d3d5da;
   --wk-color-control-border: #cfd2d8;
-  --wk-color-field-border: #868c96;
+  --wk-color-field-border: #858b95;
   --wk-color-text: #1b1f27;
   --wk-color-text-secondary: #626977;
   /* Type and corners: optional. */
   --wk-font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  --wk-radius-control: 5px;
-  --wk-radius-group: 7px;
+  --wk-radius-control: 6px;
+  --wk-radius-group: 8px;
   --wk-radius-window: 10px;
 }
 @media (prefers-color-scheme: dark) {

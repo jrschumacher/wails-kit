@@ -115,15 +115,23 @@ kit's stylesheet. [`theme/example.css`](theme/example.css) is an example theme
 There are three state tones (neutral, working, attention) and no warning tone.
 Text fields, selects, checkboxes and the like are outlined in
 `--wk-color-field-border` (3:1 or more on the window); buttons keep the soft
-`--wk-color-control-border`. `color-mix()` needs macOS 13 (Safari 16.2),
-WebView2 Chromium 111 or WebKitGTK 2.40; below that the kit's literals apply,
-and on older Linux the app runs headless.
+`--wk-color-control-border`. `color-mix()` needs Safari 16.2 or later (on
+macOS 11 and later), WebView2 Chromium 111 or WebKitGTK 2.40; below that the
+kit's literals apply, and on older Linux the app runs headless.
 
-[`test/theme-check.mjs`](test/theme-check.mjs) checks a theme against the
-contract: the tokens it sets, all-or-none grounds, radii, and contrast (text
-4.5:1 on every ground, the field border 3:1, working and attention 3:1 on the
-window and 1.5:1 apart). The package's tests run it on the kit, both files in
-`theme/` and a tinted-grounds fixture; an app should run it on its own theme.
+[`theme/check.mjs`](theme/check.mjs) ships with the package and checks a theme
+against the contract: its blocks, the tokens it sets (opaque `#rrggbb`
+colours), all-or-none grounds, radii, and contrast (text 4.5:1 on every ground,
+the field border 3:1, working and attention 3:1 on the window and 1.5:1 apart).
+The package's tests run it on the kit, both theme files in `theme/` and a
+tinted-grounds fixture. An app runs it on its own theme, with no dependencies:
+
+```sh
+node node_modules/@wails-kit/ui/theme/check.mjs path/to/theme.css
+```
+
+It exits 1 when there are problems. As a module it is
+`@wails-kit/ui/theme/check` (`checkTheme`).
 
 ## Components
 
@@ -243,7 +251,8 @@ renderers: `settingsModel(schema, values, errors)`, `conditionMet`,
 | `src/index.js` | the module entry: `kit.js` (custom elements), `chart.js`, `settings-model.js`, `settings.js` |
 | `src/index.d.ts` | TypeScript types |
 | `theme/theme.css`, `theme/example.css` | the theme file and an example theme |
-| `THEMING.md` | the theme contract; `test/theme-check.mjs` checks a theme against it |
+| `theme/check.mjs` | the theme check, shipped: checks a theme against `THEMING.md` |
+| `THEMING.md` | the theme contract |
 | `dist/wails-kit-ui.css`, `dist/wails-kit-ui.js` | the prebuilt files, committed and checked against `src/` |
 | `demo/` | review pages: `index.html`, `themed.html`, `dist.html`, `settings.html` |
 | `scripts/build.mjs` | builds `dist/` with no dependencies |

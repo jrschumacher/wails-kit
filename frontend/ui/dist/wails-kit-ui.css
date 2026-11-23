@@ -36,7 +36,7 @@
   /* Outline of the controls known only by it: text fields, selects, search,
      steppers, checkboxes, radios, an off switch. 3:1 or more on wk-color-bg
      and wk-color-surface (WCAG 1.4.11). */
-  --wk-color-field-border: #868c96;
+  --wk-color-field-border: #858b95;
   /* Tints laid over any surface: rest, then hover and pressed. */
   --wk-color-fill: rgba(27, 31, 39, .045);
   --wk-color-fill-strong: rgba(27, 31, 39, .07);
@@ -96,8 +96,8 @@
   --wk-space-6: 32px;
   /* Radii */
   --wk-radius-small: 3px;
-  --wk-radius-control: 5px;
-  --wk-radius-group: 7px;
+  --wk-radius-control: 6px;
+  --wk-radius-group: 8px;
   --wk-radius-window: 10px;
   --wk-radius-pill: 999px;
   /* Sizes */

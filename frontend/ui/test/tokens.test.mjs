@@ -5,8 +5,9 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { COLOUR, rules, tokens, banned, isTokenSelector, backdropProblems } from './css.mjs';
-import { checkTheme, derive, THEME_TOKENS, DERIVED, GROUNDS, IDENTITY } from './theme-check.mjs';
+import { execFileSync } from 'node:child_process';
+import { COLOUR, rules, tokens, banned, isTokenSelector, backdropProblems, contrast, over } from './css.mjs';
+import { checkTheme, derive, THEME_TOKENS, DERIVED, GROUNDS, IDENTITY } from '../theme/check.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const src = path.join(root, 'src');
@@ -118,8 +119,8 @@ test('the theme check passes the kit\'s defaults, theme/theme.css, theme/example
 test('the theme check fails on a working tone under 3:1 on the window; a named exception records the known gap', () => {
   const gold = read(path.join(fixtures, 'gold-working.css'));
   assert.deepEqual(checkTheme(gold, kitSource()).map(p => p.rule), ['working-on-bg/light']);
-  // The design system records Muster's gold (2.6:1 on the light window) as a
-  // known gap: the dot's shape and its words carry the state. Not loosened.
+  // The design system records a gold working tone from the design system
+  // (2.6:1 on the light window) as a known gap: the dot's shape and its words carry the state. Not loosened.
   assert.deepEqual(checkTheme(gold, kitSource(), { exceptions: { 'working-on-bg/light': 'gold working tone, 2.6:1; a known gap in the design system' } }), []);
   assert.deepEqual(checkTheme(read(path.join(themeDir, 'example.css')), kitSource(), { exceptions: { 'working-on-bg/light': 'stale' } }).map(p => p.rule), ['exceptions'], 'an exception that matches nothing is reported');
 });
@@ -135,7 +136,7 @@ test('the theme check catches each way a theme breaks the contract', () => {
   assert.deepEqual(rulesOf(plus('--wk-color-thumb: #ffffff;')), ['tokens']);
   assert.deepEqual(rulesOf(plus('--wk-color-bg: #fcfcfb;', '--wk-color-bg: #181a1f;')), ['grounds'], 'one ground of ten');
   assert.deepEqual(rulesOf(base.replace(/ *--wk-color-accent: #7fcfb4;\n/g, '')), ['tokens'], 'a colour with no dark value');
-  assert.deepEqual(rulesOf(base.replace('--wk-radius-group: 9px;', '--wk-radius-group: 12px;')), ['radii']);
+  assert.deepEqual(rulesOf(base.replace('--wk-radius-group: 10px;', '--wk-radius-group: 11px;')), ['radii']);
   assert.deepEqual(rulesOf(base.replace('--wk-radius-control: 7px;', '--wk-radius-control: 7px;\n  --wk-font-family: "Avenir Next", sans-serif;')), ['font']);
   assert.deepEqual(rulesOf(base.replace('--wk-color-accent: #1f6b55;\n', '')), ['identity', 'tokens']);
   // Grounds: all ten from the warm fixture, then each rule broken in turn.
@@ -145,12 +146,44 @@ test('the theme check catches each way a theme breaks the contract', () => {
   assert.deepEqual(rulesOf(warm.replace('--wk-color-working: #b4740f;', '--wk-color-working: #b04a20;')), ['working-attention']);
   assert.deepEqual(rulesOf(warm.replace(/--wk-color-sidebar: #f1efe9;\n/, '')), ['grounds', 'tokens'], 'one ground left out of light (its dark value is left alone)');
   assert.deepEqual(rulesOf(warm.replace(/(@media[\s\S]*?--wk-color-accent: )#84c99a/, '$1#84c99b')), ['blocks']);
+  assert.deepEqual(rulesOf(warm.replace('--wk-color-text: #23201b;', '--wk-color-text: #77726a;')), ['text']);
+  assert.deepEqual(rulesOf(base.replace('--wk-color-attention: #bc3529;', '--wk-color-attention: #e89a92;')), ['attention-on-bg']);
+  assert.deepEqual(rulesOf(base.replace('--wk-color-on-accent: #ffffff;', '--wk-color-on-accent: #6fa894;')), ['on-accent']);
+  assert.deepEqual(rulesOf(warm.replace('--wk-color-accent: #2d6a45;', '--wk-color-accent: #000000;')), ['on-selected'], 'a black accent darkens the selected row under the kit\'s secondary text');
+  // Shape: the three token blocks and @font-face, nothing else.
+  assert.deepEqual(rulesOf(base + 'html { --wk-color-selection: red; }\n'), ['blocks']);
+  assert.deepEqual(rulesOf(base + '[data-theme="dark"] { --wk-color-selection: red; }\n'), ['blocks']);
+  assert.deepEqual(rulesOf(base + '.wk-button { color: red; }\n'), ['blocks']);
+  assert.deepEqual(rulesOf(base + ':root { color: red; }\n'), ['blocks']);
+  assert.deepEqual(rulesOf(base + '@media (min-width: 600px) { :root { --wk-color-accent: #1f6b55; } }\n'), ['blocks'], 'a token block under another at-rule');
+  assert.deepEqual(rulesOf(base + '@supports (color: color-mix(in srgb, red, blue)) { :root { --wk-color-selection: color-mix(in srgb, var(--wk-color-accent) 20%, transparent); } }\n'), ['derived'], 'a theme with its own color-mix() block');
+  assert.deepEqual(rulesOf(base + '@font-face { font-family: "App Sans"; src: url("fonts/app-sans.woff2") format("woff2"); }\n'), [], '@font-face is allowed');
+  // Format: identity and ground colours are opaque #rrggbb, reported rather than thrown.
+  assert.deepEqual(rulesOf(warm.replace('--wk-color-text-secondary: #655f53;', '--wk-color-text-secondary: rgba(0, 0, 0, .55);')), ['format'], 'a translucent secondary text');
+  assert.deepEqual(rulesOf(base.replace('--wk-color-accent: #1f6b55;', '--wk-color-accent: #fff;')), ['format'], 'a short hex accent');
+  assert.deepEqual(rulesOf(warm.replace('--wk-color-surface: #ffffff;', '--wk-color-surface: rgb(255, 255, 255);')), ['format'], 'an rgb() surface');
   // The fallback for engines without color-mix(): the four, as the kit derives them.
   const fallback = (sel, fill) => `@supports not (color: color-mix(in srgb, red, blue)) { ${sel} { --wk-color-selection: rgba(31, 107, 85, .12); --wk-color-chart-1: #1f6b55; --wk-color-destructive-text: #a32d22; --wk-color-attention-fill: ${fill}; } }\n`;
   const withFallback = fill => base + fallback(':root', fill);
   assert.deepEqual(rulesOf(withFallback('rgba(188, 53, 41, .08)')), []);
   assert.deepEqual(rulesOf(withFallback('rgba(188, 53, 41, .2)')), ['fallback']);
   assert.deepEqual(rulesOf(base + '@supports not (color: color-mix(in srgb, red, blue)) { :root { --wk-color-thumb: #ffffff; } }'), ['fallback']);
+});
+
+test('theme/check.mjs runs from the command line: exit 0 on a theme that keeps the contract, 1 with its problems', () => {
+  const cli = path.join(themeDir, 'check.mjs');
+  const run = (...args) => { try { return { code: 0, out: execFileSync(process.execPath, [cli, ...args], { encoding: 'utf8' }) }; } catch (e) { return { code: e.status, out: e.stdout }; } };
+  assert.equal(run(path.join(themeDir, 'example.css')).code, 0);
+  const gold = run(path.join(fixtures, 'gold-working.css'));
+  assert.equal(gold.code, 1);
+  assert.match(gold.out, /^working-on-bg\/light: /m);
+  assert.equal(run(path.join(fixtures, 'gold-working.css'), '--except', 'working-on-bg/light').code, 0);
+  assert.equal(run().code, 2, 'usage');
+});
+
+test('contrast refuses a translucent colour; lay it over its ground first', () => {
+  assert.throws(() => contrast('rgba(0, 0, 0, .5)', '#ffffff'), /translucent/);
+  assert.ok(contrast(over('rgba(0, 0, 0, .5)', '#ffffff'), '#ffffff') > 3);
 });
 
 test('derived colours: selection, chart-1, destructive text and attention fill come from the accent and attention inside @supports, with literal fallbacks that match', () => {
@@ -236,7 +269,7 @@ test('one CSS entry and one ES module entry; no shadow DOM, customized built-ins
 });
 
 test('nothing names an app, and nothing loads from outside the package', () => {
-  const shipped = [...walk(src), ...themes, ...walk(path.join(root, 'demo')), ...walk(path.join(root, 'dist')), ...walk(path.join(root, 'scripts')),
+  const shipped = [...walk(src), ...walk(themeDir), ...walk(path.join(root, 'demo')), ...walk(path.join(root, 'dist')), ...walk(path.join(root, 'scripts')),
     path.join(root, 'README.md'), path.join(root, 'THEMING.md'), path.join(root, 'package.json')];
   const outside = ref => !ref.startsWith('data:') && (/^[a-z][a-z0-9+.-]*:|^\//i.test(ref));
   for (const file of shipped) {
@@ -254,7 +287,10 @@ test('nothing names an app, and nothing loads from outside the package', () => {
     }
     if (file.startsWith(src) || file.startsWith(themeDir)) {
       // The kit itself loads nothing outside its own folder.
-      for (const ref of refs) assert.ok(!outside(ref) && !/(^|\/)\.\.(\/|$)/.test(ref), `${rel(file)} loads ${ref} from outside its folder`);
+      // theme/check.mjs is a Node script: it uses Node's built-ins and reads
+      // the kit's own tokens.css, both inside the package.
+      const allowed = ref => file === path.join(themeDir, 'check.mjs') && (/^node:/.test(ref) || ref === '../src/tokens.css');
+      for (const ref of refs) if (!allowed(ref)) assert.ok(!outside(ref) && !/(^|\/)\.\.(\/|$)/.test(ref), `${rel(file)} loads ${ref} from outside its folder`);
     } else {
       for (const ref of refs) if (!/^node:/.test(ref)) assert.ok(!outside(ref), `${rel(file)} loads ${ref} from outside the package`);
     }

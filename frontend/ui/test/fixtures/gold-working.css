@@ -1,5 +1,5 @@
-/* Fixture: Muster's identity colours as the design system's theming.md
-   lists them (steel blue, gold working, red attention) on the kit's grounds.
+/* Fixture: a gold working tone from the design system, with the steel blue
+   accent and red attention that go with it, on the kit's grounds.
    Its gold is 2.6:1 on the light window, a gap the design system records:
    the check fails on it, and test/tokens.test.mjs names the exception. */
 :root {

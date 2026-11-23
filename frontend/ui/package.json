@@ -19,6 +19,7 @@
     "./ui.css": "./src/ui.css",
     "./theme.css": "./theme/theme.css",
     "./themes/example.css": "./theme/example.css",
+    "./theme/check": "./theme/check.mjs",
     "./dist/wails-kit-ui.css": "./dist/wails-kit-ui.css",
     "./dist/wails-kit-ui.js": "./dist/wails-kit-ui.js",
     "./package.json": "./package.json"

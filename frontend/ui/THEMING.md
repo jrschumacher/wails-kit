@@ -2,8 +2,9 @@
 
 Every app on the kit ships one theme file on the same base. This page says what
 a theme may change, what the kit works out for it, and how the state tones are
-used. It follows the Wails Kit Design System's `theming.md`
-([`docs/design-system/`](../../docs/design-system/)), with one change: text
+used. It follows the Wails Kit Design System's `theming.md` (in the
+`docs/design-system/` folder of the jrschumacher/wails-kit repository), with
+one change: text
 fields and similar controls have their own border (see the field border, below).
 
 ## What a theme is
@@ -12,7 +13,7 @@ One small stylesheet, linked after the kit's. It sets custom properties on
 `:root` (light), again under `@media (prefers-color-scheme: dark)` on
 `:root:not([data-theme="light"])`, and again on `:root[data-theme="dark"]`, with
 the same values in the two dark blocks. Nothing else: no component selectors, no
-new classes. [`theme/theme.css`](theme/theme.css) lists every token a theme may
+new classes, no other rules; only an `@font-face` for a font the app bundles. [`theme/theme.css`](theme/theme.css) lists every token a theme may
 set, holding the kit's defaults; copy it and change the values.
 [`theme/example.css`](theme/example.css) is a worked example.
 
@@ -43,7 +44,7 @@ family, never replace it. A font the theme names is the app's to bundle: an
 from the network.
 
 **Radii.** `--wk-radius-control`, `--wk-radius-group` and `--wk-radius-window`,
-each within 2px of the kit's (5, 7 and 10px).
+each within 2px of the kit's (6, 8 and 10px, the design system's values).
 
 ## Must not set: derived
 
@@ -83,8 +84,9 @@ segmented controls, which their face fill, shadow and label already set apart.
 Text fields, selects, search fields, steppers, checkboxes, radios and an off
 switch are known only by their outline, so WCAG 1.4.11 applies to them. They use
 `--wk-color-field-border`, at 3:1 or more on `bg` and `surface`: by default
-`#868c96` in light (3.3:1 on the window, 3.4:1 on a surface) and `#707682` in
-dark (3.8:1 and 3.5:1). The control border has no minimum.
+`#858b95` in light (3.3:1 on the window, 3.4:1 on a surface, 3.0:1 on the
+sidebar) and `#707682` in dark (3.8:1 and 3.5:1). The control border has no
+minimum.
 
 ## Where color-mix() works
 
@@ -124,6 +126,11 @@ Rules:
   appearance the two must differ by at least 1.5:1 in contrast with each other,
   and each must reach 3:1 as a mark on the window. Shape still carries the state
   for anyone who can't tell them apart.
+- **The working dot off the window.** The kit's default working tone,
+  `#628ccf`, is 3.3:1 on the light window, 3.0:1 on the light sidebar and about
+  2.5:1 on a selected sidebar row (the accent's selection tint over the
+  sidebar). The check measures it on the window only. On a selected row the
+  dot's shape and the row's words carry the state, not its colour alone.
 - **Keep chart colours that look like a tone away from dots.** Never draw a chart
   next to a working or attention dot without a legend.
 - **No other colour carries state.** Not the accent, not a chart colour, not
@@ -131,14 +138,26 @@ Rules:
 
 ## Checking a theme
 
-[`test/theme-check.mjs`](test/theme-check.mjs) is this page as code. The
-package's tests run it on the kit's defaults, on `theme/theme.css`, on
-`theme/example.css` and on a theme that tints all ten grounds
-(`test/fixtures/warm-grounds.css`). `checkTheme(themeCss, kitCss)` returns the
-problems, `[]` when the theme keeps the contract. It fails when a theme:
+[`theme/check.mjs`](theme/check.mjs) is this page as code. It ships with the
+package and has no dependencies. Run it on an app's theme:
 
+```sh
+node node_modules/@wails-kit/ui/theme/check.mjs path/to/theme.css
+```
+
+It prints each problem and exits 1 when there are any. As a module,
+`import { checkTheme } from '@wails-kit/ui/theme/check'`;
+`checkTheme(themeCss, kitCss)` returns the problems, `[]` when the theme keeps
+the contract (`kitCss` is the kit's `src/tokens.css`). The package's tests run
+it on the kit's defaults, on `theme/theme.css`, on `theme/example.css` and on a
+theme that tints all ten grounds (`test/fixtures/warm-grounds.css`). It fails
+when a theme:
+
+- has a rule other than the three token blocks and `@font-face` (a component
+  selector, a token block under another at-rule, its own `color-mix()` block);
 - sets a derived colour, a token outside the lists above, or a colour without a
   dark value, or leaves out an identity colour;
+- writes an identity or ground colour as anything but opaque `#rrggbb`;
 - sets some grounds but not all ten;
 - has a radius more than 2px from the kit's, or replaces the kit's first font;
 - has text or secondary text under 4.5:1 on any of the four grounds, in either
@@ -151,7 +170,8 @@ problems, `[]` when the theme keeps the contract. It fails when a theme:
 
 Each problem names its rule and appearance (`working-on-bg/light`). A known gap
 is recorded as a named exception, never by loosening the rule:
-`checkTheme(css, kit, { exceptions: { 'working-on-bg/light': 'why' } })`. An
-exception that no longer matches a problem is reported too. The tests show one,
-for a gold working tone at 2.6:1 on the light window
-(`test/fixtures/gold-working.css`), a gap the design system records.
+`checkTheme(css, kit, { exceptions: { 'working-on-bg/light': 'why' } })`, or
+`--except working-on-bg/light` on the command line. An exception that no longer
+matches a problem is reported too. The tests show one, for a gold working tone
+at 2.6:1 on the light window (`test/fixtures/gold-working.css`), a gap the
+design system records.

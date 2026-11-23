@@ -9,7 +9,7 @@
   --wk-color-attention: #bc3529;
   --wk-color-attention-text: #a32d22;
   --wk-radius-control: 7px;
-  --wk-radius-group: 9px;
+  --wk-radius-group: 10px;
   --wk-radius-window: 12px;
 }
 @media (prefers-color-scheme: dark) {
