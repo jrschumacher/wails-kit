@@ -99,8 +99,8 @@ try {
       for (const scheme of ['light', 'dark']) {
         const { page, problems } = await open(url, { colorScheme: scheme });
         const font = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
-        if (url === '/demo/themed.html') assert.match(font, /^"?Avenir Next"?,/);
-        else assert.match(font, /^system-ui,/);
+        // The example theme keeps the kit's font.
+        assert.match(font, /^Inter,/);
         const bg = await page.evaluate(() => getComputedStyle(document.querySelector('.wk-root')).backgroundColor);
         assert.equal(bg, scheme === 'light' ? 'rgb(252, 252, 251)' : 'rgb(24, 26, 31)');
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -121,13 +121,19 @@ try {
           const root = getComputedStyle(document.documentElement);
           const d = document.querySelector('#demo-dialog dialog'); d.showModal();
           const backdrop = getComputedStyle(d, '::backdrop').backgroundColor; d.close();
-          return { bg: root.backgroundColor, scheme: root.colorScheme, fill: root.getPropertyValue('--wk-color-attention-fill').trim(), backdrop };
+          const probe = document.createElement('i');
+          probe.style.backgroundColor = 'var(--wk-color-attention-fill)';
+          document.body.append(probe);
+          const fill = getComputedStyle(probe).backgroundColor;
+          probe.remove();
+          return { bg: root.backgroundColor, scheme: root.colorScheme, fill, backdrop };
         });
         const dark = want === 'dark';
         assert.equal(look.bg, dark ? 'rgb(24, 26, 31)' : 'rgb(252, 252, 251)', `${url} system ${scheme}, data-theme ${attr}`);
         assert.equal(look.scheme, want, `${url} color-scheme, system ${scheme}, data-theme ${attr}`);
         assert.equal(look.backdrop, dark ? 'rgba(0, 0, 0, 0.5)' : 'rgba(15, 20, 30, 0.28)');
-        if (url === '/demo/themed.html') assert.equal(look.fill.replace(/\s+/g, ''), dark ? 'rgba(238,107,95,.12)' : 'rgba(196,55,43,.08)');
+        // Derived from the theme's attention: #ee6b5f at 12% in dark, #bc3529 at 8% in light.
+        if (url === '/demo/themed.html') assert.equal(look.fill.replace(/\s+/g, ''), dark ? 'color(srgb0.9333330.4196080.372549/0.12)' : 'color(srgb0.7372550.2078430.160784/0.08)');
         assert.deepEqual(problems, []);
         await page.close();
       }
@@ -652,6 +658,14 @@ try {
     const focused = await item.screenshot();
     assert.ok(!focused.equals(unfocused), 'the focused menu item looks like the others in forced colours');
     await page.keyboard.press('Escape');
+    // A link item is drawn as the button items, not in LinkText.
+    const ink = await page.locator('#demo-inline [role=menu]').evaluate(m => {
+      const probe = c => { const e = document.createElement('i'); e.style.forcedColorAdjust = 'none'; e.style.color = c; document.body.append(e); const v = getComputedStyle(e).color; e.remove(); return v; };
+      return { link: getComputedStyle(m.querySelector('a')).color, button: getComputedStyle(m.querySelector('[data-value=settings]')).color, canvasText: probe('CanvasText'), linkText: probe('LinkText') };
+    });
+    assert.notEqual(ink.canvasText, ink.linkText);
+    assert.equal(ink.link, ink.canvasText, 'a link item is CanvasText');
+    assert.equal(ink.link, ink.button, 'a link item looks like a button item');
     assert.deepEqual(problems, []);
     await page.close();
   });
@@ -746,7 +760,7 @@ try {
     const closed = await chevron('#buttons button.wk-link[aria-expanded=false]'), open_ = await chevron('#buttons button.wk-link[aria-expanded=true]');
     assert.notEqual(closed.content, 'none'); assert.notEqual(closed.transform, open_.transform);
     assert.equal(await page.locator('a.wk-link').first().evaluate(el => getComputedStyle(el, '::before').content), 'none');
-    for (const sel of ['.wk-codeblock--scroll > pre', '.wk-errorbox > pre', '#demo-long-sheet .wk-dialog-scroll']) {
+    for (const sel of ['.wk-code--scroll > pre', '.wk-errorbox > pre', '#demo-long-sheet .wk-dialog-scroll']) {
       const el = page.locator(sel).first();
       assert.equal(await el.getAttribute('tabindex'), '0', sel);
       assert.ok(await el.getAttribute('aria-label') || await el.getAttribute('aria-labelledby'), `${sel} has no name`);
@@ -910,8 +924,9 @@ try {
         host.replaceChildren(wkChart({ id: 'snapshot', kind: 'bars', label: 'Snapshot',
           categories: [{ label: 'First' }, { label: 'Second' }],
           series: [{ label: 'Count', values: [1, value] }], selection,
-          onselection: i => { selection = i; } }));
+          onselection: i => { selection = i; window.reported.push(i); } }));
       };
+      window.reported = [];
       window.selectedIndex = () => selection;
       window.snapshot(2);
     });
@@ -926,6 +941,10 @@ try {
       assert.equal(await page.locator('#snapshot .wk-chart-active').getAttribute('hidden'), null);
       assert.equal(await page.evaluate(() => window.selectedIndex()), 1);
     }
+    // Replacing the focused chart is not the person leaving it: the old
+    // chart's blur (Chrome fires it as the element is removed) must not
+    // report -1 in between, even for a moment (#137).
+    assert.deepEqual(await page.evaluate(() => window.reported.filter(i => i !== 1)), [], 'nothing but the kept selection was reported');
     await page.keyboard.press('Escape');
     assert.equal(await page.evaluate(() => window.selectedIndex()), -1);
     assert.equal(await page.locator('#snapshot .wk-chart-readout').textContent(), '');
@@ -1382,6 +1401,458 @@ try {
     }));
     assert.deepEqual(two, { top: 'solid', atStart: true, atEnd: true, count: 2 });
     assert.deepEqual(one, { top: 'solid', atStart: true, atEnd: false, count: 1 });
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('Inter: a wk-root page with no network loads the bundled Inter, from src/ and from dist/, with cv11 and ss03 on; latin-ext loads only when used', async () => {
+    for (const url of ['/demo/index.html', '/demo/dist.html']) {
+      const { page, problems } = await open(url);
+      const fonts = await page.evaluate(async () => {
+        await document.fonts.ready;
+        const loaded = () => [...document.fonts].filter(f => f.family.replace(/"/g, '') === 'Inter' && f.status === 'loaded').length;
+        const before = loaded();
+        const files = () => performance.getEntriesByType('resource').map(e => new URL(e.name).pathname).filter(n => n.endsWith('.woff2')).sort();
+        const fetchedBefore = files();
+        const check = document.fonts.check('13px Inter');
+        const root = getComputedStyle(document.querySelector('.wk-root'));
+        const p = document.createElement('p');
+        p.textContent = 'Łódź, Kraków, Þórsmörk';
+        document.body.append(p);
+        await document.fonts.load('13px Inter', p.textContent);
+        const after = loaded();
+        p.remove();
+        return { check, before, after, fetchedBefore, fetchedAfter: files(), features: root.fontFeatureSettings, family: root.fontFamily };
+      });
+      assert.equal(fonts.check, true, `${url}: document.fonts.check('13px Inter')`);
+      assert.equal(fonts.before, 1, `${url}: only the latin file loads for latin text`);
+      assert.equal(fonts.after, 2, `${url}: the latin-ext file loads for "Łódź"`);
+      // The package's own files, not a font installed on the machine.
+      const dir = url.includes('dist') ? '/dist/fonts/' : '/fonts/';
+      assert.deepEqual(fonts.fetchedBefore, [`${dir}Inter-latin.woff2`]);
+      assert.deepEqual(fonts.fetchedAfter, [`${dir}Inter-latin-ext.woff2`, `${dir}Inter-latin.woff2`]);
+      assert.equal(fonts.features, '"cv11", "ss03"');
+      assert.match(fonts.family, /^Inter,/);
+      // problems include any request that left the local server.
+      assert.deepEqual(problems, [], url);
+      await page.close();
+    }
+  });
+
+  await check('derived colours: a theme that changes only the accent and attention changes selection, chart-1, destructive text and attention fill with them, in light and dark', async () => {
+    for (const scheme of ['light', 'dark']) {
+      const { page, problems } = await open('/demo/index.html', { colorScheme: scheme });
+      // A theme in a stylesheet object (the page's CSP blocks inline <style>).
+      const read = () => page.evaluate(() => {
+        const probe = (prop, token) => { const e = document.createElement('i'); e.style[prop] = `var(${token})`; document.body.append(e); const v = getComputedStyle(e)[prop]; e.remove(); return v; };
+        return { selection: probe('backgroundColor', '--wk-color-selection'), chart: probe('color', '--wk-color-chart-1'), destructive: probe('color', '--wk-color-destructive-text'), fill: probe('backgroundColor', '--wk-color-attention-fill') };
+      });
+      const before = await read();
+      await page.evaluate(() => {
+        const sheet = new CSSStyleSheet();
+        const theme = '--wk-color-accent: #ff0000; --wk-color-attention: #0000ff; --wk-color-attention-text: #00aa00;';
+        sheet.replaceSync(`:root { ${theme} } @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { ${theme} } } :root[data-theme="dark"] { ${theme} }`);
+        document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+      });
+      const after = await read();
+      const dark = scheme === 'dark';
+      assert.deepEqual(after, {
+        selection: `color(srgb 1 0 0 / ${dark ? 0.16 : 0.12})`,
+        chart: 'rgb(255, 0, 0)',
+        destructive: 'rgb(0, 170, 0)',
+        fill: `color(srgb 0 0 1 / ${dark ? 0.12 : 0.08})`,
+      }, scheme);
+      assert.notDeepEqual(after, before);
+      assert.deepEqual(problems, []);
+      await page.close();
+    }
+  });
+
+  await check('Inter: the bundled files carry cv11 and ss03, so --wk-font-features changes what renders', async () => {
+    for (const file of ['/fonts/Inter-latin.woff2', '/dist/fonts/Inter-latin.woff2']) {
+      const { page, problems } = await open();
+      // Loaded under its own family name, so an Inter installed on the
+      // machine can't stand in for the bundled file.
+      await page.evaluate(async file => {
+        const face = new FontFace('WkFeatureCheck', `url(${file})`);
+        document.fonts.add(await face.load());
+        const box = document.createElement('div');
+        box.id = 'feature-check';
+        box.style.cssText = 'position: fixed; top: 0; left: 0; background: #fff; color: #000; z-index: 99';
+        for (const [id, text, features] of [['a', 'aaaaaaaaaa', 'normal'], ['a-cv11', 'aaaaaaaaaa', '"cv11"'], ['q', ',,“”,,', 'normal'], ['q-ss03', ',,“”,,', '"ss03"']]) {
+          const s = document.createElement('span');
+          s.id = `feature-${id}`;
+          s.style.cssText = `display: inline-block; font: 40px WkFeatureCheck; font-feature-settings: ${features}; white-space: pre; padding: 4px`;
+          s.textContent = text;
+          box.append(s, document.createElement('br'));
+        }
+        document.body.append(box);
+      }, file);
+      const width = id => page.locator(`#feature-${id}`).evaluate(el => el.getBoundingClientRect().width);
+      // cv11, the single-storey a, has its own advance width.
+      assert.notEqual(await width('a-cv11'), await width('a'), `${file}: cv11 changes a run of "a"`);
+      // ss03, round quotes and commas: commas keep their width, so compare pixels.
+      const shot = id => page.locator(`#feature-${id}`).screenshot();
+      assert.ok(!(await shot('q-ss03')).equals(await shot('q')), `${file}: ss03 changes quotes and commas`);
+      assert.deepEqual(problems, [], file);
+      await page.close();
+    }
+  });
+
+  await check('field border: a text field, select, checkbox, radio, off switch and stepper outline reach 3:1 on the window, in light and dark; a button keeps the soft border', async () => {
+    for (const scheme of ['light', 'dark']) {
+      const { page, problems } = await open('/demo/index.html', { colorScheme: scheme });
+      const ratios = await page.evaluate(() => {
+        const rgb = c => c.match(/[\d.]+/g).slice(0, 3).map(Number);
+        const lum = c => { const [r, g, b] = rgb(c).map(x => { x /= 255; return x <= .03928 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4; }); return .2126 * r + .7152 * g + .0722 * b; };
+        const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + .05) / (y + .05); };
+        const bg = getComputedStyle(document.documentElement).backgroundColor;
+        const of = sel => { const el = document.querySelector(sel); return el ? +ratio(getComputedStyle(el).borderTopColor, bg).toFixed(2) : null; };
+        return {
+          field: of('input.wk-field:not([readonly]):not(:disabled)'), select: of('.wk-select:not(:disabled)'), checkbox: of('.wk-checkbox:not(:checked):not(:disabled)'),
+          radio: of('.wk-radio:not(:checked):not(:disabled)'), switch: of('.wk-switch:not(:checked):not(:disabled)'), stepper: of('.wk-stepper-arrows'), button: of('.wk-button:not(.wk-button--primary):not(.wk-button--quiet)'),
+        };
+      });
+      for (const [what, r] of Object.entries(ratios)) {
+        assert.ok(r !== null, `${what} is on the page`);
+        if (what === 'button') assert.ok(r < 3, `${scheme}: the button keeps the soft border (${r}:1)`);
+        else assert.ok(r >= 3, `${scheme}: the ${what} outline is ${r}:1 on the window`);
+      }
+      assert.deepEqual(problems, []);
+      await page.close();
+    }
+  });
+
+  await check('status dot: the running dot (filled, working, default size) has a halo in --wk-dot-ground, which follows wk-color-bg in light and dark; an outline in forced colours', async () => {
+    for (const scheme of ['light', 'dark']) {
+      const { page, problems } = await open('/demo/index.html', { colorScheme: scheme });
+      const look = await page.evaluate(() => {
+        const dot = attrs => { const d = document.createElement('span'); d.className = 'wk-dot'; for (const [k, v] of Object.entries(attrs)) d.setAttribute(k, v); document.querySelector('#dots').append(d); const s = getComputedStyle(d); const out = { shadow: s.boxShadow, ground: s.getPropertyValue('--wk-dot-ground').trim() }; d.remove(); return out; };
+        return { bg: getComputedStyle(document.documentElement).backgroundColor, running: dot({ 'data-tone': 'working' }), filled: dot({ 'data-tone': 'working', 'data-shape': 'filled' }), small: dot({ 'data-tone': 'working', 'data-size': 'sm' }), half: dot({ 'data-tone': 'working', 'data-shape': 'half' }), neutral: dot({}) };
+      });
+      assert.ok(look.running.ground, '--wk-dot-ground is set on the dot');
+      // Two rings: the gap in the page background, then the dot's colour.
+      const rings = look.running.shadow.split(/,(?![^(]*\))/).map(x => x.trim());
+      assert.equal(rings.length, 2, look.running.shadow);
+      assert.ok(rings[0].startsWith(look.bg), `${scheme}: the halo's gap is the background (${rings[0]} vs ${look.bg})`);
+      assert.equal(look.filled.shadow, look.running.shadow);
+      for (const plain of ['small', 'half', 'neutral']) assert.equal(look[plain].shadow, 'none', `${plain} has no halo`);
+      assert.deepEqual(problems, []);
+      await page.close();
+    }
+    const { page, problems } = await open('/demo/index.html', { forcedColors: 'active' });
+    const forced = await page.locator('#demo-zebra .wk-dot[data-tone="working"]').evaluate(d => { const s = getComputedStyle(d); return { shadow: s.boxShadow, outline: s.outlineStyle, wide: parseFloat(s.outlineWidth) >= 1 }; });
+    assert.deepEqual(forced, { shadow: 'none', outline: 'solid', wide: true });
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('table: zebra rows, a muted row (secondary text, name struck), the name button and row actions; a visually hidden header keeps its name', async () => {
+    const { page, problems } = await open();
+    const look = await page.locator('#demo-zebra').evaluate(t => {
+      const probe = (prop, token) => { const e = document.createElement('i'); e.style[prop] = `var(${token})`; t.append(e); const v = getComputedStyle(e)[prop]; e.remove(); return v; };
+      const rows = [...t.tBodies[0].rows];
+      const name = rows[0].querySelector('.wk-table-name');
+      const hidden = t.querySelector('.wk-visually-hidden').getBoundingClientRect();
+      const actions = rows[0].querySelector('.wk-table-actions');
+      return {
+        fill: probe('backgroundColor', '--wk-color-fill'), selection: probe('backgroundColor', '--wk-color-selection'), secondary: probe('color', '--wk-color-text-secondary'), text: probe('color', '--wk-color-text'),
+        bgs: rows.map(r => getComputedStyle(r.cells[0]).backgroundColor),
+        muted: { color: getComputedStyle(rows[2].cells[2]).color, line: getComputedStyle(rows[2].querySelector('.wk-table-name')).textDecorationLine },
+        name: { color: getComputedStyle(name).color, weight: getComputedStyle(name).fontWeight, border: getComputedStyle(name).borderTopStyle, bg: getComputedStyle(name).backgroundColor },
+        hidden: [hidden.width, hidden.height], actionsOneLine: actions.getBoundingClientRect().height < 30,
+      };
+    });
+    assert.notEqual(look.selection, look.fill);
+    assert.deepEqual(look.bgs, ['rgba(0, 0, 0, 0)', look.fill, 'rgba(0, 0, 0, 0)', look.selection], 'every other row is tinted, and the selected even row keeps the selection tint');
+    assert.deepEqual(look.muted, { color: look.secondary, line: 'line-through' });
+    assert.deepEqual(look.name, { color: look.text, weight: '600', border: 'none', bg: 'rgba(0, 0, 0, 0)' });
+    assert.deepEqual(look.hidden, [1, 1]);
+    assert.ok(look.actionsOneLine, 'row actions stay on one line');
+    const ax = await axTree(page);
+    assert.ok(ax.some(n => n.role?.value === 'columnheader' && n.name?.value === 'Actions'), 'the hidden header is still named');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('list: the selected row carries the selection tint and darker secondary text, rows keep their own height, forced colours mark the selected row', async () => {
+    const { page, problems } = await open();
+    const read = p => p.locator('#list .wk-list').first().evaluate(list => {
+      const probe = (prop, token) => { const e = document.createElement('i'); e.style[prop] = `var(${token})`; list.append(e); const v = getComputedStyle(e)[prop]; e.remove(); return v; };
+      const rows = [...list.querySelectorAll('.wk-list-row')];
+      const row = r => ({ bg: getComputedStyle(r).backgroundColor, meta: getComputedStyle(r.querySelector('.wk-secondary')).color, height: r.getBoundingClientRect().height });
+      return { rows: rows.map(row), selection: probe('backgroundColor', '--wk-color-selection'), onSelected: probe('color', '--wk-color-text-secondary-on-selected'), secondary: probe('color', '--wk-color-text-secondary'), bullets: getComputedStyle(list).listStyleType };
+    });
+    const light = await read(page);
+    assert.equal(light.bullets, 'none');
+    assert.equal(light.rows[0].bg, light.selection, 'the selected row has the selection tint');
+    assert.equal(light.rows[0].meta, light.onSelected, 'secondary text on the selected row is the darker step');
+    assert.notEqual(light.rows[1].bg, light.selection);
+    assert.equal(light.rows[1].meta, light.secondary);
+    assert.ok(light.rows[0].height > light.rows[1].height, 'a row with chips is taller than one without');
+    assert.equal(await page.locator('#list .wk-list-heading > span').first().evaluate(s => getComputedStyle(s).fontVariantNumeric), 'tabular-nums');
+    assert.deepEqual(problems, []);
+    await page.close();
+    const forced = await open('/demo/index.html', { forcedColors: 'active', reducedMotion: 'reduce' });
+    const shots = await forced.page.locator('#list .wk-list').first().evaluate(list => [...list.querySelectorAll('.wk-list-row')].map(r => getComputedStyle(r).backgroundColor));
+    assert.notEqual(shots[0], shots[1], 'the selected row looks like the others in forced colours');
+    assert.deepEqual(forced.problems, []);
+    await forced.page.close();
+  });
+
+  await check('list: Up and Down move focus between rows (one tab stop), Home and End jump, Space selects', async () => {
+    const { page, problems } = await open();
+    const list = page.locator('#list .wk-list').first();
+    const state = () => list.evaluate(l => [...l.querySelectorAll('.wk-list-row')].map(r => ({ tab: r.tabIndex, sel: r.getAttribute('aria-selected'), focus: r === document.activeElement, bg: getComputedStyle(r).backgroundColor })));
+    await list.locator('.wk-list-row').first().focus();
+    await page.keyboard.press('ArrowDown');
+    let rows = await state();
+    assert.deepEqual(rows.map(r => r.focus), [false, true, false]);
+    assert.deepEqual(rows.map(r => r.tab), [-1, 0, -1], 'only the focused row is in the tab order');
+    assert.deepEqual(rows.map(r => r.sel), ['true', 'false', 'false'], 'moving does not select');
+    await page.keyboard.press(' ');
+    rows = await state();
+    assert.deepEqual(rows.map(r => r.sel), ['false', 'true', 'false'], 'Space selects the focused row');
+    const selection = await list.evaluate(l => { const e = document.createElement('i'); e.style.backgroundColor = 'var(--wk-color-selection)'; l.append(e); const v = getComputedStyle(e).backgroundColor; e.remove(); return v; });
+    assert.equal(rows[1].bg, selection, 'the newly selected row takes the selection tint');
+    assert.notEqual(rows[0].bg, selection);
+    await page.keyboard.press('End');
+    assert.deepEqual((await state()).map(r => r.focus), [false, false, true]);
+    await page.keyboard.press('ArrowDown');
+    assert.deepEqual((await state()).map(r => r.focus), [false, false, true], 'Down stops at the last row');
+    await page.keyboard.press('Home');
+    await page.keyboard.press('ArrowUp');
+    assert.deepEqual((await state()).map(r => r.focus), [true, false, false]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('pane scroll: the list scrolls under a fixed toolbar, takes focus, and its focus ring sits inside; toolbar subtitle and sidebar detail', async () => {
+    const { page, problems } = await open();
+    const pane = page.locator('#demo-pane-scroll');
+    const before = await page.locator('#layout .wk-toolbar').boundingBox();
+    const scrolls = await pane.evaluate(p => { const can = p.scrollHeight > p.clientHeight; p.scrollTop = 200; return { can, top: p.scrollTop }; });
+    assert.ok(scrolls.can && scrolls.top > 0, 'the pane body scrolls');
+    assert.deepEqual(await page.locator('#layout .wk-toolbar').boundingBox(), before, 'the toolbar stays put');
+    await page.locator('#layout .wk-toolbar .wk-button', { hasText: 'New' }).focus();
+    await page.keyboard.press('Tab');
+    assert.equal(await active(page), 'demo-pane-scroll', 'Tab reaches the pane body');
+    assert.deepEqual(await pane.evaluate(p => [p.matches(':focus-visible'), getComputedStyle(p).outlineOffset]), [true, '-2px']);
+    const bits = await page.evaluate(() => {
+      const sub = getComputedStyle(document.querySelector('#layout .wk-toolbar-subtitle'));
+      const detail = document.querySelector('#layout .wk-sidebar-detail');
+      const item = detail.closest('.wk-sidebar-item').getBoundingClientRect(), d = detail.getBoundingClientRect();
+      const muted = getComputedStyle(document.querySelector('#chips .wk-chip--muted'));
+      const dotChip = document.querySelector('#chips .wk-chip > .wk-dot');
+      return { sub: [sub.fontSize, sub.fontWeight], detailAtEnd: item.right - d.right < 12, detailSize: getComputedStyle(detail).fontSize, muted: [muted.borderTopStyle, muted.fontWeight], dotMargin: getComputedStyle(dotChip).marginLeft };
+    });
+    assert.deepEqual(bits, { sub: ['12px', '400'], detailAtEnd: true, detailSize: '11px', muted: ['dashed', '500'], dotMargin: '-3px' });
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('inline menu: in place and always shown, one tab stop, arrow keys move through every item (a link too), Enter follows the link', async () => {
+    const { page, problems } = await open();
+    const menu = page.locator('#demo-inline [role=menu]');
+    const look = await menu.evaluate(m => {
+      const s = getComputedStyle(m), a = getComputedStyle(m.querySelector('a'));
+      return { hidden: m.hidden, position: s.position, shadow: s.boxShadow, border: s.borderTopWidth, bg: s.backgroundColor, underline: a.textDecorationLine, tabs: [...m.querySelectorAll('[role^=menuitem]')].map(i => i.tabIndex) };
+    });
+    assert.deepEqual(look, { hidden: false, position: 'static', shadow: 'none', border: '0px', bg: 'rgba(0, 0, 0, 0)', underline: 'none', tabs: [0, -1, -1, -1] });
+    // Tab reaches the menu once, on its first item.
+    await page.locator('#demo-context-target').focus();
+    const at = async () => (await active(page)).replace(/(F1|Ctrl\+.)$/, '');
+    await page.keyboard.press('Tab'); // the tooltip's button
+    await page.keyboard.press('Tab');
+    assert.equal(await at(), 'Help');
+    await page.keyboard.press('Tab');
+    assert.equal(await active(page), 'demo-dialog-open', 'the menu is one tab stop');
+    await page.keyboard.press('Shift+Tab');
+    assert.equal(await at(), 'Help');
+    const order = [await at()];
+    for (let i = 0; i < 4; i++) { await page.keyboard.press('ArrowDown'); order.push(await at()); }
+    assert.deepEqual(order, ['Help', 'Settings…', 'Check for updates (disabled)', 'Quit', 'Help'], 'Down moves through every item and wraps');
+    await page.keyboard.press('ArrowUp');
+    assert.equal(await at(), 'Quit');
+    await page.keyboard.press('Home');
+    assert.equal(await at(), 'Help');
+    await page.keyboard.press('End');
+    assert.equal(await at(), 'Quit');
+    assert.deepEqual(await menu.evaluate(m => [...m.querySelectorAll('[role^=menuitem]')].map(i => i.tabIndex)), [-1, -1, -1, 0], 'the focused item is the tab stop');
+    // Escape is left to the page: the menu stays, and the page sees the key.
+    await page.evaluate(() => { window.escapes = []; document.addEventListener('keydown', e => { if (e.key === 'Escape') window.escapes.push(e.defaultPrevented); }); });
+    await page.keyboard.press('Escape');
+    assert.deepEqual(await page.evaluate(() => window.escapes), [false], 'Escape reaches the document, not prevented');
+    assert.equal(await at(), 'Quit');
+    assert.equal(await menu.evaluate(m => m.hidden), false);
+    // Activating an item keeps the menu in place; a disabled one does nothing.
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('Enter');
+    let selects = (await events(page, 'wk-select')).filter(e => e.target === 'demo-inline');
+    assert.deepEqual(selects.map(e => e.value), ['settings']);
+    assert.equal(await menu.evaluate(m => m.hidden), false);
+    // The link item: Enter follows its link and reports the selection.
+    await page.keyboard.press('Home');
+    await page.keyboard.press('Enter');
+    await until(page, () => location.hash === '#menus');
+    selects = (await events(page, 'wk-select')).filter(e => e.target === 'demo-inline');
+    assert.deepEqual(selects.map(e => e.value), ['settings', 'help']);
+    // An item added later, with the tab stop in place: still one tab stop.
+    const tabs = () => menu.evaluate(m => [...m.querySelectorAll('[role^=menuitem]')].map(i => i.tabIndex));
+    assert.deepEqual(await tabs(), [0, -1, -1, -1]);
+    await menu.evaluate(m => { const b = document.createElement('button'); b.setAttribute('role', 'menuitem'); b.textContent = 'Later'; m.append(b); });
+    await until(page, () => document.querySelector('#demo-inline [role^=menuitem]:last-child').tabIndex === -1);
+    assert.deepEqual(await tabs(), [0, -1, -1, -1, -1], 'the new item is not a second tab stop');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('menu: a link item in a floating menu follows its link on Enter; a disabled link does not', async () => {
+    const { page, problems } = await open();
+    await page.evaluate(() => {
+      const menu = document.querySelector('#demo-menu [role=menu]');
+      menu.insertAdjacentHTML('afterbegin', '<a role="menuitem" href="#tabs" data-value="go">Go to tabs</a><a role="menuitem" href="#dialogs" aria-disabled="true" data-value="nope">Disabled link</a>');
+    });
+    await page.locator('#demo-menu > button').focus();
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await active(page), 'Go to tabs');
+    assert.equal(await page.locator('#demo-menu a').first().evaluate(a => getComputedStyle(a).textDecorationLine), 'none');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    assert.notEqual(await page.evaluate(() => location.hash), '#dialogs');
+    // A click on the disabled link does not follow it either, and the menu stays open.
+    const hash = await page.evaluate(() => location.hash);
+    await page.locator('#demo-menu a[aria-disabled]').click({ force: true });
+    assert.equal(await page.evaluate(() => location.hash), hash, 'a click on a disabled link follows it');
+    assert.deepEqual(await events(page, 'wk-select'), []);
+    assert.equal(await isOpen(page, 'demo-menu'), true, 'a click on a disabled link closes the menu');
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('Enter');
+    await until(page, () => location.hash === '#tabs');
+    assert.equal(await page.evaluate(() => document.querySelector('#demo-menu [role=menu]').hidden), true, 'the menu closed');
+    assert.deepEqual((await events(page, 'wk-select')).map(e => e.value), ['go']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('inline menu: hiding the tab stop passes it on; in a hidden section it still has exactly one', async () => {
+    const { page, problems } = await open();
+    const menu = page.locator('#demo-inline [role=menu]');
+    const tabs = () => menu.evaluate(m => [...m.querySelectorAll('[role^=menuitem]')].map(i => [i.dataset.value, i.tabIndex]));
+    assert.deepEqual(await tabs(), [['help', 0], ['settings', -1], ['update', -1], ['quit', -1]]);
+    await menu.evaluate(m => { m.querySelector('[data-value=help]').hidden = true; });
+    await until(page, () => document.querySelector('#demo-inline [data-value=settings]').tabIndex === 0);
+    assert.deepEqual(await tabs(), [['help', -1], ['settings', 0], ['update', -1], ['quit', -1]], 'the next item takes the tab stop');
+    // Tab still reaches the menu, once.
+    await page.locator('#demo-context-target').focus();
+    await page.keyboard.press('Tab'); // the tooltip's button
+    await page.keyboard.press('Tab');
+    assert.equal(await active(page), 'Settings…Ctrl+,');
+    await page.keyboard.press('Tab');
+    assert.equal(await active(page), 'demo-dialog-open');
+    // Shown again, it stays out of the tab order: one tab stop.
+    await menu.evaluate(m => { m.querySelector('[data-value=help]').hidden = false; });
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    assert.deepEqual(await tabs(), [['help', -1], ['settings', 0], ['update', -1], ['quit', -1]]);
+
+    // An inline menu built inside a hidden section: one tab stop, ready for
+    // when the section shows.
+    const late = await page.evaluate(() => {
+      const section = document.createElement('div');
+      section.hidden = true;
+      section.innerHTML = '<wk-menu id="late-inline"><div role="menu" class="wk-menu wk-menu--inline" aria-label="Late"><button role="menuitem" type="button">One</button><button role="menuitem" type="button">Two</button><button role="menuitem" type="button">Three</button></div></wk-menu>';
+      document.body.append(section);
+      const tabs = () => [...section.querySelectorAll('[role=menuitem]')].map(i => i.tabIndex);
+      const hidden = tabs();
+      section.hidden = false;
+      return { hidden, shown: tabs() };
+    });
+    assert.deepEqual(late, { hidden: [0, -1, -1], shown: [0, -1, -1] });
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('range: forced colours draw the track in CanvasText, the thumb apart from it, and a disabled range in GrayText', async () => {
+    const { page, problems } = await open('/demo/index.html', { forcedColors: 'active', reducedMotion: 'reduce' });
+    assert.equal(await page.evaluate(() => matchMedia('(forced-colors: active)').matches), true);
+    const ranges = page.locator('#demo-ranges .wk-range');
+    await ranges.first().scrollIntoViewIfNeeded();
+    const system = await page.evaluate(() => Object.fromEntries(['Canvas', 'CanvasText', 'GrayText'].map(c => {
+      const e = document.createElement('i'); e.style.forcedColorAdjust = 'none'; e.style.color = c; document.body.append(e);
+      const v = getComputedStyle(e).color.match(/\d+/g).slice(0, 3).map(Number); e.remove(); return [c, v];
+    })));
+    // Pixels of a range with its value at 50%: the track at the middle row
+    // near each end, the thumb's centre, and the column through the thumb.
+    const sample = async range => {
+      await range.evaluate(r => { r.value = (Number(r.min) + Number(r.max)) / 2; });
+      const png = (await range.screenshot()).toString('base64');
+      return page.evaluate(async png => {
+        const img = new Image();
+        img.src = `data:image/png;base64,${png}`;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        const g = c.getContext('2d');
+        g.drawImage(img, 0, 0);
+        const data = g.getImageData(0, 0, img.width, img.height).data;
+        const at = (x, y) => [...data.slice((y * img.width + x) * 4, (y * img.width + x) * 4 + 3)];
+        const mid = Math.floor(img.height / 2), cx = Math.round(img.width / 2);
+        const column = [];
+        for (let y = 0; y < img.height; y++) column.push(at(cx, y));
+        return { trackStart: at(4, mid), trackEnd: at(img.width - 5, mid), thumb: at(cx, mid), column, canvas: at(4, 0) };
+      }, png);
+    };
+    const near = (a, b, d = 40) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) < d;
+    const lum = ([r, g, b]) => .2126 * r + .7152 * g + .0722 * b;
+    const on = await sample(ranges.first());
+    assert.ok(lum(system.Canvas) > lum(system.CanvasText) + 100, 'a light Canvas behind dark CanvasText');
+    assert.ok(near(on.canvas, system.Canvas), `the background is Canvas (${on.canvas})`);
+    assert.ok(near(on.trackStart, system.CanvasText), `the track is CanvasText at the start (${on.trackStart})`);
+    assert.ok(near(on.trackEnd, system.CanvasText), `the track is CanvasText at the end (${on.trackEnd})`);
+    assert.ok(lum(on.thumb) - lum(on.trackStart) > 100, `the thumb (${on.thumb}) stands apart from the track (${on.trackStart})`);
+    // The thumb's ring shows above the track, against Canvas.
+    const above = on.column.slice(0, Math.floor(on.column.length / 2) - 3);
+    assert.ok(above.some(p => lum(p) < lum(system.Canvas) - 100), 'the thumb has a dark edge above the track');
+    const off = await sample(ranges.nth(2));
+    assert.equal(await ranges.nth(2).evaluate(r => r.disabled), true);
+    assert.ok(near(off.trackStart, system.GrayText, 24), `a disabled track is GrayText (${off.trackStart}, GrayText ${system.GrayText})`);
+    assert.ok(lum(off.thumb) - lum(off.trackStart) > 60, `a disabled thumb (${off.thumb}) stands apart from its track (${off.trackStart})`);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('range: --wk-range-value: 30% fills 30% of the track in the accent; input updates it', async () => {
+    const { page, problems } = await open();
+    const range = page.locator('#demo-ranges .wk-range').nth(1);
+    // The thumb sits at the value: move the value to 0 so it does not cover
+    // the end of the fill, which follows --wk-range-value alone.
+    await range.evaluate(r => { r.value = 0; r.style.setProperty('--wk-range-value', '30%'); });
+    const png = (await range.screenshot()).toString('base64');
+    const accent = await range.evaluate(r => { const e = document.createElement('i'); e.style.color = 'var(--wk-color-accent)'; r.parentElement.append(e); const v = getComputedStyle(e).color; e.remove(); return v.match(/\d+/g).map(Number); });
+    const fill = await page.evaluate(async ({ png, accent }) => {
+      const img = new Image();
+      img.src = `data:image/png;base64,${png}`;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.width; c.height = img.height;
+      const g = c.getContext('2d');
+      g.drawImage(img, 0, 0);
+      const y = Math.floor(img.height / 2);
+      const row = g.getImageData(0, y, img.width, 1).data;
+      let last = -1;
+      for (let x = 0; x < img.width; x++) {
+        const [r, gg, b] = row.slice(x * 4, x * 4 + 3);
+        if (Math.abs(r - accent[0]) + Math.abs(gg - accent[1]) + Math.abs(b - accent[2]) < 24) last = x;
+      }
+      return { last, width: img.width };
+    }, { png, accent });
+    const share = (fill.last + 1) / fill.width;
+    assert.ok(Math.abs(share - .3) < .02, `the fill ends at ${(share * 100).toFixed(1)}% of the track`);
+    // The demo sets the share on input, as an app does.
+    await range.evaluate(r => { r.value = 70; r.dispatchEvent(new Event('input', { bubbles: true })); });
+    assert.equal(await range.evaluate(r => [r.style.getPropertyValue('--wk-range-value'), r.nextElementSibling.textContent].join(' ')), '70% 70%');
     assert.deepEqual(problems, []);
     await page.close();
   });

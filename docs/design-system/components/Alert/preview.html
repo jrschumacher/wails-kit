@@ -1,0 +1,29 @@
+<!-- @dsCard group="Overlays" height=330 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Alert</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: flex; justify-content: center; align-items: flex-start; gap: var(--wk-space-5); padding: var(--wk-space-4); }
+  .spec > .wk-dialog { position: static; display: block; margin: 0; }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec">
+  <div class="wk-dialog wk-dialog--alert" role="alertdialog" aria-modal="true" aria-labelledby="ls-t" aria-describedby="ls-d">
+    <img src="/_blob/d2f34b8e9eff15bed515cd1e4ae5a0ff" alt="">
+    <h2 class="wk-dialog-title" id="ls-t">Stop this job?</h2>
+    <p class="wk-dialog-body" id="ls-d"><b>prune</b> · test will fail on GitHub. The rest of the run carries on. You can re-run it there.</p>
+    <div class="wk-dialog-actions"><button class="wk-button wk-button--destructive" type="button">Stop job</button><button class="wk-button wk-button--primary" type="button">Keep running</button></div>
+  </div>
+  <div class="wk-dialog wk-dialog--alert" role="alertdialog" aria-modal="true" aria-labelledby="q-t" aria-describedby="q-d">
+    <img src="/_blob/d2f34b8e9eff15bed515cd1e4ae5a0ff" alt="">
+    <h2 class="wk-dialog-title" id="q-t">Quit while jobs are running?</h2>
+    <p class="wk-dialog-body" id="q-d">Wait for jobs to finish, or stop them now. Stopped jobs fail and may need to be rerun in GitHub.</p>
+    <div class="wk-dialog-actions"><button class="wk-button" type="button">Quit when they finish</button><button class="wk-button wk-button--destructive" type="button">Cancel jobs and quit</button><button class="wk-button wk-button--primary" type="button">Keep running</button></div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,21 @@
+<!-- @dsCard group="Forms" height=150 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Range</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: grid; grid-template-columns: 120px minmax(0, 260px) 48px; gap: var(--wk-space-3) var(--wk-space-4); align-items: center; padding: var(--wk-space-4); }
+  .spec > span { color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+  .spec > output { font-variant-numeric: tabular-nums; text-align: right; font-weight: var(--wk-font-weight-semibold); }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec">
+  <span>codex-high</span><input class="wk-range" type="range" min="0" max="100" value="60" style="--wk-range-value:60%" aria-label="Target share for codex-high"><output>60%</output>
+  <span>codex-medium</span><input class="wk-range" type="range" min="0" max="100" value="40" style="--wk-range-value:40%" aria-label="Target share for codex-medium"><output>40%</output>
+  <span>Disabled</span><input class="wk-range" type="range" min="0" max="100" value="25" style="--wk-range-value:25%" aria-label="Disabled example" disabled><output>25%</output>
+</div>
+</body>
+</html>

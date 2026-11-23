@@ -1,0 +1,39 @@
+<!-- @dsCard group="Containers" height=380 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ThreePane</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { padding: var(--wk-space-4); }
+  .win { height: 330px; overflow: hidden; border: var(--wk-hairline-width) solid var(--wk-color-hairline-strong); border-radius: var(--wk-radius-window); }
+  .wk-pane-inspector { flex-basis: 220px; display: flex; flex-direction: column; gap: var(--wk-space-2); }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec"><div class="win wk-three-pane">
+  <nav class="wk-sidebar" aria-label="Sections" tabindex="0" style="flex-basis:190px">
+    <ul><li><a class="wk-sidebar-item" href="#all" aria-current="page"><span class="wk-sidebar-label">All jobs</span><span class="wk-chip wk-chip--count">44</span></a></li></ul>
+    <h2 class="wk-sidebar-heading">Agents</h2>
+    <ul><li><a class="wk-sidebar-item" href="#a"><span class="wk-dot" data-size="sm" data-tone="working" aria-hidden="true"></span><span class="wk-sidebar-label">claude-opus</span><span class="wk-sidebar-detail">Running</span></a></li>
+    <li><a class="wk-sidebar-item" href="#b"><span class="wk-dot" data-size="sm" aria-hidden="true"></span><span class="wk-sidebar-label">codex-high</span><span class="wk-sidebar-detail">Idle</span></a></li></ul>
+    <div class="wk-sidebar-footer">Connected</div>
+  </nav>
+  <section class="wk-pane-list" aria-label="Jobs" style="overflow:hidden">
+    <div class="wk-toolbar"><h1 class="wk-toolbar-title">Jobs</h1><span class="wk-toolbar-spacer"></span><button class="wk-button wk-button--primary" type="button">Check PR now…</button></div>
+    <div class="wk-pane-scroll" tabindex="0" aria-label="Job list">
+      <h3 class="wk-list-heading">Active <span>2</span></h3>
+      <ul class="wk-list" role="listbox" aria-label="Active">
+        <li class="wk-list-row" role="option" aria-selected="true"><span class="wk-dot-label"><span class="wk-dot" data-tone="working" aria-hidden="true"></span><b>Add KAS key rotation endpoint</b></span></li>
+        <li class="wk-list-row" role="option" aria-selected="false"><span class="wk-dot-label"><span class="wk-dot" data-shape="hollow" aria-hidden="true"></span><span>Bump Wails to v3.1.1</span></span></li>
+      </ul>
+    </div>
+  </section>
+  <aside class="wk-pane-inspector" aria-label="Details" tabindex="0">
+    <h2 class="wk-heading">Add KAS key rotation endpoint</h2>
+    <dl class="wk-facts"><dt>State</dt><dd>Running</dd><dt>Head</dt><dd class="wk-mono">a41c9e2</dd></dl>
+  </aside>
+</div></div>
+</body>
+</html>

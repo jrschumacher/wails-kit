@@ -80,7 +80,7 @@ ${section('type', 'Type scale', `
 ${section('tokens', 'Tokens', `<div id="demo-swatches" class="demo-swatches"></div>
 <dl id="demo-values" class="demo-values"></dl>`)}
 
-${section('dots', 'Status dot', dots, 'Shapes × tones, small (data-size="sm", 8 px), at the default size and at 14 px. Tones: neutral, working, attention; the working tone draws its outline in wk-color-working-ring. No state names.')}
+${section('dots', 'Status dot', dots, 'Shapes × tones, small (data-size="sm", 8 px), at the default size and at 14 px. Tones: neutral, working, attention (three only; there is no warning tone). A filled working dot at the default size and above shows the halo ring (running). No state names.')}
 
 ${section('buttons', 'Buttons and links', `
 <div class="demo-row">
@@ -165,26 +165,57 @@ ${section('choices', 'Checkbox, radio button, switch, select, filters, segmented
   </div>
 </div>`)}
 
-${section('chips', 'Chips and pills', `
+${section('chips', 'Chips', `
 <div class="demo-row">
   <span class="wk-chip">Label</span>
   <button class="wk-chip" type="button">Button chip</button>
   <button class="wk-chip" type="button" disabled>Disabled</button>
   <span class="wk-chip wk-chip--count">6</span>
   <span class="wk-chip wk-chip--count wk-chip--attention">2</span>
-  <span class="wk-chip wk-chip--lock">${icons.eye}View only</span>
-  <span class="wk-chip wk-chip--lock" data-level="manage">${icons.lock}Can manage</span>
-</div>`, 'A count chip\'s number uses wk-color-text-secondary-on-selected, which reaches 4.5:1 on its tint and on a selected row.')}
+  <span class="wk-chip"><span class="wk-dot" data-size="sm" data-tone="working" aria-hidden="true"></span>export · running</span>
+  <span class="wk-chip"><span class="wk-dot" data-size="sm" aria-hidden="true"></span>check · 3 findings</span>
+  <span class="wk-chip wk-chip--muted">No runs yet</span>
+  <span class="wk-chip wk-chip--access">${icons.eye}View only</span>
+  <span class="wk-chip wk-chip--access" data-level="manage">${icons.lock}Can manage</span>
+</div>`, 'A count chip\'s number uses wk-color-text-secondary-on-selected, which reaches 4.5:1 on its tint and on a selected row. A chip may lead with a small status dot, then the item and its state in words; a muted (dashed) chip says something is absent.')}
 
 ${section('table', 'Table', `
 <table class="wk-table">
-  <thead><tr><th>Name</th><th>Kind</th><th>Status</th><th class="wk-num">Size</th><th><span class="demo-sr">Actions</span></th></tr></thead>
+  <thead><tr><th>Name</th><th>Kind</th><th>Status</th><th class="wk-num">Size</th><th><span class="wk-visually-hidden">Actions</span></th></tr></thead>
   <tbody>
     <tr><td><span class="wk-secondary">reports/</span>summary.pdf</td><td>PDF document</td><td><span class="demo-state"><span class="wk-dot" data-shape="ringed" data-tone="working" aria-hidden="true"></span>Uploading</span></td><td class="wk-num">1.2 MB</td><td><a class="wk-link" href="#table">Open</a></td></tr>
     <tr aria-current="true"><td><span class="wk-secondary">reports/</span>figures.csv</td><td>Spreadsheet</td><td><span class="demo-state"><span class="wk-dot" aria-hidden="true"></span>Saved</span></td><td class="wk-num">48 KB</td><td><a class="wk-link" href="#table">Open</a></td></tr>
     <tr><td><span class="wk-secondary">reports/</span>draft.txt</td><td>Text</td><td class="wk-secondary">Queued</td><td class="wk-num wk-secondary">2 KB</td><td></td></tr>
   </tbody>
-</table>`, 'The second row is the current one (aria-current="true"); aria-selected="true" looks the same inside a grid.')}
+</table>
+<table class="wk-table wk-table--zebra demo-zebra" id="demo-zebra">
+  <thead><tr><th>Name</th><th>State</th><th class="wk-num">Runs</th><th><span class="wk-visually-hidden">Actions</span></th></tr></thead>
+  <tbody>
+    <tr><td><button class="wk-table-name" type="button">alpha</button></td><td><span class="demo-state"><span class="wk-dot" data-tone="working" aria-hidden="true"></span>Running</span></td><td class="wk-num">19</td><td><span class="wk-table-actions"><button class="wk-button wk-button--small" type="button">Pause</button><button class="wk-button wk-button--small" type="button">Stop…</button></span></td></tr>
+    <tr><td><button class="wk-table-name" type="button">beta</button></td><td><span class="demo-state"><span class="wk-dot" aria-hidden="true"></span>Ready</span></td><td class="wk-num">4</td><td><span class="wk-table-actions"><button class="wk-button wk-button--small" type="button">Pause</button><button class="wk-button wk-button--small" type="button">Stop…</button></span></td></tr>
+    <tr data-muted><td><button class="wk-table-name" type="button">gamma</button></td><td><span class="demo-state"><span class="wk-dot" data-shape="dashed" aria-hidden="true"></span>Removed</span></td><td class="wk-num">0</td><td></td></tr>
+    <tr aria-selected="true"><td><button class="wk-table-name" type="button">delta</button></td><td><span class="demo-state"><span class="wk-dot" data-shape="half" aria-hidden="true"></span>On break</span></td><td class="wk-num">7</td><td><span class="wk-table-actions"><button class="wk-button wk-button--small" type="button">Resume</button></span></td></tr>
+  </tbody>
+</table>`, 'The first table\'s second row is the current one (aria-current="true"); aria-selected="true" looks the same inside a grid. The second is wk-table--zebra: each name is a wk-table-name button that opens the item, the actions sit in wk-table-actions (its header is wk-visually-hidden), the third row no longer counts (data-muted) and the fourth is selected (aria-selected="true"): selection wins over the zebra tint. Its running dot has the halo: the filled working dot at the default size.')}
+
+${section('list', 'List', `
+<div class="demo-lists">
+  <div>
+    <h3 class="wk-list-heading">Active <span>3</span></h3>
+    <ul class="wk-list" role="listbox" aria-label="Active">
+      <li class="wk-list-row" role="option" aria-selected="true" tabindex="0"><span class="wk-dot-label"><span class="wk-dot" data-tone="working" aria-hidden="true"></span><b>Export the quarterly report</b></span><span class="wk-secondary demo-list-meta">Running · started 2 min ago</span><span class="demo-list-chips"><span class="wk-chip">PDF</span><span class="wk-chip">48 pages</span></span></li>
+      <li class="wk-list-row" role="option" aria-selected="false" tabindex="-1"><span class="wk-dot-label"><span class="wk-dot" data-shape="hollow" aria-hidden="true"></span><b>Sync the shared folder</b></span><span class="wk-secondary demo-list-meta">Queued · after the export</span></li>
+      <li class="wk-list-row" role="option" aria-selected="false" tabindex="-1"><span class="wk-dot-label"><span class="wk-dot" data-tone="attention" aria-hidden="true"></span><b>Upload figures.csv</b></span><span class="wk-secondary demo-list-meta">Failed · the server refused the file</span></li>
+    </ul>
+  </div>
+  <div>
+    <h3 class="wk-list-heading">Recent <span>41</span></h3>
+    <ul class="wk-list" role="listbox" aria-label="Recent">
+      <li class="wk-list-row" role="option" aria-selected="false" tabindex="0"><span class="wk-dot-label"><span class="wk-dot" aria-hidden="true"></span><b>Back up the workspace</b></span><span class="wk-secondary demo-list-meta">Done · 38 min ago</span></li>
+      <li class="wk-list-row" role="option" aria-selected="false" tabindex="-1"><span class="wk-dot-label"><span class="wk-dot" data-shape="bar" aria-hidden="true"></span><b>Rebuild the search index</b></span><span class="wk-secondary demo-list-meta">Skipped · 3 h ago</span></li>
+    </ul>
+  </div>
+</div>`, 'Rows of any height, laid out by the app; the first row is selected (aria-selected="true"; aria-current looks the same). Secondary text on the selected row uses wk-color-text-secondary-on-selected. The app moves focus between rows; this page does it as the design system describes: Up and Down move, Home and End jump, Space or a click selects.')}
 
 ${section('layout', 'Three-pane layout: sidebar, toolbar, list, inspector', `
 <div class="wk-three-pane demo-frame">
@@ -194,32 +225,35 @@ ${section('layout', 'Three-pane layout: sidebar, toolbar, list, inspector', `
       <li><a class="wk-sidebar-item" href="#layout">${icons.history}<span class="wk-sidebar-label">History</span></a></li>
       <li><details open><summary class="wk-sidebar-item">${icons.items}<span class="wk-sidebar-label">Items</span><span class="wk-chip wk-chip--count">2</span></summary>
         <ul>
-          <li><a class="wk-sidebar-item" href="#layout"><span class="wk-dot" data-tone="working" aria-hidden="true"></span><span class="wk-sidebar-label">alpha</span></a></li>
-          <li><a class="wk-sidebar-item" href="#layout"><span class="wk-dot" data-shape="dashed" data-tone="neutral" aria-hidden="true"></span><span class="wk-sidebar-label">beta</span></a></li>
+          <li><a class="wk-sidebar-item" href="#layout"><span class="wk-dot" data-size="sm" data-tone="working" aria-hidden="true"></span><span class="wk-sidebar-label">alpha</span><span class="wk-sidebar-detail">Running</span></a></li>
+          <li><a class="wk-sidebar-item" href="#layout"><span class="wk-dot" data-size="sm" data-shape="dashed" data-tone="neutral" aria-hidden="true"></span><span class="wk-sidebar-label">beta</span><span class="wk-sidebar-detail">Idle</span></a></li>
         </ul></details></li>
       <li><a class="wk-sidebar-item" href="#layout">${icons.book}<span class="wk-sidebar-label">Sources</span><span class="wk-chip wk-chip--count wk-chip--attention">1</span></a></li>
     </ul>
     <p class="wk-sidebar-heading">Group heading</p>
-    <ul><li><a class="wk-sidebar-item" href="#layout"><span class="wk-dot" data-shape="half" aria-hidden="true"></span><span class="wk-sidebar-label">gamma</span></a></li></ul>
+    <ul><li><a class="wk-sidebar-item" href="#layout"><span class="wk-dot" data-size="sm" data-shape="half" aria-hidden="true"></span><span class="wk-sidebar-label">gamma</span></a></li></ul>
     <div class="wk-sidebar-footer">server.example</div>
   </nav>
   <section class="wk-pane-list" aria-label="List">
     <header class="wk-toolbar">
       <button class="wk-button wk-button--quiet wk-button--icon" type="button" aria-label="Toggle sidebar">${icons.panel}</button>
-      <h3 class="wk-toolbar-title">Now</h3>
+      <h3 class="wk-toolbar-title">Now <span class="wk-toolbar-subtitle">last 14 days</span></h3>
       <span class="wk-toolbar-spacer"></span>
       <div class="wk-search"><input class="wk-field demo-search" type="search" placeholder="Search" aria-label="Search"></div>
       <span class="wk-chip">Read only</span>
       <button class="wk-button" type="button">New</button>
     </header>
+    <div class="wk-pane-scroll" tabindex="0" aria-label="Items" id="demo-pane-scroll">
     <table class="wk-table">
       <thead><tr><th>Name</th><th>State</th><th class="wk-num">Items</th></tr></thead>
       <tbody>
         <tr><td><b>alpha</b></td><td><span class="demo-state"><span class="wk-dot" data-shape="ringed" data-tone="working" aria-hidden="true"></span>Working</span></td><td class="wk-num">19</td></tr>
         <tr aria-current="true"><td><b>beta</b></td><td><span class="demo-state"><span class="wk-dot" aria-hidden="true"></span>Ready</span></td><td class="wk-num">4</td></tr>
         <tr><td><b>gamma</b></td><td><span class="demo-state"><span class="wk-dot" data-tone="attention" aria-hidden="true"></span>Needs you</span></td><td class="wk-num">0</td></tr>
+        ${['delta', 'epsilon', 'zeta', 'eta', 'theta', 'iota', 'kappa'].map(n => `<tr><td><b>${n}</b></td><td><span class="demo-state"><span class="wk-dot" data-shape="hollow" aria-hidden="true"></span>Offline</span></td><td class="wk-num">0</td></tr>`).join('')}
       </tbody>
     </table>
+    </div>
   </section>
   <aside class="wk-pane-inspector" aria-label="Inspector">
     <h3 class="wk-heading">beta</h3>
@@ -332,9 +366,16 @@ ${section('section-headings', 'Section heading', `
 
 ${section('code', 'Code block', `
 <div class="demo-grid">
-  <div class="wk-codeblock"><code>join:v1:AAAA-BBBB-CCCC-DDDD-EEEE-FFFF</code><button class="wk-copy" type="button" aria-label="Copy the code" title="Copy">${icons.copy}</button></div>
-  <div class="wk-codeblock wk-codeblock--scroll"><pre tabindex="0" role="region" aria-label="Log">${Array.from({ length: 14 }, (_, i) => `12:${String(i).padStart(2, '0')}:07 step ${i + 1} finished`).join('\n')}</pre></div>
-</div>`, 'One value with the copy button; lines in a pre (wk-codeblock--scroll stops at 200 px; a pre that scrolls takes focus, with a role and a name, so the keyboard can scroll it).')}
+  <div class="wk-code"><code>join:v1:AAAA-BBBB-CCCC-DDDD-EEEE-FFFF</code><button class="wk-copy" type="button" aria-label="Copy the code" title="Copy">${icons.copy}</button></div>
+  <div class="wk-code wk-code--scroll"><pre tabindex="0" role="region" aria-label="Log">${Array.from({ length: 14 }, (_, i) => `12:${String(i).padStart(2, '0')}:07 step ${i + 1} finished`).join('\n')}</pre></div>
+</div>`, 'One value with the copy button; lines in a pre (wk-code--scroll stops at 200 px; a pre that scrolls takes focus, with a role and a name, so the keyboard can scroll it).')}
+
+${section('range', 'Range', `
+<div class="demo-ranges" id="demo-ranges">
+  <span>First share</span><input class="wk-range" id="demo-range" type="range" min="0" max="100" step="5" value="60" aria-label="First share"><output for="demo-range">60%</output>
+  <span>Second share</span><input class="wk-range" type="range" min="0" max="100" step="5" value="30" aria-label="Second share"><output>30%</output>
+  <span>Disabled</span><input class="wk-range" type="range" min="0" max="100" value="25" aria-label="Disabled example" disabled><output>25%</output>
+</div>`, 'The app sets --wk-range-value to the filled share and updates it on input, with the value in words beside the slider. The arrow keys step it.')}
 
 ${section('steppers', 'Stepper', `
 <div class="demo-row">
@@ -404,6 +445,18 @@ ${section('menus', 'Menu, context menu, tooltip', `
     <div role="menuitemcheckbox" aria-checked="true">Compact rows</div>
   </div>
   <span class="wk-tooltip demo-in-flow">Copies the code to the clipboard</span>
+</div>
+<p class="wk-caption demo-note">Inline (wk-menu--inline in a &lt;wk-menu&gt; with no button), in a popover surface: the same keys, in place, one tab stop. The first item is a link.</p>
+<div class="wk-popover demo-inline-menu">
+  <wk-menu id="demo-inline">
+    <div role="menu" class="wk-menu wk-menu--inline" aria-label="App">
+      <a role="menuitem" href="#menus" data-value="help">Help<span class="wk-menu-shortcut">F1</span></a>
+      <button role="menuitem" type="button" data-value="settings">Settings…<span class="wk-menu-shortcut">Ctrl+,</span></button>
+      <button role="menuitem" type="button" aria-disabled="true" data-value="update">Check for updates (disabled)</button>
+      <div role="separator"></div>
+      <button role="menuitem" type="button" data-value="quit">Quit<span class="wk-menu-shortcut">Ctrl+Q</span></button>
+    </div>
+  </wk-menu>
 </div>`)}
 
 ${section('dialogs', 'Dialog, sheet, popover surface', `
@@ -505,6 +558,31 @@ document.getElementById('demo-filters').addEventListener('click', e => {
   const b = e.target.closest('.wk-filter');
   if (b && !b.disabled) b.setAttribute('aria-pressed', String(b.getAttribute('aria-pressed') !== 'true'));
 });
+// The list rows: what an app does for a wk-list (roving focus, Up and Down
+// move, Home and End jump, Space or a click selects the row).
+for (const list of document.querySelectorAll('#list .wk-list')) {
+  const rows = () => [...list.querySelectorAll('.wk-list-row')];
+  const focusRow = row => { for (const r of rows()) r.tabIndex = r === row ? 0 : -1; row.focus(); };
+  const select = row => { for (const r of rows()) r.setAttribute('aria-selected', String(r === row)); };
+  list.addEventListener('click', e => { const row = e.target.closest('.wk-list-row'); if (row) { focusRow(row); select(row); } });
+  list.addEventListener('keydown', e => {
+    const all = rows(), at = all.indexOf(e.target.closest('.wk-list-row'));
+    if (at < 0) return;
+    const to = { ArrowDown: Math.min(at + 1, all.length - 1), ArrowUp: Math.max(at - 1, 0), Home: 0, End: all.length - 1 }[e.key];
+    if (to !== undefined) { e.preventDefault(); focusRow(all[to]); }
+    else if (e.key === ' ') { e.preventDefault(); select(all[at]); }
+  });
+}
+// A range's filled share follows its value. Set from script (CSSOM), which
+// a Content-Security-Policy without 'unsafe-inline' allows; a style=""
+// attribute it would block.
+const rangeShare = r => {
+  const share = `${Math.round((r.value - r.min) / (r.max - r.min) * 100)}%`;
+  r.style.setProperty('--wk-range-value', share);
+  r.nextElementSibling.textContent = share;
+};
+document.querySelectorAll('#demo-ranges .wk-range').forEach(rangeShare);
+document.getElementById('demo-ranges').addEventListener('input', e => rangeShare(e.target));
 const log = document.getElementById('demo-log');
 window.kitEvents = [];
 for (const type of ['wk-open', 'wk-close', 'wk-select', 'wk-change', 'wk-toggle']) {
