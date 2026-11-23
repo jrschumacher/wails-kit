@@ -1,0 +1,24 @@
+/* Layout for the editor's review pages only; not part of the package.
+   Scoped under :where(.wk-root) like @wails-kit/ui, without adding
+   specificity, and coloured only with --wk-* tokens. */
+:where(.wk-root) .demo { max-width: 1040px; margin: 0 auto; padding: var(--wk-space-5) var(--wk-space-4) var(--wk-space-6); }
+:where(.wk-root) .demo p { margin: 0; }
+:where(.wk-root) .demo-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--wk-space-4); margin-bottom: var(--wk-space-2); }
+:where(.wk-root) .demo-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wk-space-3); }
+:where(.wk-root) .demo-section { padding: var(--wk-space-5) 0; border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+:where(.wk-root) .demo-section > .wk-heading { margin: 0 0 var(--wk-space-2); }
+:where(.wk-root) .demo-note { margin: 0 0 var(--wk-space-3) !important; }
+:where(.wk-root) .demo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--wk-space-4); }
+:where(.wk-root) .demo-figure { display: flex; flex-direction: column; gap: var(--wk-space-1); min-width: 0; margin: 0; }
+:where(.wk-root) .demo-grid .wk-code-editor { height: 180px; min-width: 0; }
+:where(.wk-root) #demo-editor { height: 200px; }
+:where(.wk-root) .demo-mirror { margin: var(--wk-space-2) 0 0; font-family: inherit; }
+:where(.wk-root) .demo-highlight {
+  margin: 0; padding: var(--wk-space-2) 0; overflow-x: auto;
+  border: var(--wk-hairline-width) solid var(--wk-color-control-border); border-radius: var(--wk-radius-control);
+  background: var(--wk-color-control); color: var(--wk-color-text);
+  font-family: var(--wk-font-family-mono); font-size: var(--wk-font-size-sm); line-height: var(--wk-line-height);
+}
+:where(.wk-root) .demo-highlight-line { display: block; padding: 0 var(--wk-space-2); white-space: pre; }
+:where(.wk-root) .demo-highlight-marker { display: inline-block; width: 2ch; color: var(--wk-color-text-secondary); user-select: none; }
+:where(.wk-root) .demo-log { min-height: 4em; margin: 0; font-family: var(--wk-font-family-mono); font-size: var(--wk-font-size-sm); color: var(--wk-color-text-secondary); white-space: pre-wrap; }

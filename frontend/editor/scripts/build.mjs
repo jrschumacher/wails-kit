@@ -1,0 +1,112 @@
+#!/usr/bin/env node
+// Builds dist/ for apps to vendor: one ES module per editor entry, with its
+// libraries bundled (esbuild, minified), so it loads nothing at run time.
+//   dist/<entry>.js                one standalone module per entry in ENTRIES
+//   dist/<entry>.d.ts              its TypeScript types (copied from src/)
+//   dist/THIRD-PARTY-LICENSES.txt  the licence of every bundled package,
+//                                  read from node_modules, and the entries
+//                                  that bundle it
+// Usage: node scripts/build.mjs [outDir]  (default: dist)
+// test/build.test.mjs builds in memory and checks that the committed dist/
+// matches.
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import * as esbuild from 'esbuild';
+
+export const root = fileURLToPath(new URL('..', import.meta.url));
+const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
+
+// One entry per editor: dist/<name>.js from src/<name>/index.js. An entry
+// may import src/shared/ but never another entry's folder.
+export const ENTRIES = ['code'];
+
+const banner = name => `/* ${pkg.name}/${name} ${pkg.version}. Built by scripts/build.mjs from src/${name}/; do not edit. `
+  + 'Bundles third-party code; see THIRD-PARTY-LICENSES.txt beside this file. */';
+
+// CodeMirror injects its styles through style-mod, which on a document
+// writes a <style> element: a page whose CSP has no 'unsafe-inline' style-src
+// (the kit's pages use default-src 'self') blocks it, and the editor renders
+// unstyled. Constructable stylesheets adopted by the document are not inline
+// styles, and style-mod already uses them for shadow roots, so the build lets
+// it use them for the document too (Chrome/WebView2 73+, Safari 16.4+). A
+// browser without them still gets the <style> element. The build fails if
+// style-mod changes and the line is gone.
+export const STYLE_MOD_PATCH = {
+  from: 'if (!root.head && root.adoptedStyleSheets && win.CSSStyleSheet) {',
+  to: 'if (root.adoptedStyleSheets && win.CSSStyleSheet) { // patched by @wails-kit/editor scripts/build.mjs (CSP)',
+};
+const adoptStyles = {
+  name: 'style-mod-adopted-sheets',
+  setup(b) {
+    b.onLoad({ filter: /[\\/]node_modules[\\/]style-mod[\\/].*\.js$/ }, args => {
+      const text = readFileSync(args.path, 'utf8');
+      if (!text.includes(STYLE_MOD_PATCH.from)) throw new Error(`${args.path}: the style-mod line scripts/build.mjs patches is gone; review STYLE_MOD_PATCH`);
+      return { contents: text.replace(STYLE_MOD_PATCH.from, STYLE_MOD_PATCH.to), loader: 'js' };
+    });
+  },
+};
+
+// The package a bundled file belongs to: its folder under node_modules.
+function packageOf(input) {
+  const m = input.match(/(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)\//);
+  return m ? m[1] : null;
+}
+
+function licenceText(name) {
+  const dir = path.join(root, 'node_modules', name);
+  const file = readdirSync(dir).filter(f => /^(licen[cs]e|copying)(\.(md|txt))?$/i.test(f)).sort()[0];
+  if (!file) throw new Error(`${name} has no licence file`);
+  return readFileSync(path.join(dir, file), 'utf8').replace(/\r\n/g, '\n').trim();
+}
+
+/** Builds every entry in memory: { files: { [name]: text }, inputs and imports: { [entry]: [path] }, packages }. */
+export async function build() {
+  const files = {}, inputs = {}, imports = {}, bundled = new Map();
+  for (const name of ENTRIES) {
+    const result = await esbuild.build({
+      absWorkingDir: root,
+      entryPoints: [`src/${name}/index.js`],
+      bundle: true,
+      format: 'esm',
+      platform: 'browser',
+      target: 'es2020',
+      minify: true,
+      legalComments: 'none',
+      charset: 'utf8',
+      banner: { js: banner(name) },
+      write: false,
+      metafile: true,
+      logLevel: 'silent',
+      plugins: [adoptStyles],
+    });
+    files[`${name}.js`] = result.outputFiles[0].text;
+    inputs[name] = Object.keys(result.metafile.inputs).sort();
+    imports[name] = Object.values(result.metafile.outputs)[0].imports.map(i => i.path);
+    for (const input of inputs[name]) {
+      const p = packageOf(input);
+      if (!p) continue;
+      if (!bundled.has(p)) bundled.set(p, new Set());
+      bundled.get(p).add(name);
+    }
+    const types = path.join(root, 'src', name, 'index.d.ts');
+    if (!existsSync(types)) throw new Error(`src/${name}/index.d.ts is missing`);
+    files[`${name}.d.ts`] = readFileSync(types, 'utf8');
+  }
+  const sections = [...bundled.keys()].sort().map(name => {
+    const meta = JSON.parse(readFileSync(path.join(root, 'node_modules', name, 'package.json'), 'utf8'));
+    const rule = '-'.repeat(72);
+    return `${rule}\n${name} ${meta.version} (${meta.license})\nBundled in: ${[...bundled.get(name)].sort().map(e => `${e}.js`).join(', ')}\n${rule}\n\n${licenceText(name)}\n`;
+  });
+  files['THIRD-PARTY-LICENSES.txt'] = `Third-party software bundled in ${pkg.name} ${pkg.version} dist/.\n`
+    + 'Generated by scripts/build.mjs from the packages in node_modules; do not edit.\n\n' + sections.join('\n');
+  return { files, inputs, imports, packages: [...bundled.keys()].sort() };
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const out = path.resolve(root, process.argv[2] || 'dist');
+  mkdirSync(out, { recursive: true });
+  const { files } = await build();
+  for (const [name, text] of Object.entries(files)) writeFileSync(path.join(out, name), text);
+  console.log(`built ${Object.keys(files).map(f => `${path.relative(process.cwd(), out) || '.'}/${f}`).join(', ')}`);
+}

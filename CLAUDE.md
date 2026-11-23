@@ -30,7 +30,7 @@ Go module at `github.com/jrschumacher/wails-kit` with these packages:
 - `lifecycle` — Service lifecycle manager with dependency ordering
 - `shortcuts` — Native menu shortcuts and keyboard accelerators
 
-Frontend packages live under `frontend/`: `@wails-kit/types`, `@wails-kit/settings` and `@wails-kit/ui` (base UI kit, theme file and settings window; see `frontend/ui/README.md`).
+Frontend packages live under `frontend/`: `@wails-kit/types`, `@wails-kit/settings`, `@wails-kit/ui` (base UI kit, theme file and settings window; see `frontend/ui/README.md`) and `@wails-kit/editor` (opt-in editors on bundled libraries, themed by the kit's tokens; see `frontend/editor/README.md`).
 
 ## Documentation
 
@@ -59,7 +59,7 @@ type(scope): description
 
 **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
 
-**Scopes** (optional, use the package name): `appdirs`, `database`, `diagnostics`, `keyring`, `taskfiles`, `settings`, `state`, `errors`, `events`, `lifecycle`, `logging`, `shortcuts`, `ui`, `updates`
+**Scopes** (optional, use the package name): `appdirs`, `database`, `diagnostics`, `editor`, `keyring`, `taskfiles`, `settings`, `state`, `errors`, `events`, `lifecycle`, `logging`, `shortcuts`, `ui`, `updates`
 
 Examples:
 - `feat(updates): add GitHub Releases auto-update`
@@ -89,7 +89,7 @@ Before committing, always run lint and tests locally to catch issues before CI:
 task check
 ```
 
-This runs `golangci-lint run ./...`, `go test ./...` and the frontend packages' checks (including `frontend/ui`'s build check, node tests and browser tests). All must pass before committing and pushing.
+This runs `golangci-lint run ./...`, `go test ./...` and the frontend packages' checks (including the build checks, node tests and browser tests of `frontend/ui` and `frontend/editor`). All must pass before committing and pushing.
 
 ### Testing
 

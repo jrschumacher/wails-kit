@@ -121,6 +121,11 @@ tokens, light and dark for each colour, the same values in both dark blocks,
 for the working ring on the background. An app should check its own theme the
 same way.
 
+The code syntax colours, `--wk-color-code-keyword`, `-string`, `-number`,
+`-comment`, `-type` and `-function`, are kit-held: a theme does not set them.
+[`@wails-kit/editor`](../editor/README.md)'s code editor and highlighter use
+them, and each reaches 4.5:1 on `--wk-color-control` in light and dark.
+
 ## Components
 
 CSS (`src/components.css`): each is a class on a native element; its states
@@ -256,7 +261,8 @@ npm run test:browser   # custom elements and the settings window, in Chrome
 `npm test` checks that every `var(--wk-…)` used is defined, that every colour
 token has light and dark values (and the same values in both dark blocks),
 that themes set only theme tokens and meet the contrast rules, that colours in
-component rules come from tokens, that every selector is scoped, that nothing
+component rules come from tokens, that the code syntax colours reach 4.5:1 on
+the control colour, that every selector is scoped, that nothing
 loads from outside the package or names an app, the chart's layout rules, the
 settings window's rules, and that `dist/` matches a fresh build.
 

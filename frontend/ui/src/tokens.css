@@ -56,6 +56,14 @@
   --wk-color-chart-3: #3f73c4;
   --wk-color-chart-4: #8a55a6;
   --wk-color-chart-5: #b8592c;
+  /* Code syntax (the editor package's code editor and highlighter): each
+     reaches 4.5:1 on wk-color-control. */
+  --wk-color-code-keyword: #8a3d9e;
+  --wk-color-code-string: #1d6b42;
+  --wk-color-code-number: #9a4a12;
+  --wk-color-code-comment: #687080;
+  --wk-color-code-type: #1b6585;
+  --wk-color-code-function: #3355b0;
   /* Shadows */
   --wk-shadow-control: 0 1px 0 rgba(15, 20, 30, .04);
   --wk-shadow-raised: 0 .5px 2px rgba(15, 20, 30, .2);
@@ -134,6 +142,12 @@
     --wk-color-chart-3: #79a6ee;
     --wk-color-chart-4: #b98bd0;
     --wk-color-chart-5: #e0825a;
+    --wk-color-code-keyword: #d29be6;
+    --wk-color-code-string: #8cce9f;
+    --wk-color-code-number: #e7a46e;
+    --wk-color-code-comment: #959cab;
+    --wk-color-code-type: #71c3d6;
+    --wk-color-code-function: #91b3f2;
     --wk-shadow-control: 0 1px 0 rgba(0, 0, 0, .25);
     --wk-shadow-raised: 0 .5px 2px rgba(0, 0, 0, .5);
     --wk-shadow-popover: 0 12px 30px -8px rgba(0, 0, 0, .7), 0 0 0 1px rgba(255, 255, 255, .08);
@@ -171,6 +185,12 @@
   --wk-color-chart-3: #79a6ee;
   --wk-color-chart-4: #b98bd0;
   --wk-color-chart-5: #e0825a;
+  --wk-color-code-keyword: #d29be6;
+  --wk-color-code-string: #8cce9f;
+  --wk-color-code-number: #e7a46e;
+  --wk-color-code-comment: #959cab;
+  --wk-color-code-type: #71c3d6;
+  --wk-color-code-function: #91b3f2;
   --wk-shadow-control: 0 1px 0 rgba(0, 0, 0, .25);
   --wk-shadow-raised: 0 .5px 2px rgba(0, 0, 0, .5);
   --wk-shadow-popover: 0 12px 30px -8px rgba(0, 0, 0, .7), 0 0 0 1px rgba(255, 255, 255, .08);
