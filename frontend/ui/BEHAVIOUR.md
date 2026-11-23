@@ -455,8 +455,9 @@ A desktop app has places to show work that a web page doesn't. All of these are
 ## Building blocks
 
 They implement the rules above; an app uses these instead of its own. The timings and
-motion tokens, and the progress bar and spinner, ship (see the
-[README](README.md#busy-spinner-and-progress)); the rest are *planned*.
+motion tokens, the progress bar and spinner (see the
+[README](README.md#busy-spinner-and-progress)), and [Go task events](#go-task-events)
+(the `tasks` package) ship; the rest are *planned*.
 
 ### wkTask
 
@@ -495,7 +496,8 @@ a snapshot of every task in the list (running ones, and finished ones not yet
 dismissed): `{ id, parent, subject, kind, state, done, total, unit, step, steps,
 stage, words, stop, error: { code, userMsg, message }, retry: auto|manual|unsafe,
 nextTry, startedAt, updatedAt }`, where `state` is one of queued, running, waiting,
-paused, stalled, done, failed, cancelled or stopped.
+paused, stalled, done, failed, cancelled or stopped. See
+[`tasks/README.md`](../../tasks/README.md) for the field meanings and the Go API.
 
 - One event name keeps `Emitter.ReplayAll` right for a reloaded window: with
   `WithHistory`, it sends the latest event of each name still in the history's ring
@@ -585,7 +587,5 @@ Where shipped code doesn't yet follow this page:
 - `wk-copy` is styling only: the app copies, and nothing gives feedback.
 - The design system's Button card documents `disabled` and the locked state, but no
   busy state; the kit's README documents it.
-- The Go `errors` package's default messages say "Please try again" and "An unexpected
-  error occurred"; apps must register their own until the defaults follow this page.
 - `shortcuts` adds Edit > Undo only as the native role, which undoes text editing; an
   app can't yet label it or route it to its own undo.
