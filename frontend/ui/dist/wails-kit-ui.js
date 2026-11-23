@@ -835,9 +835,11 @@ window.addEventListener('click', e => {
 // attributes change at most every timings.progressValueEvery (5 s), so a
 // screen reader isn't flooded: a call within that window moves the fill
 // only, and the next call after it sets them. They change at once on the
-// first call, when done reaches total, when total, unit or text differs
-// from the last values set (so they never describe another total), and when
-// the clock reads earlier than the last set (a different clock). Nothing
+// first call, when done reaches total, when total or unit differs from the
+// last values set (so they never describe another total), and when
+// the clock reads earlier than the last set (a different clock). New text
+// alone waits for the next due update, so text that embeds the count can't
+// defeat the cap; pass aria: 'now' when the words must change at once. Nothing
 // fires later by itself: updates that stop inside the window leave the
 // attributes behind the fill, so a caller that pauses passes aria: 'now'
 // (wkTask does on waiting, pause and a change of stage). options.aria: true
@@ -855,10 +857,10 @@ function setProgress(bar, { done = 0, total, unit = '', text } = {}, { aria = tr
   const last = progressSet.get(bar);
   const first = !bar.hasAttribute('aria-valuenow') || !last;
   const due = first || aria === 'now' || (aria && (
-    now >= max || max !== last.max || unit !== last.unit || text !== last.text ||
+    now >= max || max !== last.max || unit !== last.unit ||
     at < last.at || at - last.at >= timings.progressValueEvery));
   if (!due) return;
-  progressSet.set(bar, { at, max, unit, text });
+  progressSet.set(bar, { at, max, unit });
   bar.setAttribute('aria-valuemin', '0');
   bar.setAttribute('aria-valuemax', String(max));
   bar.setAttribute('aria-valuenow', String(now));

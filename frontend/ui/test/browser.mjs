@@ -2029,8 +2029,10 @@ try {
         ],
       };
     });
-    // A new total, unit or words inside the window, and a clock that reads
-    // earlier than the last set, change the attributes at once.
+    // A new total or unit inside the window, and a clock that reads earlier
+    // than the last set, change the attributes at once; new words alone wait
+    // for the next due update, so words that embed the count can't defeat
+    // the cap.
     const changed = await page.evaluate(async () => {
       const { setProgress } = await import('/src/index.js');
       const bar = document.createElement('div');
@@ -2053,9 +2055,9 @@ try {
       ['10', '1', '1 of 10', '10%'],                  // a new total: at once
       ['10', '1', '1 of 10', '20%'],                  // within the window: fill only
       ['10', '2', '2 of 10 files', '20%'],            // a new unit: at once
-      ['10', '3', 'Step 2 of 3', '30%'],              // new words: at once
-      ['10', '3', 'Step 2 of 3', '40%'],              // the same again: fill only
-      ['10', '5', 'Step 2 of 3', '50%'],              // a clock reading earlier than the last set: at once
+      ['10', '2', '2 of 10 files', '30%'],            // new words alone: they wait for the next due update
+      ['10', '2', '2 of 10 files', '40%'],            // still waiting: fill only
+      ['10', '5', 'Step 2 of 3', '50%'],              // a clock reading earlier than the last set: at once, with the new words
     ]);
     assert.equal(capped.every, 5000);
     assert.deepEqual(capped.steps, [['1', '10%'], ['1', '20%'], ['1', '30%'], ['4', '40%'], ['5', '50%'], ['5', '60%'], ['10', '100%']]);

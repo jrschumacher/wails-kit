@@ -318,15 +318,14 @@ allows). The four value attributes change together, and at most every
 `timings.progressValueEvery` (5 s), so a screen reader isn't flooded: a call
 within 5 s of the last change moves the fill only, and the next call after
 that sets them. They change at once on the first call, when `done` reaches
-`total`, when `total`, `unit` or `text` differs from the last values set (so
-they never describe another total), and when `clock` reads earlier than the
-last set. Nothing fires later by itself: if the updates stop inside the
+`total`, when `total` or `unit` differs from the last values set (so they
+never describe another total), and when `clock` reads earlier than the last
+set. New `text` alone waits for the next due update, so words that embed the
+count ("Step 2 of 3 · 12 of 40 files") can't defeat the cap; pass `aria:
+'now'` when the words must change at once. Nothing fires later by itself: if the updates stop inside the
 window, the attributes stay behind the fill until the next call, so pass
 `aria: 'now'` when the work pauses or changes stage. The task helper
-(`wkTask`, #142) does so on waiting, pause and each change of stage. A `text`
-that changes on every call (one that embeds the count) changes the
-attributes on every call: put the count in `done` and `unit`, and keep
-`text` for words that change with the stage. `text` replaces the default words ("Step 2 of 3 · 12 of 40 files").
+(`wkTask`, #142) does so on waiting, pause and each change of stage. `text` replaces the default words ("Step 2 of 3 · 12 of 40 files").
 Options: `aria: 'now'` sets them whatever the cap (a change of stage),
 `aria: false` never does (except on the first call, since a bar without
 `aria-valuenow` is indeterminate), and `clock` returns milliseconds for the
