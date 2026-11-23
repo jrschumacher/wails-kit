@@ -123,8 +123,11 @@ panel included) leaves focus in the text.
 | `id` | the element's id | |
 
 **Event** `wk-change` (bubbles) after each edit: `detail` is `{ value }`. It
-fires before `onchange` is called. `code.d.ts` adds it to
-`HTMLElementEventMap`, so `addEventListener('wk-change', …)` is typed.
+fires before `onchange` is called. In `code.d.ts` the
+returned `CodeEditorElement` types `addEventListener('wk-change', …)` with a
+`CodeEditorChangeEvent` (`CustomEvent<{ value: string }>`); the global
+`HTMLElementEventMap` is left alone, since other kit elements fire `wk-change`
+with other details.
 
 ### Languages
 

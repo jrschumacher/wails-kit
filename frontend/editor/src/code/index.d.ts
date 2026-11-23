@@ -31,6 +31,14 @@ export interface CodeEditorSpec {
   onchange?: (value: string) => void;
 }
 
+/** The bubbling event after each edit. */
+export type CodeEditorChangeEvent = CustomEvent<{ value: string }>;
+
+/**
+ * The element wkCodeEditor returns. Its `wk-change` listener is typed here,
+ * not in the global HTMLElementEventMap: other kit elements (wk-tabs) fire
+ * `wk-change` with a different detail.
+ */
 export interface CodeEditorElement extends HTMLDivElement {
   /** The text. Setting it replaces the document and its undo history; after destroy() it does nothing. */
   value: string;
@@ -38,15 +46,12 @@ export interface CodeEditorElement extends HTMLDivElement {
   focus(): void;
   /** Tears the editor down; the element is left empty. */
   destroy(): void;
-}
-
-/** The bubbling event after each edit. */
-export type CodeEditorChangeEvent = CustomEvent<{ value: string }>;
-
-declare global {
-  interface HTMLElementEventMap {
-    'wk-change': CustomEvent<{ value: string }>;
-  }
+  addEventListener(type: 'wk-change', listener: (this: CodeEditorElement, ev: CodeEditorChangeEvent) => void, options?: boolean | AddEventListenerOptions): void;
+  addEventListener<K extends keyof HTMLElementEventMap>(type: K, listener: (this: HTMLDivElement, ev: HTMLElementEventMap[K]) => void, options?: boolean | AddEventListenerOptions): void;
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void;
+  removeEventListener(type: 'wk-change', listener: (this: CodeEditorElement, ev: CodeEditorChangeEvent) => void, options?: boolean | EventListenerOptions): void;
+  removeEventListener<K extends keyof HTMLElementEventMap>(type: K, listener: (this: HTMLDivElement, ev: HTMLElementEventMap[K]) => void, options?: boolean | EventListenerOptions): void;
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void;
 }
 
 export function wkCodeEditor(spec: CodeEditorSpec): CodeEditorElement;
