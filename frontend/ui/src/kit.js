@@ -5,7 +5,9 @@
 // named wk-*.
 //
 //   <wk-dialog>        a native <dialog>: modal, focus return, wk-open/wk-close
-//   <wk-menu>          WAI-ARIA menu button; wk-select
+//   <wk-menu>          WAI-ARIA menu button; wk-select. Around an inline
+//                      menu (.wk-menu--inline, no button): the same keys,
+//                      in place
 //   <wk-context-menu>  the same menu, opened by right-click, Shift+F10 or the
 //                      Menu key; wk-select
 //   <wk-tabs>          WAI-ARIA tabs, automatic activation; wk-change
@@ -113,13 +115,21 @@ class Wired extends HTMLElement {
 // losing focus, or a scroll that moves the menu's anchor also close it.
 // Whenever it closes with focus inside it, focus goes back where it was
 // before the menu opened, else to the anchor (the button or the context
-// target).
+// target). An item may be an <a href role="menuitem">: Enter and Space
+// follow its link, as a click does.
+//
+// inline: the menu is laid out in place (.wk-menu--inline) and never opens
+// or closes. Its items take one tab stop (roving tabindex: the last focused
+// item, else the first); the arrow keys, Home, End, typeahead, Enter and
+// Space work as in a floating menu; Escape and Tab are left to the page.
 const focusItem = el => el.focus({ preventScroll: true });
+const MENU_ITEMS = '[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"]';
 
 class MenuController {
-  constructor(host, menu, { onToggle, fallbacks = () => [] } = {}) {
+  constructor(host, menu, { onToggle, fallbacks = () => [], inline = false } = {}) {
     this.host = host;
     this.menu = menu;
+    this.inline = inline;
     this.onToggle = onToggle;
     this.fallbacks = fallbacks;
     this.returnFocus = null;
@@ -138,25 +148,57 @@ class MenuController {
       const now = scrollOf(scroller);
       if (now[0] !== before[0] || now[1] !== before[1]) this.close();
     };
-    menu.hidden = true;
-    menu.tabIndex = -1;
+    if (!inline) {
+      menu.hidden = true;
+      menu.tabIndex = -1;
+    }
     ensureId(menu, 'wk-menu');
     menu.addEventListener('keydown', e => this.keydown(e), { signal });
     menu.addEventListener('click', e => {
       const item = e.target.closest('[role^="menuitem"]');
-      if (item && menu.contains(item)) this.activate(item);
+      if (!item || !menu.contains(item)) return;
+      // A disabled link item does not follow its link either.
+      if (item.getAttribute('aria-disabled') === 'true') e.preventDefault();
+      this.activate(item);
     }, { signal });
     menu.addEventListener('pointermove', e => {
+      // An inline menu takes focus from the pointer only once it has it.
+      if (inline && !menu.contains(document.activeElement)) return;
       const item = e.target.closest('[role^="menuitem"]');
       if (item && menu.contains(item) && document.activeElement !== item) focusItem(item);
     }, { signal });
+    if (inline) {
+      menu.addEventListener('focusin', e => {
+        const item = e.target.closest('[role^="menuitem"]');
+        if (item && menu.contains(item)) this.rove(item);
+      }, { signal });
+      this.rove();
+    }
   }
 
-  get isOpen() { return !this.menu.hidden; }
+  get isOpen() { return !this.inline && !this.menu.hidden; }
 
+  // Inline menus: one item in the tab order, the given one, else the one
+  // that has it now, else the first. Hidden and disabled items leave the tab
+  // order, so hiding the tab stop passes it on.
+  rove(current) {
+    const items = this.items();
+    current = items.includes(current) ? current : items.find(el => el.tabIndex === 0 && el.hasAttribute('data-wk-rove')) || items[0];
+    for (const item of this.menu.querySelectorAll(MENU_ITEMS)) {
+      item.tabIndex = item === current ? 0 : -1;
+      item.setAttribute('data-wk-rove', '');
+    }
+  }
+
+  // The items that can take focus: not disabled, and not hidden inside the
+  // menu. A container around the menu is not consulted, so an inline menu
+  // inside a hidden section still has its tab stop when the section shows.
   items() {
-    return [...this.menu.querySelectorAll('[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"]')]
-      .filter(el => !el.hidden && !el.closest('[hidden]:not([role="menu"])'));
+    return [...this.menu.querySelectorAll(MENU_ITEMS)].filter(el => {
+      if (el.matches(':disabled')) return false;
+      for (let n = el; n && n !== this.menu; n = n.parentElement) if (n.hidden) return false;
+      return true;
+    });
   }
 
   open(rect, { focus = 'first', returnFocus = document.activeElement, side = 'below', anchor = null } = {}) {
@@ -223,12 +265,14 @@ class MenuController {
       case 'ArrowUp': e.preventDefault(); this.move(-1); break;
       case 'Home': case 'PageUp': e.preventDefault(); if (items[0]) focusItem(items[0]); break;
       case 'End': case 'PageDown': e.preventDefault(); if (items.length) focusItem(items[items.length - 1]); break;
-      case 'Escape': e.preventDefault(); e.stopPropagation(); this.close(); break;
-      case 'Tab': this.close(); break; // focus returns, then Tab moves on from there
+      case 'Escape': if (this.inline) break; e.preventDefault(); e.stopPropagation(); this.close(); break;
+      case 'Tab': if (!this.inline) this.close(); break; // focus returns, then Tab moves on from there
       case 'Enter': case ' ': {
         e.preventDefault();
         const item = e.target.closest('[role^="menuitem"]');
-        if (item) this.activate(item);
+        // A link item follows its link: its click (handled above) activates it.
+        if (item?.matches('a[href]')) { if (item.getAttribute('aria-disabled') !== 'true') item.click(); }
+        else if (item) this.activate(item);
         break;
       }
       default:
@@ -260,13 +304,25 @@ class MenuController {
 // attribute in markup, so it does not show before the element upgrades).
 // The WAI-ARIA menu button pattern: Enter, Space or a click opens it on the
 // first item; Down opens it on the first item and Up on the last.
+// Around an inline menu (a [role=menu] with class wk-menu--inline and no
+// button) it gives the items the menu's keys in place; see MenuController.
 class WkMenu extends Wired {
   wire() {
     if (!this.isConnected) return false;
     const button = this.querySelector(':scope > button');
     const menu = this.querySelector(':scope > [role="menu"]');
-    if (this.controller && button === this.button && menu === this.controller.menu) return true;
+    if (this.controller && button === this.button && menu === this.controller.menu) {
+      if (this.controller.inline) this.controller.rove(document.activeElement);
+      return true;
+    }
     this.unwire();
+    if (menu && !button && menu.classList.contains('wk-menu--inline')) {
+      this.controller = new MenuController(this, menu, { inline: true });
+      // Items may be added, replaced, hidden or disabled later: keep one
+      // in the tab order.
+      this.observer.observe(menu, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'disabled', 'aria-disabled'] });
+      return true;
+    }
     if (!button || !menu) return false;
     this.button = button;
     this.controller = new MenuController(this, menu, {
@@ -297,11 +353,13 @@ class WkMenu extends Wired {
     this.controller?.destroy();
     this.controller = null;
     this.button = null;
+    // Stop watching an inline menu's items; keep watching this element.
+    if (this.isConnected) { this.observer.disconnect(); this.observer.observe(this, { childList: true }); }
   }
 
   get open() { return Boolean(this.controller?.isOpen); }
   show(focus = 'first') {
-    if (this.wire()) this.controller.open(this.button.getBoundingClientRect(), { focus, returnFocus: this.button, anchor: this.button });
+    if (this.wire() && !this.controller.inline) this.controller.open(this.button.getBoundingClientRect(), { focus, returnFocus: this.button, anchor: this.button });
   }
   close() { this.controller?.close(); }
 }

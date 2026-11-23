@@ -1,0 +1,34 @@
+<!-- @dsCard group="Data" height=330 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>List</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--wk-space-4); padding: var(--wk-space-4) var(--wk-space-2); }
+  .row-meta { display: block; margin: 2px 0 0 18px; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+  .row-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0 18px; }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec">
+  <div>
+    <h3 class="wk-list-heading">Active and pending <span>3</span></h3>
+    <ul class="wk-list" role="listbox" aria-label="Active and pending">
+      <li class="wk-list-row" role="option" aria-selected="true" tabindex="0"><span class="wk-dot-label"><span class="wk-dot" data-tone="working" aria-hidden="true" style="--wk-dot-ground:var(--wk-color-bg)"></span><b>Add KAS key rotation endpoint</b></span><span class="row-meta">Running · opentdf/platform#2210</span><span class="row-chips"><span class="wk-chip"><span class="wk-dot" data-size="sm" data-tone="working" aria-hidden="true"></span>claude-opus · running</span><span class="wk-chip"><span class="wk-dot" data-size="sm" aria-hidden="true"></span>codex-high · 3 findings</span></span></li>
+      <li class="wk-list-row" role="option" aria-selected="false" tabindex="-1"><span class="wk-dot-label"><span class="wk-dot" data-tone="working" data-shape="half" aria-hidden="true"></span><b>Allocator: honour backoff</b></span><span class="row-meta">Posting · jrschumacher/peanut#201</span></li>
+      <li class="wk-list-row" role="option" aria-selected="false" tabindex="-1"><span class="wk-dot-label"><span class="wk-dot" data-shape="hollow" aria-hidden="true"></span><b>Bump Wails to v3.1.1</b></span><span class="row-meta">Queued · jrschumacher/muster#88</span><span class="row-chips"><span class="wk-chip wk-chip--muted">No reviewer runs yet</span></span></li>
+    </ul>
+  </div>
+  <div>
+    <h3 class="wk-list-heading">Recent <span>41</span></h3>
+    <ul class="wk-list" role="listbox" aria-label="Recent">
+      <li class="wk-list-row" role="option" aria-selected="false" tabindex="0"><span class="wk-dot-label"><span class="wk-dot" aria-hidden="true"></span><b>Fix proto field numbering</b></span><span class="row-meta">Done · 38 min ago</span></li>
+      <li class="wk-list-row" role="option" aria-selected="false" tabindex="-1"><span class="wk-dot-label"><span class="wk-dot" data-tone="attention" aria-hidden="true"></span><b>Retry flaky e2e matrix</b></span><span class="row-meta">Failed · 2 h ago</span></li>
+      <li class="wk-list-row" role="option" aria-selected="false" tabindex="-1"><span class="wk-dot-label"><span class="wk-dot" data-shape="bar" aria-hidden="true"></span><b>Use “machine” in UI copy</b></span><span class="row-meta">Superseded · 3 h ago</span></li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

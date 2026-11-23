@@ -2,23 +2,19 @@
    Copy this file into the app, change the values, and link it after the
    kit's stylesheet (dist/wails-kit-ui.css or src/ui.css) so it wins. As
    shipped it holds the kit's own defaults, so linking it unchanged changes
-   nothing.
+   nothing. THEMING.md is the contract; theme/check.mjs checks it.
 
-   A theme sets only these tokens (test/tokens.test.mjs checks the themes in
-   this folder, and an app can run the same check on its own):
-
-     Accent       --wk-color-accent, --wk-color-on-accent, --wk-color-selection
-                  primary buttons, links, focus ring, selected rows and tabs
-     Working      --wk-color-working, --wk-color-working-ring
-                  the "something is happening" state; the ring is a darker
-                  step for where working is under 3:1 on the background
-     Attention    --wk-color-attention, --wk-color-attention-text,
-                  --wk-color-attention-fill, --wk-color-destructive-text
-                  someone must act; destructive buttons
-     Charts       --wk-color-chart-1, --wk-color-chart-3
-                  the series that usually follow the accent and working
-     Type         --wk-font-family, --wk-font-features
-     Corners      --wk-radius-control, --wk-radius-group
+   Must set      identity: --wk-color-accent, --wk-color-on-accent,
+                 --wk-color-working, --wk-color-attention,
+                 --wk-color-attention-text
+   May set       grounds, all ten or none: --wk-color-bg, -sidebar,
+                 -surface, -control, -hairline, -hairline-strong,
+                 -control-border, -field-border, -text, -text-secondary
+                 --wk-font-family: fallbacks after the kit's first family
+                 --wk-radius-control, -group, -window: within 2px of the kit's
+   Must not set  --wk-color-selection, -chart-1, -destructive-text,
+                 -attention-fill: the kit derives them from the accent and
+                 attention (where color-mix() works; see THEMING.md)
 
    Every colour has a light value on :root and a dark value, written twice:
    under the dark media query on :root:not([data-theme="light"]), and on
@@ -26,47 +22,69 @@
    names must be bundled with the app (an @font-face here, pointing at a file
    the app ships); never load one from the network. */
 :root {
+  /* Identity: the app's own colours. A theme sets all five. */
   --wk-color-accent: #3d4452;
   --wk-color-on-accent: #ffffff;
-  --wk-color-selection: rgba(61, 68, 82, .1);
-  --wk-color-working: #3f73c4;
-  --wk-color-working-ring: #3f73c4;
+  --wk-color-working: #628ccf;
   --wk-color-attention: #c23a2c;
   --wk-color-attention-text: #a3301f;
-  --wk-color-attention-fill: rgba(194, 58, 44, .08);
-  --wk-color-destructive-text: #a3301f;
-  --wk-color-chart-1: #3d4452;
-  --wk-color-chart-3: #3f73c4;
-  --wk-font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  --wk-font-features: normal;
-  --wk-radius-control: 5px;
-  --wk-radius-group: 7px;
+  /* Grounds: optional, all ten or none. Delete the whole group to keep
+     the kit's neutrals. */
+  --wk-color-bg: #fcfcfb;
+  --wk-color-sidebar: #f0f1f3;
+  --wk-color-surface: #ffffff;
+  --wk-color-control: #ffffff;
+  --wk-color-hairline: #e6e7ea;
+  --wk-color-hairline-strong: #d3d5da;
+  --wk-color-control-border: #cfd2d8;
+  --wk-color-field-border: #858b95;
+  --wk-color-text: #1b1f27;
+  --wk-color-text-secondary: #626977;
+  /* Type and corners: optional. */
+  --wk-font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --wk-radius-control: 6px;
+  --wk-radius-group: 8px;
+  --wk-radius-window: 10px;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    /* Identity: the app's own colours. A theme sets all five. */
     --wk-color-accent: #c3c9d4;
     --wk-color-on-accent: #15181d;
-    --wk-color-selection: rgba(195, 201, 212, .14);
-    --wk-color-working: #79a6ee;
-    --wk-color-working-ring: #79a6ee;
+    --wk-color-working: #9dbff3;
     --wk-color-attention: #ee6b5f;
     --wk-color-attention-text: #f48c82;
-    --wk-color-attention-fill: rgba(238, 107, 95, .12);
-    --wk-color-destructive-text: #f48c82;
-    --wk-color-chart-1: #c3c9d4;
-    --wk-color-chart-3: #79a6ee;
+    /* Grounds: optional, all ten or none. Delete the whole group to keep
+       the kit's neutrals. */
+    --wk-color-bg: #181a1f;
+    --wk-color-sidebar: #131519;
+    --wk-color-surface: #1f2228;
+    --wk-color-control: #262a31;
+    --wk-color-hairline: #2a2e36;
+    --wk-color-hairline-strong: #3a3f49;
+    --wk-color-control-border: #3a3f49;
+    --wk-color-field-border: #707682;
+    --wk-color-text: #eceef2;
+    --wk-color-text-secondary: #9aa1ae;
   }
 }
 :root[data-theme="dark"] {
+  /* Identity: the app's own colours. A theme sets all five. */
   --wk-color-accent: #c3c9d4;
   --wk-color-on-accent: #15181d;
-  --wk-color-selection: rgba(195, 201, 212, .14);
-  --wk-color-working: #79a6ee;
-  --wk-color-working-ring: #79a6ee;
+  --wk-color-working: #9dbff3;
   --wk-color-attention: #ee6b5f;
   --wk-color-attention-text: #f48c82;
-  --wk-color-attention-fill: rgba(238, 107, 95, .12);
-  --wk-color-destructive-text: #f48c82;
-  --wk-color-chart-1: #c3c9d4;
-  --wk-color-chart-3: #79a6ee;
+  /* Grounds: optional, all ten or none. Delete the whole group to keep
+     the kit's neutrals. */
+  --wk-color-bg: #181a1f;
+  --wk-color-sidebar: #131519;
+  --wk-color-surface: #1f2228;
+  --wk-color-control: #262a31;
+  --wk-color-hairline: #2a2e36;
+  --wk-color-hairline-strong: #3a3f49;
+  --wk-color-control-border: #3a3f49;
+  --wk-color-field-border: #707682;
+  --wk-color-text: #eceef2;
+  --wk-color-text-secondary: #9aa1ae;
 }

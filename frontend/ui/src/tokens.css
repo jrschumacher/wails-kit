@@ -5,9 +5,11 @@
    data-theme="dark" whatever the system says. The two dark blocks hold the
    same values (test/tokens.test.mjs checks that they match). Sizes,
    type and radii are the same in both. An app's theme file overrides a few
-   of these (accent, state colours, font family, radii) after this stylesheet;
-   theme/theme.css lists them. The
-   accent and state defaults are deliberately plain so the kit stands alone.
+   of these after this stylesheet: THEMING.md is the contract, and
+   theme/theme.css lists the tokens with these defaults. The accent and
+   state defaults are deliberately plain so the kit stands alone. Four
+   colours are derived from the theme's (the block at the end); the literals
+   for them here are the fallback where color-mix() is missing.
    :root holds only these --wk-* custom properties; everything that styles
    the page is scoped under .wk-root (base.css). */
 :root {
@@ -26,19 +28,24 @@
   /* Lines */
   --wk-color-hairline: #e6e7ea;
   --wk-color-hairline-strong: #d3d5da;
+  /* Soft outline of buttons and segmented controls, which their face and
+     label already set apart. */
   --wk-color-control-border: #cfd2d8;
+  /* Outline of the controls known only by it: text fields, selects, search,
+     steppers, checkboxes, radios, an off switch. 3:1 or more on wk-color-bg
+     and wk-color-surface (WCAG 1.4.11). */
+  --wk-color-field-border: #858b95;
   /* Tints laid over any surface: rest, then hover and pressed. */
   --wk-color-fill: rgba(27, 31, 39, .045);
   --wk-color-fill-strong: rgba(27, 31, 39, .07);
   /* Accent: primary buttons, links, focus, selection. */
   --wk-color-accent: #3d4452;
   --wk-color-on-accent: #ffffff;
-  --wk-color-selection: rgba(61, 68, 82, .1);
-  /* State tones: the status dot and anything that must be acted on. */
-  --wk-color-working: #3f73c4;
-  /* The working dot's outline: a darker step of working where working alone
-     does not reach 3:1 on wk-color-bg (a theme's light working colour). */
-  --wk-color-working-ring: #3f73c4;
+  --wk-color-selection: rgba(61, 68, 82, .12);
+  /* State tones: the status dot and anything that must be acted on. Three
+     only (neutral is wk-color-text); no warning tone. Working and attention
+     each reach 3:1 on wk-color-bg and differ by 1.5:1 or more. */
+  --wk-color-working: #628ccf;
   --wk-color-attention: #c23a2c;
   --wk-color-on-attention: #ffffff;
   --wk-color-attention-text: #a3301f;
@@ -53,7 +60,7 @@
   /* Chart series, in order. */
   --wk-color-chart-1: #3d4452;
   --wk-color-chart-2: #1c8a72;
-  --wk-color-chart-3: #3f73c4;
+  --wk-color-chart-3: #628ccf;
   --wk-color-chart-4: #8a55a6;
   --wk-color-chart-5: #b8592c;
   /* Code syntax (the editor package's code editor and highlighter): each
@@ -64,6 +71,15 @@
   --wk-color-code-comment: #687080;
   --wk-color-code-type: #1b6585;
   --wk-color-code-function: #3355b0;
+  /* Diff rows: an added line's tint, a removed line's, and the stronger
+     step that marks the words that changed. Removed is the attention hue;
+     added is blue, not green, so the pair stays apart for red-green colour
+     blindness. The + and − markers carry the meaning; text reaches 4.5:1 on
+     every tint. */
+  --wk-color-diff-add: rgba(63, 115, 196, .1);
+  --wk-color-diff-add-strong: rgba(63, 115, 196, .24);
+  --wk-color-diff-del: rgba(194, 58, 44, .09);
+  --wk-color-diff-del-strong: rgba(194, 58, 44, .22);
   /* Shadows */
   --wk-shadow-control: 0 1px 0 rgba(15, 20, 30, .04);
   --wk-shadow-raised: 0 .5px 2px rgba(15, 20, 30, .2);
@@ -71,9 +87,11 @@
   --wk-shadow-dialog: 0 24px 48px -22px rgba(15, 20, 30, .45), 0 0 0 1px rgba(15, 20, 30, .1);
 
   /* Type */
-  --wk-font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --wk-font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   --wk-font-family-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
-  --wk-font-features: normal;
+  /* Inter's single-storey a (cv11) and round quotes and commas (ss03);
+     base.css turns them on. */
+  --wk-font-features: "cv11", "ss03";
   --wk-font-size-xs: 11px;
   --wk-font-size-sm: 12px;
   --wk-font-size-base: 13px;
@@ -95,8 +113,8 @@
   --wk-space-6: 32px;
   /* Radii */
   --wk-radius-small: 3px;
-  --wk-radius-control: 5px;
-  --wk-radius-group: 7px;
+  --wk-radius-control: 6px;
+  --wk-radius-group: 8px;
   --wk-radius-window: 10px;
   --wk-radius-pill: 999px;
   /* Sizes */
@@ -118,17 +136,17 @@
     --wk-color-control: #262a31;
     --wk-color-text: #eceef2;
     --wk-color-text-secondary: #9aa1ae;
-    --wk-color-text-secondary-on-selected: #b4bac5;
+    --wk-color-text-secondary-on-selected: #bbc0ca;
     --wk-color-hairline: #2a2e36;
     --wk-color-hairline-strong: #3a3f49;
     --wk-color-control-border: #3a3f49;
+    --wk-color-field-border: #707682;
     --wk-color-fill: rgba(236, 238, 242, .055);
     --wk-color-fill-strong: rgba(236, 238, 242, .09);
     --wk-color-accent: #c3c9d4;
     --wk-color-on-accent: #15181d;
-    --wk-color-selection: rgba(195, 201, 212, .14);
-    --wk-color-working: #79a6ee;
-    --wk-color-working-ring: #79a6ee;
+    --wk-color-selection: rgba(195, 201, 212, .16);
+    --wk-color-working: #9dbff3;
     --wk-color-attention: #ee6b5f;
     --wk-color-on-attention: #20100e;
     --wk-color-attention-text: #f48c82;
@@ -139,7 +157,7 @@
     --wk-color-on-inverse: #181a1f;
     --wk-color-chart-1: #c3c9d4;
     --wk-color-chart-2: #35b597;
-    --wk-color-chart-3: #79a6ee;
+    --wk-color-chart-3: #9dbff3;
     --wk-color-chart-4: #b98bd0;
     --wk-color-chart-5: #e0825a;
     --wk-color-code-keyword: #d29be6;
@@ -148,6 +166,10 @@
     --wk-color-code-comment: #959cab;
     --wk-color-code-type: #71c3d6;
     --wk-color-code-function: #91b3f2;
+    --wk-color-diff-add: rgba(121, 166, 238, .14);
+    --wk-color-diff-add-strong: rgba(121, 166, 238, .3);
+    --wk-color-diff-del: rgba(238, 107, 95, .14);
+    --wk-color-diff-del-strong: rgba(238, 107, 95, .3);
     --wk-shadow-control: 0 1px 0 rgba(0, 0, 0, .25);
     --wk-shadow-raised: 0 .5px 2px rgba(0, 0, 0, .5);
     --wk-shadow-popover: 0 12px 30px -8px rgba(0, 0, 0, .7), 0 0 0 1px rgba(255, 255, 255, .08);
@@ -161,17 +183,17 @@
   --wk-color-control: #262a31;
   --wk-color-text: #eceef2;
   --wk-color-text-secondary: #9aa1ae;
-  --wk-color-text-secondary-on-selected: #b4bac5;
+  --wk-color-text-secondary-on-selected: #bbc0ca;
   --wk-color-hairline: #2a2e36;
   --wk-color-hairline-strong: #3a3f49;
   --wk-color-control-border: #3a3f49;
+  --wk-color-field-border: #707682;
   --wk-color-fill: rgba(236, 238, 242, .055);
   --wk-color-fill-strong: rgba(236, 238, 242, .09);
   --wk-color-accent: #c3c9d4;
   --wk-color-on-accent: #15181d;
-  --wk-color-selection: rgba(195, 201, 212, .14);
-  --wk-color-working: #79a6ee;
-  --wk-color-working-ring: #79a6ee;
+  --wk-color-selection: rgba(195, 201, 212, .16);
+  --wk-color-working: #9dbff3;
   --wk-color-attention: #ee6b5f;
   --wk-color-on-attention: #20100e;
   --wk-color-attention-text: #f48c82;
@@ -182,7 +204,7 @@
   --wk-color-on-inverse: #181a1f;
   --wk-color-chart-1: #c3c9d4;
   --wk-color-chart-2: #35b597;
-  --wk-color-chart-3: #79a6ee;
+  --wk-color-chart-3: #9dbff3;
   --wk-color-chart-4: #b98bd0;
   --wk-color-chart-5: #e0825a;
   --wk-color-code-keyword: #d29be6;
@@ -191,8 +213,41 @@
   --wk-color-code-comment: #959cab;
   --wk-color-code-type: #71c3d6;
   --wk-color-code-function: #91b3f2;
+  --wk-color-diff-add: rgba(121, 166, 238, .14);
+  --wk-color-diff-add-strong: rgba(121, 166, 238, .3);
+  --wk-color-diff-del: rgba(238, 107, 95, .14);
+  --wk-color-diff-del-strong: rgba(238, 107, 95, .3);
   --wk-shadow-control: 0 1px 0 rgba(0, 0, 0, .25);
   --wk-shadow-raised: 0 .5px 2px rgba(0, 0, 0, .5);
   --wk-shadow-popover: 0 12px 30px -8px rgba(0, 0, 0, .7), 0 0 0 1px rgba(255, 255, 255, .08);
   --wk-shadow-dialog: 0 24px 48px -22px rgba(0, 0, 0, .8), 0 0 0 1px rgba(255, 255, 255, .1);
+}
+/* Derived colours: a theme sets accent and attention; the kit works out
+   selection, chart-1, destructive text and attention fill from them, so a
+   theme never sets these four (THEMING.md). The literals above stay as the
+   fallback where color-mix() is missing (Safari before 16.2, WebKitGTK
+   before 2.40): a var() inside an unsupported value would invalidate the
+   whole declaration, not fall back, hence @supports. Each block repeats all
+   four, so a dark block above cannot win over the derivation. */
+@supports (color: color-mix(in srgb, red, blue)) {
+  :root {
+    --wk-color-selection: color-mix(in srgb, var(--wk-color-accent) 12%, transparent);
+    --wk-color-chart-1: var(--wk-color-accent);
+    --wk-color-destructive-text: var(--wk-color-attention-text);
+    --wk-color-attention-fill: color-mix(in srgb, var(--wk-color-attention) 8%, transparent);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --wk-color-selection: color-mix(in srgb, var(--wk-color-accent) 16%, transparent);
+      --wk-color-chart-1: var(--wk-color-accent);
+      --wk-color-destructive-text: var(--wk-color-attention-text);
+      --wk-color-attention-fill: color-mix(in srgb, var(--wk-color-attention) 12%, transparent);
+    }
+  }
+  :root[data-theme="dark"] {
+    --wk-color-selection: color-mix(in srgb, var(--wk-color-accent) 16%, transparent);
+    --wk-color-chart-1: var(--wk-color-accent);
+    --wk-color-destructive-text: var(--wk-color-attention-text);
+    --wk-color-attention-fill: color-mix(in srgb, var(--wk-color-attention) 12%, transparent);
+  }
 }

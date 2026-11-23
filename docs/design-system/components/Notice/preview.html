@@ -1,0 +1,30 @@
+<!-- @dsCard group="Feedback" height=280 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Notice</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: flex; flex-direction: column; gap: var(--wk-space-3); padding: var(--wk-space-4); }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec">
+  <div class="wk-notice" data-tone="attention" role="group" aria-label="Problem">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9.5"/><path d="M12 7v6"/><path d="M12 16.6v.4"/></g></svg>
+    <div class="wk-notice-body"><b>No machine can take Linux x64 jobs.</b><p>unraid, the only Linux x64 machine, can't start jobs: it couldn't download the job image 5 times. Trying again at 2:18 pm.</p></div>
+    <div class="wk-notice-actions"><button class="wk-button wk-button--primary" type="button">Show unraid</button><button class="wk-link" type="button">See queued runs on GitHub</button></div>
+  </div>
+  <div class="wk-notice" role="group" aria-label="Problem">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9.5"/><path d="M12 7v6"/><path d="M12 16.6v.4"/></g></svg>
+    <div class="wk-notice-body"><b>Linux ARM64 jobs are waiting for macbookpro, which you're using.</b><p>It's the only Linux ARM64 machine. GitHub reports 2 waiting; that count may be low.</p></div>
+    <div class="wk-notice-actions"><button class="wk-button wk-button--primary" type="button">Lend this Mac now</button></div>
+  </div>
+  <div class="wk-notice wk-notice--inline">
+    <div class="wk-notice-body"><b>1 invite waiting to be used</b> <span class="wk-secondary">created by macbookpro at 2:02 pm · expires in 3 min · public repos off</span></div>
+    <div class="wk-notice-actions"><button class="wk-button" type="button">Cancel invite</button></div>
+  </div>
+</div>
+</body>
+</html>

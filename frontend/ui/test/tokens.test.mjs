@@ -5,7 +5,9 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { COLOUR, rules, tokens, banned, isTokenSelector, backdropProblems, over, contrast } from './css.mjs';
+import { execFileSync } from 'node:child_process';
+import { COLOUR, rules, tokens, banned, isTokenSelector, backdropProblems, contrast, over } from './css.mjs';
+import { checkTheme, derive, THEME_TOKENS, DERIVED, GROUNDS, IDENTITY } from '../theme/check.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const src = path.join(root, 'src');
@@ -21,17 +23,11 @@ const themes = walk(themeDir).filter(p => p.endsWith('.css'));
 const demoCss = path.join(root, 'demo', 'demo.css');
 const kitTokens = () => tokens(read(path.join(src, 'tokens.css')));
 
-// The tokens a theme file may set (theme/theme.css documents them).
-export const THEME_TOKENS = [
-  '--wk-color-accent', '--wk-color-on-accent', '--wk-color-selection',
-  '--wk-color-working', '--wk-color-working-ring',
-  '--wk-color-attention', '--wk-color-attention-text', '--wk-color-attention-fill', '--wk-color-destructive-text',
-  '--wk-color-chart-1', '--wk-color-chart-3',
-  '--wk-font-family', '--wk-font-features',
-  '--wk-radius-control', '--wk-radius-group',
-];
-// Properties a component sets on itself for its variants to change.
-const LOCAL = new Set(['--wk-dot-color', '--wk-chart-c']);
+const kitSource = () => read(path.join(src, 'tokens.css'));
+const fixtures = path.join(root, 'test', 'fixtures');
+// Properties a component sets on itself for its variants to change, and
+// --wk-range-value, which the app sets on a wk-range.
+const LOCAL = new Set(['--wk-dot-color', '--wk-dot-ground', '--wk-chart-c', '--wk-range-value', '--wk-diff-digits', '--wk-diff-indent']);
 
 test('the colour check catches every kind of literal', () => {
   const component = { selector: '.wk-x', forced: false };
@@ -94,6 +90,14 @@ test('token blocks: light on :root, dark under the media query and again under d
   }
 });
 
+test('--wk-dot-ground, the surface a status dot sits on, follows wk-color-bg in light and dark', () => {
+  const kit = kitTokens();
+  const dot = rules(read(path.join(src, 'components.css'))).find(r => r.selector === '.wk-dot' && !r.atRules.length);
+  const ground = Object.fromEntries(dot.decls)['--wk-dot-ground'];
+  assert.equal(ground, 'var(--wk-color-bg)');
+  assert.ok(kit.light.has('--wk-color-bg') && kit.dark.has('--wk-color-bg') && kit.attrDark.has('--wk-color-bg'), 'wk-color-bg has light and dark values');
+});
+
 test('every colour token has a light and a dark value', () => {
   const kit = kitTokens();
   assert.ok(kit.light.size >= 40, `tokens.css declares only ${kit.light.size} tokens`);
@@ -106,22 +110,119 @@ test('every colour token has a light and a dark value', () => {
   }
 });
 
-test('a theme sets only the documented theme tokens, each colour in light and dark', () => {
+test('theme/theme.css documents every theme token, and every theme token is a kit token', () => {
   const kit = kitTokens();
   const doc = read(path.join(themeDir, 'theme.css'));
   for (const name of THEME_TOKENS) {
     assert.ok(kit.light.has(name), `${name} is a theme token the kit does not define`);
-    assert.ok(doc.includes(name), `theme/theme.css does not document ${name}`);
+    assert.ok(doc.includes(name), `theme/theme.css does not set ${name}`);
   }
   assert.ok(themes.length >= 2, 'theme/ holds theme.css and an example');
-  for (const file of themes) {
-    const t = tokens(read(file));
-    for (const [name, value] of t.light) {
-      assert.ok(THEME_TOKENS.includes(name), `${rel(file)} sets ${name}, which is not a theme token`);
-      if (COLOUR.test(value)) assert.ok(t.dark.has(name), `${rel(file)}: ${name} has no dark value`);
-    }
-    for (const name of t.dark.keys()) assert.ok(t.light.has(name), `${rel(file)}: ${name} has a dark value but no light one`);
+});
+
+test('the theme check passes the kit\'s defaults, theme/theme.css, theme/example.css and a theme with tinted grounds', () => {
+  assert.deepEqual(checkTheme('', kitSource(), { requireIdentity: false }), [], 'the kit with no theme');
+  for (const file of [...themes, path.join(fixtures, 'warm-grounds.css')]) assert.deepEqual(checkTheme(read(file), kitSource()), [], rel(file));
+});
+
+test('the theme check fails on a working tone under 3:1 on the window; a named exception records the known gap', () => {
+  const gold = read(path.join(fixtures, 'gold-working.css'));
+  assert.deepEqual(checkTheme(gold, kitSource()).map(p => p.rule), ['working-on-bg/light']);
+  // The design system records a gold working tone from the design system
+  // (2.6:1 on the light window) as a known gap: the dot's shape and its words carry the state. Not loosened.
+  assert.deepEqual(checkTheme(gold, kitSource(), { exceptions: { 'working-on-bg/light': 'gold working tone, 2.6:1; a known gap in the design system' } }), []);
+  assert.deepEqual(checkTheme(read(path.join(themeDir, 'example.css')), kitSource(), { exceptions: { 'working-on-bg/light': 'stale' } }).map(p => p.rule), ['exceptions'], 'an exception that matches nothing is reported');
+});
+
+test('the theme check catches each way a theme breaks the contract', () => {
+  const base = read(path.join(themeDir, 'example.css'));
+  const kit = kitSource();
+  // Adds declarations to every one of the theme's three blocks.
+  const plus = (light, dark = light) => base.replace(/:root \{/, `:root {\n  ${light}`).replace(/(:root:not\(\[data-theme="light"\]\) \{)/, `$1\n    ${dark}`).replace(/(:root\[data-theme="dark"\] \{)/, `$1\n  ${dark}`);
+  const rulesOf = css => [...new Set(checkTheme(css, kit).map(p => p.rule.replace(/\/.*/, '')))].sort();
+  assert.deepEqual(rulesOf(plus('--wk-color-selection: rgba(0, 0, 0, .1);')), ['derived']);
+  assert.deepEqual(rulesOf(plus('--wk-color-chart-1: #000000;')), ['derived']);
+  assert.deepEqual(rulesOf(plus('--wk-color-thumb: #ffffff;')), ['tokens']);
+  assert.deepEqual(rulesOf(plus('--wk-color-bg: #fcfcfb;', '--wk-color-bg: #181a1f;')), ['grounds'], 'one ground of ten');
+  assert.deepEqual(rulesOf(base.replace(/ *--wk-color-accent: #7fcfb4;\n/g, '')), ['tokens'], 'a colour with no dark value');
+  assert.deepEqual(rulesOf(base.replace('--wk-radius-group: 10px;', '--wk-radius-group: 11px;')), ['radii']);
+  assert.deepEqual(rulesOf(base.replace('--wk-radius-control: 7px;', '--wk-radius-control: 7px;\n  --wk-font-family: "Avenir Next", sans-serif;')), ['font']);
+  assert.deepEqual(rulesOf(base.replace('--wk-color-accent: #1f6b55;\n', '')), ['identity', 'tokens']);
+  // Grounds: all ten from the warm fixture, then each rule broken in turn.
+  const warm = read(path.join(fixtures, 'warm-grounds.css'));
+  assert.deepEqual(rulesOf(warm.replace('--wk-color-field-border: #8a857a;', '--wk-color-field-border: #b9b4a9;')), ['field-border']);
+  assert.deepEqual(rulesOf(warm.replace('--wk-color-text-secondary: #655f53;', '--wk-color-text-secondary: #8f897d;')), ['text-secondary']);
+  assert.deepEqual(rulesOf(warm.replace('--wk-color-working: #b4740f;', '--wk-color-working: #b04a20;')), ['working-attention']);
+  assert.deepEqual(rulesOf(warm.replace(/--wk-color-sidebar: #f1efe9;\n/, '')), ['grounds', 'tokens'], 'one ground left out of light (its dark value is left alone)');
+  assert.deepEqual(rulesOf(warm.replace(/(@media[\s\S]*?--wk-color-accent: )#84c99a/, '$1#84c99b')), ['blocks']);
+  assert.deepEqual(rulesOf(warm.replace('--wk-color-text: #23201b;', '--wk-color-text: #77726a;')), ['text']);
+  assert.deepEqual(rulesOf(base.replace('--wk-color-attention: #bc3529;', '--wk-color-attention: #e89a92;')), ['attention-on-bg']);
+  assert.deepEqual(rulesOf(base.replace('--wk-color-on-accent: #ffffff;', '--wk-color-on-accent: #6fa894;')), ['on-accent']);
+  assert.deepEqual(rulesOf(warm.replace('--wk-color-accent: #2d6a45;', '--wk-color-accent: #000000;')), ['on-selected'], 'a black accent darkens the selected row under the kit\'s secondary text');
+  // Shape: the three token blocks and @font-face, nothing else.
+  assert.deepEqual(rulesOf(base + 'html { --wk-color-selection: red; }\n'), ['blocks']);
+  assert.deepEqual(rulesOf(base + '[data-theme="dark"] { --wk-color-selection: red; }\n'), ['blocks']);
+  assert.deepEqual(rulesOf(base + '.wk-button { color: red; }\n'), ['blocks']);
+  assert.deepEqual(rulesOf(base + ':root { color: red; }\n'), ['blocks']);
+  assert.deepEqual(rulesOf(base + '@media (min-width: 600px) { :root { --wk-color-accent: #1f6b55; } }\n'), ['blocks'], 'a token block under another at-rule');
+  assert.deepEqual(rulesOf(base + '@supports (color: color-mix(in srgb, red, blue)) { :root { --wk-color-selection: color-mix(in srgb, var(--wk-color-accent) 20%, transparent); } }\n'), ['derived'], 'a theme with its own color-mix() block');
+  assert.deepEqual(rulesOf(base + '@font-face { font-family: "App Sans"; src: url("fonts/app-sans.woff2") format("woff2"); }\n'), [], '@font-face is allowed');
+  // Format: identity and ground colours are opaque #rrggbb, reported rather than thrown.
+  assert.deepEqual(rulesOf(warm.replace('--wk-color-text-secondary: #655f53;', '--wk-color-text-secondary: rgba(0, 0, 0, .55);')), ['format'], 'a translucent secondary text');
+  assert.deepEqual(rulesOf(base.replace('--wk-color-accent: #1f6b55;', '--wk-color-accent: #fff;')), ['format'], 'a short hex accent');
+  assert.deepEqual(rulesOf(warm.replace('--wk-color-surface: #ffffff;', '--wk-color-surface: rgb(255, 255, 255);')), ['format'], 'an rgb() surface');
+  // The fallback for engines without color-mix(): the four, as the kit derives them.
+  const fallback = (sel, fill) => `@supports not (color: color-mix(in srgb, red, blue)) { ${sel} { --wk-color-selection: rgba(31, 107, 85, .12); --wk-color-chart-1: #1f6b55; --wk-color-destructive-text: #a32d22; --wk-color-attention-fill: ${fill}; } }\n`;
+  const withFallback = fill => base + fallback(':root', fill);
+  assert.deepEqual(rulesOf(withFallback('rgba(188, 53, 41, .08)')), []);
+  assert.deepEqual(rulesOf(withFallback('rgba(188, 53, 41, .2)')), ['fallback']);
+  assert.deepEqual(rulesOf(base + '@supports not (color: color-mix(in srgb, red, blue)) { :root { --wk-color-thumb: #ffffff; } }'), ['fallback']);
+});
+
+test('theme/check.mjs runs from the command line: exit 0 on a theme that keeps the contract, 1 with its problems', () => {
+  const cli = path.join(themeDir, 'check.mjs');
+  const run = (...args) => { try { return { code: 0, out: execFileSync(process.execPath, [cli, ...args], { encoding: 'utf8' }) }; } catch (e) { return { code: e.status, out: e.stdout }; } };
+  assert.equal(run(path.join(themeDir, 'example.css')).code, 0);
+  const gold = run(path.join(fixtures, 'gold-working.css'));
+  assert.equal(gold.code, 1);
+  assert.match(gold.out, /^working-on-bg\/light: /m);
+  assert.equal(run(path.join(fixtures, 'gold-working.css'), '--except', 'working-on-bg/light').code, 0);
+  assert.equal(run().code, 2, 'usage');
+});
+
+test('contrast refuses a translucent colour; lay it over its ground first', () => {
+  assert.throws(() => contrast('rgba(0, 0, 0, .5)', '#ffffff'), /translucent/);
+  assert.ok(contrast(over('rgba(0, 0, 0, .5)', '#ffffff'), '#ffffff') > 3);
+});
+
+test('derived colours: selection, chart-1, destructive text and attention fill come from the accent and attention inside @supports, with literal fallbacks that match', () => {
+  const kit = kitTokens();
+  for (const mode of ['light', 'dark', 'attrDark']) {
+    assert.deepEqual([...kit.derived[mode].keys()].sort(), [...DERIVED].sort(), `${mode}: the derived block sets exactly the four`);
+    const dark = mode !== 'light';
+    const want = {
+      '--wk-color-selection': `color-mix(in srgb, var(--wk-color-accent) ${dark ? 16 : 12}%, transparent)`,
+      '--wk-color-chart-1': 'var(--wk-color-accent)',
+      '--wk-color-destructive-text': 'var(--wk-color-attention-text)',
+      '--wk-color-attention-fill': `color-mix(in srgb, var(--wk-color-attention) ${dark ? 12 : 8}%, transparent)`,
+    };
+    for (const [name, value] of Object.entries(want)) assert.equal(kit.derived[mode].get(name), value, `${mode} ${name}`);
+    // The fallback literals are what the derivation gives for the kit's own colours.
+    const block = mode === 'light' ? kit.light : kit[mode];
+    const get = name => block.get(name) ?? kit.light.get(name);
+    const norm = v => v.replace(/\s+/g, '').replace(/,0?\./g, ',.');
+    for (const [name, value] of Object.entries(derive(get, dark ? 'dark' : 'light'))) assert.equal(norm(get(name)), norm(value), `${mode}: the fallback for ${name}`);
   }
+  for (const file of themes) assert.equal(tokens(read(file)).derived.light.size, 0, `${rel(file)} derives nothing`);
+});
+
+test('field border: text fields, selects, search, steppers, checkboxes, radios and switches use --wk-color-field-border; buttons and segmented controls keep the soft control border', () => {
+  const css = rules(read(path.join(src, 'components.css'))).filter(r => !r.atRules.length);
+  const border = sel => css.filter(r => r.selector === sel).flatMap(r => r.decls).filter(([p]) => p === 'border').map(([, v]) => v).join(' ');
+  for (const sel of ['.wk-field', '.wk-select', '.wk-checkbox', '.wk-radio', '.wk-switch']) assert.match(border(sel), /--wk-color-field-border/, sel);
+  assert.match(css.find(r => r.selector === '.wk-stepper-arrows').decls.find(([p]) => p === 'border')[1], /--wk-color-field-border/);
+  assert.match(border('.wk-button'), /--wk-color-control-border/);
+  assert.ok(GROUNDS.includes('--wk-color-field-border') && IDENTITY.length === 5);
 });
 
 test('theme/theme.css as shipped holds the kit defaults, so linking it unchanged changes nothing', () => {
@@ -131,31 +232,6 @@ test('theme/theme.css as shipped holds the kit defaults, so linking it unchanged
   for (const name of THEME_TOKENS) {
     assert.equal(norm(t.light.get(name) ?? ''), norm(kit.light.get(name)), `${name} (light)`);
     if (kit.dark.has(name)) assert.equal(norm(t.dark.get(name) ?? ''), norm(kit.dark.get(name)), `${name} (dark)`);
-  }
-});
-
-test('secondary text on a selected row or a count chip reaches 4.5:1, and the working dot\'s ring 3:1, with every theme', () => {
-  const kit = kitTokens();
-  for (const file of [null, ...themes]) {
-    const theme = file ? tokens(read(file)) : null;
-    const label = file ? rel(file) : 'kit';
-    for (const block of ['light', 'dark']) {
-      const v = name => theme?.[block].get(name) || kit[block].get(name) || kit.light.get(name);
-      const text = v('--wk-color-text-secondary-on-selected');
-      for (const surface of ['--wk-color-bg', '--wk-color-sidebar', '--wk-color-surface']) {
-        const ground = v(surface);
-        const selected = over(v('--wk-color-selection'), ground);
-        const grounds = { selected, chip: over(v('--wk-color-fill-strong'), ground), 'chip on selected': over(v('--wk-color-fill-strong'), selected) };
-        for (const [what, g] of Object.entries(grounds)) {
-          const ratio = contrast(text, g);
-          assert.ok(ratio >= 4.5, `${label} ${block}: secondary text on ${what} over ${surface} is ${ratio.toFixed(2)}:1`);
-        }
-      }
-      const ring = contrast(v('--wk-color-working-ring'), v('--wk-color-bg'));
-      assert.ok(ring >= 3, `${label} ${block}: the working ring is ${ring.toFixed(2)}:1 on the background`);
-      const onAccent = contrast(v('--wk-color-on-accent'), v('--wk-color-accent'));
-      assert.ok(onAccent >= 4.5, `${label} ${block}: text on the accent is ${onAccent.toFixed(2)}:1`);
-    }
   }
 });
 
@@ -219,8 +295,8 @@ test('one CSS entry and one ES module entry; no shadow DOM, customized built-ins
 });
 
 test('nothing names an app, and nothing loads from outside the package', () => {
-  const shipped = [...walk(src), ...themes, ...walk(path.join(root, 'demo')), ...walk(path.join(root, 'dist')), ...walk(path.join(root, 'scripts')),
-    path.join(root, 'README.md'), path.join(root, 'package.json')];
+  const shipped = [...walk(src), ...walk(themeDir), ...walk(path.join(root, 'demo')), ...walk(path.join(root, 'dist')).filter(p => !p.endsWith('.woff2')), ...walk(path.join(root, 'scripts')),
+    path.join(root, 'README.md'), path.join(root, 'THEMING.md'), path.join(root, 'package.json')];
   const outside = ref => !ref.startsWith('data:') && (/^[a-z][a-z0-9+.-]*:|^\//i.test(ref));
   for (const file of shipped) {
     const text = read(file);
@@ -237,9 +313,72 @@ test('nothing names an app, and nothing loads from outside the package', () => {
     }
     if (file.startsWith(src) || file.startsWith(themeDir)) {
       // The kit itself loads nothing outside its own folder.
-      for (const ref of refs) assert.ok(!outside(ref) && !/(^|\/)\.\.(\/|$)/.test(ref), `${rel(file)} loads ${ref} from outside its folder`);
+      // theme/check.mjs is a Node script: it uses Node's built-ins and reads
+      // the kit's own tokens.css, both inside the package. src/ loads the
+      // package's own fonts/, shared by src/ and dist/.
+      const allowed = ref => (file === path.join(themeDir, 'check.mjs') && (/^node:/.test(ref) || ref === '../src/tokens.css')) || (file.startsWith(src) && /^\.\.\/fonts\/[\w.-]+\.woff2$/.test(ref));
+      for (const ref of refs) if (!allowed(ref)) assert.ok(!outside(ref) && !/(^|\/)\.\.(\/|$)/.test(ref), `${rel(file)} loads ${ref} from outside its folder`);
     } else {
       for (const ref of refs) if (!/^node:/.test(ref)) assert.ok(!outside(ref), `${rel(file)} loads ${ref} from outside the package`);
     }
   }
+});
+
+test('diff tints: text and secondary text on every diff tint reach 4.5:1, and the tints differ in light and dark', () => {
+  const kit = kitTokens();
+  for (const block of ['light', 'dark']) {
+    const v = name => kit[block].get(name) || kit.light.get(name);
+    const tints = ['--wk-color-diff-add', '--wk-color-diff-del', '--wk-color-diff-add-strong', '--wk-color-diff-del-strong'];
+    for (const tint of tints) assert.ok(kit[block].has(tint), `${tint} has no ${block} value`);
+    for (const surface of ['--wk-color-surface', '--wk-color-bg']) {
+      for (const tint of tints) {
+        const row = over(v(tint), v(surface));
+        const text = contrast(v('--wk-color-text'), row);
+        assert.ok(text >= 4.5, `${block}: text on ${tint} over ${surface} is ${text.toFixed(2)}:1`);
+        // The gutter's numbers and the markers sit on the row tints.
+        if (!tint.endsWith('-strong')) {
+          const secondary = contrast(v('--wk-color-text-secondary'), row);
+          assert.ok(secondary >= 4.5, `${block}: secondary text on ${tint} over ${surface} is ${secondary.toFixed(2)}:1`);
+        }
+        // A changed word inside a paired line sits on the strong tint over the row tint.
+        if (tint.endsWith('-strong')) {
+          const word = over(v(tint), over(v(tint.replace('-strong', '')), v(surface)));
+          const ratio = contrast(v('--wk-color-text'), word);
+          assert.ok(ratio >= 4.5, `${block}: text on a changed word (${tint}) over ${surface} is ${ratio.toFixed(2)}:1`);
+        }
+      }
+      assert.notEqual(over(v('--wk-color-diff-add'), v(surface)), over(v('--wk-color-diff-del'), v(surface)));
+    }
+  }
+});
+
+test('Inter is bundled: two variable woff2 files and the OFL, each named by an @font-face that resolves from src/ and from dist/ (its own copy)', () => {
+  const fontsDir = path.join(root, 'fonts');
+  assert.deepEqual(readdirSync(fontsDir).sort(), ['Inter-latin-ext.woff2', 'Inter-latin.woff2', 'OFL-Inter.txt']);
+  assert.match(read(path.join(fontsDir, 'OFL-Inter.txt')), /SIL Open Font License, Version 1\.1/);
+  for (const file of readdirSync(fontsDir).filter(f => f.endsWith('.woff2'))) assert.equal(readFileSync(path.join(fontsDir, file)).subarray(0, 4).toString('latin1'), 'wOF2', `${file} is a woff2 file`);
+  for (const css of [path.join(src, 'base.css'), path.join(root, 'dist', 'wails-kit-ui.css')]) {
+    const faces = rules(read(css)).filter(r => r.selector === '@font-face').map(r => Object.fromEntries(r.decls));
+    assert.equal(faces.length, 2, rel(css));
+    for (const face of faces) {
+      assert.equal(face['font-family'], 'Inter');
+      assert.equal(face['font-weight'], '100 900');
+      assert.equal(face['font-display'], 'swap');
+      assert.ok(face['unicode-range'], 'each face has a unicode-range');
+      const url = face.src.match(/url\("([^"]+)"\)/)[1];
+      assert.ok(statSync(path.resolve(path.dirname(css), url)).isFile(), `${rel(css)}: ${url} resolves to a file`);
+    }
+  }
+  const kit = kitTokens();
+  assert.match(kit.light.get('--wk-font-family'), /^Inter,/);
+  assert.equal(kit.light.get('--wk-font-features'), '"cv11", "ss03"');
+  const pkg = JSON.parse(read(path.join(root, 'package.json')));
+  assert.ok(pkg.files.includes('fonts') && pkg.exports['./fonts/*'] === './fonts/*', 'package.json ships and exports fonts/');
+});
+
+test('the design system\'s names: wk-code and wk-chip--access, not the old wk-codeblock and wk-chip--lock', () => {
+  const files = [...walk(src), ...themes, ...walk(path.join(root, 'demo')), ...walk(path.join(root, 'dist')), ...walk(path.join(root, 'test')).filter(p => !p.endsWith('tokens.test.mjs')), path.join(root, 'README.md')];
+  for (const file of files) assert.doesNotMatch(read(file), /wk-codeblock|wk-chip--lock/, `${rel(file)} uses an old name`);
+  const css = read(path.join(src, 'components.css'));
+  for (const selector of ['.wk-code {', '.wk-code--scroll > pre', '.wk-chip--access > svg', '.wk-chip--access[data-level="manage"]']) assert.ok(css.includes(selector), `components.css defines ${selector}`);
 });
