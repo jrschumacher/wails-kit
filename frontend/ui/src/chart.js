@@ -375,7 +375,9 @@ export function wkChart(spec) {
         activate(e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : Math.min(n - 1, Math.max(0, activeIndex < 0 ? (next > 0 ? 0 : n - 1) : activeIndex + next)));
       }
     };
-    if (!spec.retainSelectionOnBlur) plot.onblur = unlessRemoved(clear);
+    // Focus that moved to another element names it (relatedTarget): the
+    // person or the app left the chart, so clear now. A removal names none.
+    if (!spec.retainSelectionOnBlur) plot.onblur = e => (e.relatedTarget ? clear() : unlessRemoved(clear)());
     if (activeIndex >= 0) activate(Math.min(activeIndex, spec.categories.length - 1));
   }
 
