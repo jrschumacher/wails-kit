@@ -5,86 +5,73 @@ import (
 	"time"
 )
 
-// Task is the handle the app's work reports through. Its methods mirror
-// wkTask's. Reports after the task has finished, been dismissed, or the
-// service has closed are ignored, so work that ends after a timeout or a
-// Stop can't bring a task back. Its methods are safe for concurrent use.
+// Task is the handle one attempt of a task reports through. Its methods
+// mirror wkTask's. Add returns the first attempt's handle, and each retry
+// passes a new one to OnRetry. Reports are ignored when they come through
+// an earlier attempt's handle, while the task waits for an automatic retry,
+// or after it has finished, been dismissed or the service has closed, so
+// work that ends late can't change the task. Its methods are safe for
+// concurrent use.
 type Task struct {
-	svc  *Service
-	spec Spec
-
-	// Guarded by svc.mu.
-	snap       Snapshot
-	timeout    time.Duration
-	timer      Timer // timeout on silence
-	retryTimer Timer
-	gen        uint64
-	attempts   int
-	removed    bool
-	ctx        context.Context
-	cancel     context.CancelFunc
+	svc     *Service
+	e       *entry
+	attempt uint64
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
-// ID returns the task's ID.
-func (t *Task) ID() string { return t.spec.ID }
+// ID returns the task's ID. Every attempt's handle has the same one.
+func (t *Task) ID() string { return t.e.spec.ID }
 
-// Context returns the context of the task's current attempt. It is cancelled
-// when the attempt ends: the task finishes, times out, waits for a retry, is
-// dismissed, or is asked to stop without an OnStop. A retry gets a new one.
-func (t *Task) Context() context.Context {
-	t.svc.mu.Lock()
-	defer t.svc.mu.Unlock()
-	return t.ctx
-}
+// Context returns this attempt's context. It is cancelled when the attempt
+// ends: the task finishes, times out, waits for a retry, is retried, is
+// dismissed, or is asked to stop without an OnStop.
+func (t *Task) Context() context.Context { return t.ctx }
 
 // Snapshot returns the task as tasks:changed sends it.
 func (t *Task) Snapshot() Snapshot {
 	t.svc.mu.Lock()
 	defer t.svc.mu.Unlock()
-	return t.snap
+	return t.e.snap
 }
 
 // AddPart adds a task that is part of this one. Parts show their own state;
 // the app reports the whole task Done only once every part is.
 func (t *Task) AddPart(spec Spec) (*Task, error) {
-	spec.Parent = t.spec.ID
+	spec.Parent = t.e.spec.ID
 	return t.svc.Add(spec)
 }
 
-// update runs fn on a live task with the service locked, then sends a
-// snapshot: at once if fn changed the state, coalesced otherwise.
-func (t *Task) update(fn func() bool) {
+// update runs fn on the task if a report through t counts, then restarts its
+// clocks and sends a snapshot: at once if the state changed, coalesced
+// otherwise.
+func (t *Task) update(fn func(e *entry)) {
 	s := t.svc
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed || t.removed || t.snap.State.Finished() {
+	if !s.liveLocked(t) {
 		return
 	}
-	before := t.snap.State
-	if !fn() {
-		return
-	}
-	s.touchLocked(t)
+	e := t.e
+	before := e.snap.State
+	fn(e)
+	s.touchLocked(e)
 	s.armDetectorLocked()
-	s.changedLocked(t.snap.State != before)
+	s.changedLocked(e.snap.State != before)
 }
 
 // setState moves to state, with words when they're given.
 func (t *Task) setState(state State, words string) {
-	t.update(func() bool {
-		if t.snap.NextTry != nil {
-			// Waiting for an automatic retry: only Retry, Stop or the
-			// timer move it on.
-			return false
+	t.update(func(e *entry) {
+		if state == StateRunning {
+			t.svc.setRunningLocked(e)
+		} else {
+			e.snap.State = state
+			e.autoWaiting = false
 		}
-		t.snap.State = state
 		if words != "" {
-			t.snap.Words = words
+			e.snap.Words = words
 		}
-		if state == StateRunning && t.snap.StartedAt == nil {
-			t.snap.StartedAt = millisPtr(t.svc.clock.Now())
-		}
-		return true
 	})
 }
 
@@ -93,7 +80,7 @@ func (t *Task) setState(state State, words string) {
 func (t *Task) Running(words string) { t.setState(StateRunning, words) }
 
 // Queued moves the task to Queued: it can't start yet ("Queued · after 2
-// others"). No timeout runs while queued.
+// others"). No clocks run while queued.
 func (t *Task) Queued(words string) { t.setState(StateQueued, words) }
 
 // Waiting says what the work is waiting for ("Waiting for GitHub…"). It is
@@ -101,66 +88,65 @@ func (t *Task) Queued(words string) { t.setState(StateQueued, words) }
 // SetTimeout(NoTimeout).
 func (t *Task) Waiting(words string) { t.setState(StateWaiting, words) }
 
-// Paused moves the task to Paused, with what's done so far. No timeout runs
+// Paused moves the task to Paused, with what's done so far. No clocks run
 // while paused.
 func (t *Task) Paused(words string) { t.setState(StatePaused, words) }
 
 // Stalled says the task can't go on without a person, and what to do ("GitHub
-// sign-in expired · Sign in"). No timeout runs while stalled.
+// sign-in expired · Sign in"). No clocks run while stalled.
 func (t *Task) Stalled(words string) { t.setState(StateStalled, words) }
 
-// Progress reports progress. It restarts the timeout on silence, and moves a
-// Waiting task back to Running. Snapshots for progress alone are coalesced.
+// Progress reports progress. It restarts the clocks, and moves a Waiting
+// task back to Running. Snapshots for progress alone are coalesced.
 func (t *Task) Progress(p Progress) {
-	t.update(func() bool {
-		if t.snap.NextTry != nil {
-			return false
+	t.update(func(e *entry) {
+		if e.snap.State == StateWaiting {
+			t.svc.setRunningLocked(e)
 		}
-		if t.snap.State == StateWaiting {
-			t.snap.State = StateRunning
-		}
-		t.snap.Done = p.Done
-		t.snap.Total = p.Total
-		t.snap.Unit = p.Unit
-		t.snap.Step = p.Step
-		t.snap.Steps = p.Steps
-		t.snap.Stage = p.Stage
-		return true
+		e.snap.Done = p.Done
+		e.snap.Total = p.Total
+		e.snap.Unit = p.Unit
+		e.snap.Step = p.Step
+		e.snap.Steps = p.Steps
+		e.snap.Stage = p.Stage
 	})
 }
 
-// SetWords changes the words without changing the state. Like progress, it
-// counts as a sign of life and is coalesced.
+// SetWords changes the words. Like progress, it is a sign of life: it
+// restarts the clocks and moves a task the service put in Waiting back to
+// Running (a task the app put in Waiting stays there). Coalesced.
 func (t *Task) SetWords(words string) {
-	t.update(func() bool {
-		t.snap.Words = words
-		return true
+	t.update(func(e *entry) {
+		if e.autoWaiting {
+			t.svc.setRunningLocked(e)
+		}
+		e.snap.Words = words
 	})
 }
 
 // SetTimeout changes the task's timeout on silence: 0 uses the service's,
-// NoTimeout turns it off (while it waits on something it has named).
+// NoTimeout turns it off while it waits on something it has named. When the
+// task next goes from Waiting to Running, its own timeout (Spec.Timeout)
+// comes back.
 func (t *Task) SetTimeout(d time.Duration) {
 	s := t.svc
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed || t.removed || t.snap.State.Finished() {
+	if !s.liveLocked(t) {
 		return
 	}
-	t.timeout = d
-	if t.snap.NextTry == nil {
-		s.armSilenceLocked(t)
-	}
+	t.e.timeout = d
+	s.armClocksLocked(t.e)
 }
 
 func (t *Task) finish(state State, words string) {
 	s := t.svc
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed || t.removed || t.snap.State.Finished() {
+	if !s.liveLocked(t) {
 		return
 	}
-	s.finishLocked(t, state, words, nil)
+	s.finishLocked(t.e, state, words, nil)
 	s.changedLocked(true)
 }
 
@@ -176,25 +162,20 @@ func (t *Task) Cancelled() { t.finish(StateCancelled, "") }
 // copied").
 func (t *Task) Stopped(words string) { t.finish(StateStopped, words) }
 
-// Fail fails the current attempt with err and the app's words ("Couldn't
-// save the file"). The snapshot's error carries err's code and its message
-// from errors.RegisterMessages.
+// Fail fails this attempt with err and the app's words ("Couldn't save the
+// file"). The snapshot's error carries err's code and its message from
+// errors.RegisterMessages.
 //
 // With RetryAuto (and an OnRetry), the task waits instead: Waiting, with the
-// error and nextTry set, until the backoff runs out and OnRetry runs.
-// Otherwise it is Failed until the person retries or dismisses it.
+// error and nextTry set, until the backoff runs out and OnRetry runs with a
+// new handle. Otherwise it is Failed until the person retries or dismisses
+// it.
 func (t *Task) Fail(err error, words string) {
 	s := t.svc
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.closed || t.removed || t.snap.State.Finished() || t.snap.NextTry != nil {
+	if !s.liveLocked(t) {
 		return
 	}
-	s.failLocked(t, err, words)
-}
-
-// retryPendingLocked reports whether the task is waiting for an automatic
-// retry.
-func (t *Task) retryPendingLocked() bool {
-	return t.snap.State == StateWaiting && t.snap.NextTry != nil
+	s.failLocked(t.e, err, words)
 }

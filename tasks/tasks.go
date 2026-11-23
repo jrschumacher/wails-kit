@@ -3,9 +3,13 @@
 // tasks:changed, with a snapshot of the whole list.
 //
 // It implements "Go task events" in frontend/ui/BEHAVIOUR.md: the lifecycle
-// states, progress coalesced to at most four snapshots a second, a timeout on
-// silence per running task, retry policies with backoff and jitter, and clocks
-// that start again on wake.
+// states, progress coalesced to at most four snapshots a second, the switch
+// to Waiting after 30 s without a report, a timeout on silence per running
+// task, retry policies with backoff and jitter, and clocks that start again
+// on wake.
+//
+// Register Service.Bindings with Wails, not the Service: it holds only the
+// methods the frontend may call.
 package tasks
 
 import (
@@ -185,15 +189,16 @@ func init() {
 	})
 }
 
-// NoTimeout turns a task's timeout on silence off (Spec.Timeout,
-// Task.SetTimeout). Use it only while the task waits on something it has
-// named.
+// NoTimeout turns a timeout off: a task's timeout on silence (Spec.Timeout,
+// Task.SetTimeout), while it waits on something it has named, or a service
+// default (WithTimeout, WithWaitingAfter).
 const NoTimeout time.Duration = -1
 
 // Defaults, from BEHAVIOUR.md's timings.
 const (
 	DefaultProgressInterval = 250 * time.Millisecond // four snapshots a second
 	DefaultTimeout          = 2 * time.Minute
+	DefaultWaitingAfter     = 30 * time.Second
 	DefaultBackoffJitter    = 0.2
 	DefaultWakeInterval     = 5 * time.Second
 	DefaultWakeThreshold    = 15 * time.Second
@@ -222,26 +227,24 @@ func (realClock) Now() time.Time { return time.Now() }
 
 func (realClock) AfterFunc(d time.Duration, f func()) Timer { return time.AfterFunc(d, f) }
 
-// durationWords writes a duration as BEHAVIOUR.md does: "34 s", "3 min",
-// "3 h 12 m".
+// durationWords writes a duration as BEHAVIOUR.md does, rounded: "34 s",
+// "3 min", "3 h 12 m".
 func durationWords(d time.Duration) string {
-	switch {
-	case d < time.Minute:
+	if d < time.Minute-time.Second/2 {
 		s := int(d.Round(time.Second) / time.Second)
 		if s < 1 {
 			s = 1
 		}
 		return fmt.Sprintf("%d s", s)
-	case d < time.Hour:
-		return fmt.Sprintf("%d min", int(d/time.Minute))
-	default:
-		h := int(d / time.Hour)
-		m := int((d % time.Hour) / time.Minute)
-		if m == 0 {
-			return fmt.Sprintf("%d h", h)
-		}
-		return fmt.Sprintf("%d h %d m", h, m)
 	}
+	m := int(d.Round(time.Minute) / time.Minute)
+	if m < 60 {
+		return fmt.Sprintf("%d min", m)
+	}
+	if m%60 == 0 {
+		return fmt.Sprintf("%d h", m/60)
+	}
+	return fmt.Sprintf("%d h %d m", m/60, m%60)
 }
 
 func millis(t time.Time) int64 { return t.UnixMilli() }

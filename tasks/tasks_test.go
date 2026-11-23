@@ -273,7 +273,7 @@ func TestTimeoutOnSilence(t *testing.T) {
 	h.clock.Advance(119 * time.Second)
 	task.Progress(Progress{Done: 1, Total: 2}) // a sign of life restarts the clock
 	h.clock.Advance(119 * time.Second)
-	if h.last("a").State != StateRunning {
+	if h.last("a").State.Finished() {
 		t.Fatal("timed out despite progress")
 	}
 	h.clock.Advance(time.Second)
@@ -327,7 +327,7 @@ func TestServiceTimeoutOption(t *testing.T) {
 	h.add(Spec{ID: "a"})
 	h.add(Spec{ID: "b", Timeout: time.Minute})
 	h.clock.Advance(5 * time.Minute)
-	if h.last("a").State != StateRunning {
+	if h.last("a").State.Finished() {
 		t.Error("WithTimeout(NoTimeout) should turn the default off")
 	}
 	if h.last("b").State != StateFailed {
@@ -338,8 +338,10 @@ func TestServiceTimeoutOption(t *testing.T) {
 func TestAutoRetryWithBackoff(t *testing.T) {
 	h := newHarness(t)
 	var retries atomic.Int32
-	task := h.add(Spec{ID: "sync", Words: "Syncing", Retry: RetryAuto, OnRetry: func(*Task) {
+	var task *Task
+	task = h.add(Spec{ID: "sync", Words: "Syncing", Retry: RetryAuto, OnRetry: func(r *Task) {
 		retries.Add(1)
+		task = r
 	}})
 	firstCtx := task.Context()
 
@@ -397,7 +399,8 @@ func TestBackoffJitter(t *testing.T) {
 
 func TestRetryNowCarriesBackoffOn(t *testing.T) {
 	h := newHarness(t)
-	task := h.add(Spec{ID: "a", Retry: RetryAuto, OnRetry: func(*Task) {}})
+	var task *Task
+	task = h.add(Spec{ID: "a", Retry: RetryAuto, OnRetry: func(r *Task) { task = r }})
 	task.Fail(stderrors.New("x"), "Can't reach the server") // waits 2 s
 	if err := h.svc.Retry("a"); err != nil {
 		t.Fatal(err)
@@ -439,7 +442,8 @@ func TestManualAndUnsafeWaitForThePerson(t *testing.T) {
 
 func TestMaxAttempts(t *testing.T) {
 	h := newHarness(t)
-	task := h.add(Spec{ID: "a", Retry: RetryAuto, MaxAttempts: 2, OnRetry: func(*Task) {}})
+	var task *Task
+	task = h.add(Spec{ID: "a", Retry: RetryAuto, MaxAttempts: 2, OnRetry: func(r *Task) { task = r }})
 	task.Fail(stderrors.New("x"), "Can't reach the server")
 	h.clock.Advance(2 * time.Second)
 	task.Fail(stderrors.New("x"), "Can't reach the server")
@@ -477,12 +481,12 @@ func TestSleepAndWakeRestartClocks(t *testing.T) {
 	h.clock.Advance(90 * time.Second)
 	h.svc.Sleep()
 	h.clock.Advance(time.Hour) // asleep: nothing fires
-	if h.last("a").State != StateRunning {
+	if h.last("a").State.Finished() {
 		t.Fatal("a clock ran while asleep")
 	}
 	h.svc.Wake()
 	h.clock.Advance(119 * time.Second)
-	if h.last("a").State != StateRunning {
+	if h.last("a").State.Finished() {
 		t.Fatal("the timeout didn't start again from zero on wake")
 	}
 	h.clock.Advance(time.Second)
@@ -494,7 +498,8 @@ func TestSleepAndWakeRestartClocks(t *testing.T) {
 func TestWakeRetriesAtOnceAndDropsBackoff(t *testing.T) {
 	h := newHarness(t, WithWakeDetection(0, 0))
 	var retries int
-	task := h.add(Spec{ID: "a", Retry: RetryAuto, OnRetry: func(*Task) { retries++ }})
+	var task *Task
+	task = h.add(Spec{ID: "a", Retry: RetryAuto, OnRetry: func(r *Task) { retries++; task = r }})
 	task.Fail(stderrors.New("x"), "Can't reach the server")
 	h.clock.Advance(2 * time.Second)
 	task.Fail(stderrors.New("x"), "Can't reach the server") // now waiting 4 s
@@ -514,7 +519,8 @@ func TestWakeDetectedFromClockJump(t *testing.T) {
 	h := newHarness(t)
 	var retries int
 	h.add(Spec{ID: "run"})
-	task := h.add(Spec{ID: "sync", Retry: RetryAuto, OnRetry: func(*Task) { retries++ }})
+	var task *Task
+	task = h.add(Spec{ID: "sync", Retry: RetryAuto, OnRetry: func(r *Task) { retries++; task = r }})
 	task.Fail(stderrors.New("x"), "Can't reach the server")
 	h.clock.Advance(2 * time.Second) // retry 1
 	task.Fail(stderrors.New("x"), "Can't reach the server")
@@ -527,12 +533,12 @@ func TestWakeDetectedFromClockJump(t *testing.T) {
 		t.Errorf("expected a retry at once on wake, got %d retries", retries)
 	}
 	h.clock.Advance(110 * time.Second)
-	if h.last("run").State != StateRunning {
+	if h.last("run").State.Finished() {
 		t.Error("the run task's timeout should start again from zero on wake")
 	}
 
 	// No false wake while the machine is awake.
-	h2 := newHarness(t)
+	h2 := newHarness(t, WithWaitingAfter(NoTimeout))
 	h2.add(Spec{ID: "a", Timeout: NoTimeout})
 	n := h2.count()
 	h2.clock.Advance(time.Hour)
@@ -742,7 +748,7 @@ func TestDurationWords(t *testing.T) {
 		2 * time.Minute:              "2 min",
 		3*time.Hour + 12*time.Minute: "3 h 12 m",
 		time.Hour:                    "1 h",
-		90 * time.Second:             "1 min",
+		90 * time.Second:             "2 min",
 	} {
 		if got := durationWords(d); got != want {
 			t.Errorf("%s: got %q, want %q", d, got, want)
