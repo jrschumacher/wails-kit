@@ -226,3 +226,10 @@ test('nothing names an app, and nothing loads from outside the package', () => {
     }
   }
 });
+
+test('the design system\'s names: wk-code and wk-chip--access, not the old wk-codeblock and wk-chip--lock', () => {
+  const files = [...walk(src), ...themes, ...walk(path.join(root, 'demo')), ...walk(path.join(root, 'dist')), ...walk(path.join(root, 'test')).filter(p => !p.endsWith('tokens.test.mjs')), path.join(root, 'README.md')];
+  for (const file of files) assert.doesNotMatch(read(file), /wk-codeblock|wk-chip--lock/, `${rel(file)} uses an old name`);
+  const css = read(path.join(src, 'components.css'));
+  for (const selector of ['.wk-code {', '.wk-code--scroll > pre', '.wk-chip--access > svg', '.wk-chip--access[data-level="manage"]']) assert.ok(css.includes(selector), `components.css defines ${selector}`);
+});

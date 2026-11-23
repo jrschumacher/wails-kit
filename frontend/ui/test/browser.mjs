@@ -746,7 +746,7 @@ try {
     const closed = await chevron('button.wk-link[aria-expanded=false]'), open_ = await chevron('button.wk-link[aria-expanded=true]');
     assert.notEqual(closed.content, 'none'); assert.notEqual(closed.transform, open_.transform);
     assert.equal(await page.locator('a.wk-link').first().evaluate(el => getComputedStyle(el, '::before').content), 'none');
-    for (const sel of ['.wk-codeblock--scroll > pre', '.wk-errorbox > pre', '#demo-long-sheet .wk-dialog-scroll']) {
+    for (const sel of ['.wk-code--scroll > pre', '.wk-errorbox > pre', '#demo-long-sheet .wk-dialog-scroll']) {
       const el = page.locator(sel).first();
       assert.equal(await el.getAttribute('tabindex'), '0', sel);
       assert.ok(await el.getAttribute('aria-label') || await el.getAttribute('aria-labelledby'), `${sel} has no name`);

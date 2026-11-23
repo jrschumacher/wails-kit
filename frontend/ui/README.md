@@ -136,17 +136,17 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Checkbox, radio, switch | `wk-check`, `wk-checkbox`, `wk-radio`, `wk-switch` (`role="switch"`); `wk-check--row`, `wk-check--top` |
 | Select | `wk-select` |
 | Filter buttons, segmented control | `wk-filters` / `wk-filter`, `wk-segmented` |
-| Chip and pill | `wk-chip`, `wk-pill` |
+| Chip | `wk-chip`, `--count`, `--attention`, `--access` (what the person may do: a glyph first, then "View only" or "Can manage" with `data-level="manage"`, in the text colour) |
 | Table | `wk-table` |
 | Sidebar, toolbar, footer bar | `wk-sidebar`, `wk-toolbar`, `wk-footer-bar` |
-| Three-pane layout | `wk-panes`, `wk-pane-list`, `wk-pane-inspector` |
+| Three-pane layout | `wk-three-pane`, `wk-pane-list`, `wk-pane-inspector` |
 | Tabs | `wk-tablist` inside `<wk-tabs>` |
 | Menu, context menu, tooltip | `wk-menu` and its items, `wk-tooltip` |
 | Dialog, sheet, popover surface | `wk-dialog` (`--alert`, sheets), `wk-popover` |
 | Settings group, row and tabs | `wk-settings-heading`, `wk-settings-group`, `wk-settings-row`, `wk-settings-label`, `wk-settings-help`, `wk-settings-note`, `wk-settings-tabs` / `wk-settings-tab` (`data-attention`) |
 | Panel, facts, section heading | `wk-panel` (`--rows`, `--dashed`), `wk-facts`, `wk-section-heading` |
 | Status dot | `wk-dot` with `data-shape` (`filled`, `ringed`, `half`, `hollow`, `dashed`, `bar`), `data-tone` (`neutral`, `working`, `attention`) and `data-size="sm"`. It has no state names: the app maps its own states onto shapes and tones. |
-| Empty state, notice, error box | `wk-empty`, `wk-notice`, `wk-error-box` |
+| Empty state, notice, error box | `wk-empty`, `wk-notice`, `wk-errorbox` |
 | Stat, code block, copy button | `wk-stat`, `wk-code`, `wk-copy` |
 | Stepper | `wk-stepper` (an input and two arrow buttons; see `syncSteppers`) |
 | Chart | `wk-chart`, built by `wkChart()` |
