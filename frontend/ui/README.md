@@ -239,6 +239,7 @@ renderers: `settingsModel(schema, values, errors)`, `conditionMet`,
 | `src/index.js` | the module entry: `kit.js` (custom elements), `chart.js`, `settings-model.js`, `settings.js` |
 | `src/index.d.ts` | TypeScript types |
 | `theme/theme.css`, `theme/example.css` | the theme file and an example theme |
+| `BEHAVIOUR.md` | how components behave over time: the action lifecycle and its timings, feedback, undo and confirm, loading, retries, motion, accessibility and desktop behaviour |
 | `dist/wails-kit-ui.css`, `dist/wails-kit-ui.js` | the prebuilt files, committed and checked against `src/` |
 | `demo/` | review pages: `index.html`, `themed.html`, `dist.html`, `settings.html` |
 | `scripts/build.mjs` | builds `dist/` with no dependencies |
