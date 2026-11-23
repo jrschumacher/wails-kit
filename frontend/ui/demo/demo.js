@@ -2,8 +2,9 @@
 // without a pointer, the type scale, the tokens and every status dot. Used by
 // index.html (the neutral kit, from src/), themed.html (with
 // theme/example.css) and dist.html (the prebuilt dist/ files). The body's
-// data-module names the module the page loaded, so the charts come from it.
-const { wkChart } = await import(document.body.dataset.module || '../src/index.js');
+// data-module names the module the page loaded, so the charts and the diff
+// come from it.
+const { wkChart, wkDiff } = await import(document.body.dataset.module || '../src/index.js');
 
 const themed = document.body.dataset.demo === 'themed';
 const pages = [['index.html', 'Neutral'], ['themed.html', 'Example theme'], ['dist.html', 'Prebuilt dist'], ['settings.html', 'Settings window']];
@@ -345,6 +346,8 @@ ${section('steppers', 'Stepper', `
 
 ${section('chart', 'Chart (wk-chart)', `<div class="demo-charts" id="demo-charts"></div>`, 'Stacked columns with weekends shaded, a line with a band (a gap in the data breaks the line), a one-bar split, and bars by cause (shown as its table). Every chart has a legend, 2 px gaps between marks, hover and arrow-key readout, and a Chart/Table switch. The colours are chart series 1 to 5.')}
 
+${section('diff', 'Diff (wk-diff)', `<div class="demo-diffs" id="demo-diffs"></div>`, 'A made-up change of five files, unified: two hunks with word marks and \u201cShow more\u201d context, a rename, a binary file, and a large generated file that starts collapsed. Below it, the first two files split, old beside new. Focus a diff and press n or p for the next or previous change, ] or [ for the next or previous file.')}
+
 ${section('footer-bar', 'Footer bar', `
 <div class="demo-stack">
   <footer class="wk-footer-bar" id="demo-footer-bar"><button class="wk-link" type="button">Details</button><button class="wk-link" type="button">Open</button></footer>
@@ -578,5 +581,53 @@ for (const name of [...names].sort()) {
     id: 'demo-rows', kind: 'bars', orientation: 'horizontal', integer: true, label: 'Failures by cause', view: 'table', categoryHeader: 'Cause',
     categories: [{ label: 'The job itself failed' }, { label: 'Stopped by a manager' }, { label: 'Could not start' }],
     series: [{ key: 'f', label: 'Failed jobs', tone: 1, values: [7, 2, 1] }],
+  }));
+}
+
+// Diff specimens: a made-up change, built with the same call an app makes.
+{
+  // The file before the change; the context the diff can show on request comes from it.
+  const before = [
+    'package server', '', 'import (', '\t"context"', '\t"errors"', '\t"net/http"', '\t"time"', ')', '',
+    '// Server answers requests until its context ends.', 'type Server struct {', '\taddr    string',
+    '\ttimeout time.Duration', '\tmux     *http.ServeMux', '}', '',
+    '// New returns a server that listens on addr.', 'func New(addr string) *Server {',
+    '\treturn &Server{addr: addr, timeout: 5 * time.Second, mux: http.NewServeMux()}', '}', '',
+    '// Handle adds a route.', 'func (s *Server) Handle(pattern string, h http.Handler) {', '\ts.mux.Handle(pattern, h)', '}', '',
+    '// Run serves until ctx is done, then shuts down.', 'func (s *Server) Run(ctx context.Context) error {',
+    '\tsrv := &http.Server{Addr: s.addr, Handler: s.mux}', '\tgo func() {', '\t\t<-ctx.Done()',
+    '\t\tshutdown, cancel := context.WithTimeout(context.Background(), s.timeout)', '\t\tdefer cancel()',
+    '\t\t_ = srv.Shutdown(shutdown)', '\t}()', '\terr := srv.ListenAndServe()',
+    '\tif errors.Is(err, http.ErrServerClosed) {', '\t\treturn nil', '\t}', '\treturn err', '}',
+  ];
+  const ctx = (from, to) => before.slice(from - 1, to).map(l => ` ${l}`);
+  const generated = ['{', '  "version": 3,', '  "entries": ['];
+  for (let i = 0; i < 300; i++) generated.push(`-    { "name": "entry-${i}", "hash": "${(i * 2654435761 % 4294967296).toString(16).padStart(8, '0')}" },`, `+    { "name": "entry-${i}", "hash": "${(i * 40503 % 65536).toString(16).padStart(8, '0')}" },`);
+  const text = [
+    'diff --git a/server/server.go b/server/server.go', 'index 3f1c2a4..8b9d0e7 100644', '--- a/server/server.go', '+++ b/server/server.go',
+    '@@ -11,9 +11,10 @@ import (', ...ctx(11, 12), '-\ttimeout time.Duration', '+\ttimeout  time.Duration', '+\tmaxBytes int64', ...ctx(14, 16),
+    '-// New returns a server that listens on addr.', '-func New(addr string) *Server {', '-\treturn &Server{addr: addr, timeout: 5 * time.Second, mux: http.NewServeMux()}',
+    '+// New returns a server that listens on addr and reads at most maxBytes of a body.', '+func New(addr string, maxBytes int64) *Server {', '+\treturn &Server{addr: addr, timeout: 10 * time.Second, maxBytes: maxBytes, mux: http.NewServeMux()}',
+    '@@ -28,9 +29,11 @@ func (s *Server) Handle(pattern string, h http.Handler) {', ...ctx(28, 28),
+    '-\tsrv := &http.Server{Addr: s.addr, Handler: s.mux}', '+\tsrv := &http.Server{Addr: s.addr, Handler: http.MaxBytesHandler(s.mux, s.maxBytes)}',
+    ...ctx(30, 33), '-\t\t_ = srv.Shutdown(shutdown)', '+\t\tif err := srv.Shutdown(shutdown); err != nil {', '+\t\t\tsrv.Close()', '+\t\t}', ...ctx(35, 35),
+    '-\terr := srv.ListenAndServe()', '+\terr := srv.ListenAndServe() // blocks until shutdown',
+    'diff --git a/docs/serve.md b/docs/running.md', 'similarity index 88%', 'rename from docs/serve.md', 'rename to docs/running.md', 'index 1a2b3c4..5d6e7f8 100644',
+    '--- a/docs/serve.md', '+++ b/docs/running.md', '@@ -1,4 +1,4 @@', '-# Serving', '+# Running the server', ' ', ' Start the server with `run`. It stops when the app quits,',
+    '-and waits five seconds for open requests.', '+and waits ten seconds for open requests.',
+    'diff --git a/assets/icon.png b/assets/icon.png', 'index 0b1c2d3..4e5f6a7 100644', 'Binary files a/assets/icon.png and b/assets/icon.png differ',
+    'diff --git a/data/index.lock.json b/data/index.lock.json', 'index 7a7a7a7..8b8b8b8 100644', '--- a/data/index.lock.json', '+++ b/data/index.lock.json',
+    `@@ -1,303 +1,303 @@`, ...generated.slice(0, 3).map(l => ` ${l}`), ...generated.slice(3),
+    'diff --git a/server/limits.go b/server/limits.go', 'new file mode 100644', 'index 0000000..9c8d7e6', '--- /dev/null', '+++ b/server/limits.go', '@@ -0,0 +1,4 @@',
+    '+package server', '+', '+// DefaultMaxBytes is the largest request body New accepts by default.', '+const DefaultMaxBytes = 1 << 20',
+  ].join('\n') + '\n';
+  const getContext = (_file, range) => before.slice(range.oldStart - 1, range.oldEnd);
+  const host = document.getElementById('demo-diffs');
+  host.append(wkDiff({
+    id: 'demo-diff', label: 'Changes in this example', diff: text, getContext,
+    generated: file => file.path.endsWith('.lock.json'),
+  }));
+  host.append(wkDiff({
+    id: 'demo-diff-split', label: 'The first two files, split', view: 'split', diff: text.split('diff --git a/assets/')[0], getContext,
   }));
 }

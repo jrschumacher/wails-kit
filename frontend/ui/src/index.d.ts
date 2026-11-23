@@ -44,6 +44,35 @@ export function roundedEnd(x: number, y: number, w: number, h: number, r?: numbe
 export function tableModel(spec: ChartSpec): { head: string[]; rows: string[][] };
 export function readout(spec: ChartSpec, index: number): { title: string; rows: { tone?: number | string; shape: string; label: string; text: string }[]; text: string };
 
+// ---- Diff (diff.js) ----
+export type DiffLineKind = 'context' | 'add' | 'del';
+export interface DiffLine { kind: DiffLineKind; old: number | null; new: number | null; text: string; noNewline?: boolean }
+export interface DiffHunk { header: string; oldStart: number; oldLines: number; newStart: number; newLines: number; section: string; lines: DiffLine[] }
+export type DiffStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'copied';
+export interface DiffFile {
+  path: string; oldPath: string; status: DiffStatus; binary: boolean;
+  oldMode: string | null; newMode: string | null; additions: number; deletions: number; hunks: DiffHunk[];
+}
+/** A file the app parsed itself: only the path is required; the rest is filled in. */
+export interface DiffFileInput {
+  path: string; oldPath?: string; status?: DiffStatus | 'binary'; binary?: boolean; generated?: boolean; collapsed?: boolean;
+  oldMode?: string | null; newMode?: string | null; additions?: number; deletions?: number;
+  hunks?: { header?: string; oldStart?: number; oldLines?: number; newStart?: number; newLines?: number; section?: string; lines: (Omit<DiffLine, 'old' | 'new'> & { old?: number | null; new?: number | null })[] }[];
+}
+export interface DiffContextRange { oldStart: number; oldEnd: number; newStart: number; newEnd: number }
+export interface DiffSpec {
+  id?: string; label?: string; diff: string | DiffFileInput[]; emptyText?: string;
+  view?: 'unified' | 'split'; onview?: (view: 'unified' | 'split') => void;
+  wrap?: boolean; collapseAbove?: number; generated?: (file: DiffFile) => boolean; headingLevel?: 2 | 3 | 4 | 5 | 6;
+  highlight?: (file: DiffFile, line: DiffLine) => Node | string | null | undefined;
+  getContext?: (file: DiffFile, range: DiffContextRange) => string[] | null | Promise<string[] | null>;
+  contextStep?: number;
+}
+export function wkDiff(spec: DiffSpec): HTMLElement;
+export function parseUnifiedDiff(text: string): DiffFile[];
+export function diffSplitRows(lines: DiffLine[]): { left: DiffLine | null; right: DiffLine | null }[];
+export function diffWordRanges(before: string, after: string, limit?: number): { del: [number, number][]; add: [number, number][] };
+
 // ---- Settings window (settings-model.js, settings.js) ----
 export const SECRET_MASK: string;
 export function conditionMet(condition: Condition | undefined, values: Values): boolean;
