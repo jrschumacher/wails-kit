@@ -244,8 +244,9 @@ example `npx serve .`) and open `/demo/index.html`.
 | `syncSteppers(root?)` | redraws stepper arrows after the app sets a value itself |
 | `wkChart(spec)` | bars, stacked bars, or a line with a band, as plain SVG, with a legend, hover and keyboard readout, and a Chart/Table switch; colours from `--wk-color-chart-1` to `-5` (`tone` 1 to 5 or `"neutral"`) |
 | `niceTicks`, `labelStep`, `runs`, `roundedTop`, `roundedEnd`, `tableModel`, `readout` | the chart's layout rules, with no DOM |
-| `wkDiff(spec)` | a read-only diff of one or more files, unified or split, with collapsible files, word marks, keyboard navigation and "Show more" context; see [Diff](#diff) |
+| `wkDiff(spec)` | a read-only diff of one or more files, unified or split, with collapsible files, word marks, keyboard navigation and "Show more" context; see [Diff](#diff); with review comments, see [Review comments](#review-comments) |
 | `parseUnifiedDiff`, `diffSplitRows`, `diffWordRanges` | the diff's parser, split-view pairing and word marks, with no DOM |
+| `diffCommentPlaces(file, threads)` | where review threads go in a parsed file (under which line, or outdated), with no DOM |
 
 Every element works when the app builds the DOM imperatively: it may be
 connected before its children exist, moved, or removed while open, and it
@@ -336,7 +337,148 @@ pane.append(wkDiff({
   `new`) and only its own side's number (`data-old` on the old half,
   `data-new` on the new). A file's rows are built lazily and rebuilt on a
   view switch, so anything an app adds among them belongs in `onrender`,
-  which runs after every build of a file's rows.
+  which runs after every build of a file's rows. For review comments, use
+  the options below instead.
+
+### Review comments
+
+Comments on lines of a diff, as in a pull-request review: threads under
+their lines, a "+" button to add one, and a box to write it in. The diff
+draws them and keeps open boxes; the app owns the threads and posts them.
+
+```js
+const diff = wkDiff({
+  id: 'review', diff: patchText,
+  comments: threads,                          // the threads, below
+  canComment: (file, side, line) => true,     // or true / false; default true when oncomment is set
+  oncomment: ({ path, side, line, endLine, body }) => api.post(...),  // a promise, or nothing
+  onreply: (threadId, body) => api.reply(...),                       // a promise, or nothing
+  onresolve: (threadId, resolved) => api.resolve(...),
+  onretry: (threadId, entry) => api.retry(...),   // Retry on an entry you marked with error
+  commentBox: spec => myEditor(spec),         // optional: the box (below); default a textarea
+  commentPlaceholder: 'Leave a comment',      // the box's placeholder (a reply's is "Reply")
+  renderBody: entry => renderMarkdown(entry.body),  // optional: default plain text
+  author: { name: 'Ana', avatar: 'data:…' },  // who a comment being posted shows as (default "You")
+  now: () => Date.now(),                      // the clock for "3 minutes ago"
+});
+// Later, when threads change (a comment lands, a thread is resolved):
+diff.setComments(threads);
+```
+
+- **Threads.** `{ id, path, side: 'old'|'new', line, endLine?, resolved?,
+  outdated?, entries: [{ author, avatar?, time, body, bodyHtml?, pending?,
+  error? }] }`. `path` is the file's path (or its old path, for a rename);
+  `line` and `endLine` are numbers on `side` (a range runs from `line` to
+  `endLine`, and the thread sits under `endLine`). `time` is a `Date`, an
+  ISO string or milliseconds, shown as relative time ("3 hours ago",
+  "yesterday") in a `<time>` whose `datetime` is exact. A thread whose line
+  (or range) is not shown in one hunk on its side, or which says
+  `outdated: true`, is **outdated** and listed at the top of its file with
+  "Outdated · line 14". Threads for files not in the diff are not shown.
+  `diffCommentPlaces(file, threads)` returns the placement without the DOM.
+- **Drawing.** A thread is a `role="region"` named by file and line
+  ("Comments on server/server.go, lines 18 to 20"; "old line 13" on the old
+  side). Each comment reads as author, time, then body. Then Reply (with
+  `onreply`) and Resolve or Unresolve (with `onresolve`). A resolved thread
+  collapses to one disclosure, "Resolved · 3 comments", that expands it
+  again (and stays expanded through a view switch). In the unified view a
+  thread spans the row; in the split view it sits under the side it belongs
+  to. Each file header counts its comments ("2 comments"). Bodies are plain
+  text (line breaks kept) unless `renderBody(entry)` returns a node; the
+  kit never inserts `bodyHtml` itself, so your `renderBody` decides how to
+  sanitise it.
+- **Adding a comment.** With `oncomment`, line rows take focus and a
+  "+" button (`wk-diff-add-comment`) appears in the gutter of the line
+  under the pointer or with focus, with an `aria-label` naming the file and
+  line. Click it for one line, or drag it across lines for a range;
+  Shift-click a second line number to select from the first. On a focused
+  line, `c` opens a box (for the selection, if the line is in one). A range
+  stays within one hunk and on one side: added and context lines are on the
+  new side, removed lines on the old; in the split view, the side of the
+  half. The box opens in a row under the line (or range), focused. Escape or
+  Cancel closes it and returns focus to the line; Ctrl+Enter or Cmd+Enter,
+  or the Comment button, sends it. Several boxes can be open at once, and
+  each keeps its draft through a view switch. `canComment(file, side,
+  line)` returning false leaves a line without the button.
+- **Keyboard.** With commenting on, the arrow keys move between lines and
+  hunk headers in a file; in the split view, left and right move between the
+  halves of a line (the focus ring marks the half). Shift with Up or Down
+  selects lines, and Escape clears the selection. Anywhere in the diff,
+  `N` and `P` move to the next or previous thread (in expanded files),
+  alongside `n`/`p` and `]`/`[`.
+- **Pending and failed.** When `oncomment` or `onreply` returns a promise,
+  the comment shows at once as pending: secondary text, with a working dot
+  and "Posting…" after 400 ms. When the promise resolves, the pending copy
+  goes: put the real one in with `setComments` before resolving. When it
+  rejects, the comment shows "Couldn't post the comment" with the error in
+  an ErrorBox (`wk-errorbox`, with a copy button), Retry (sends it again)
+  and Edit (puts the text back in a box). Outcomes are announced politely.
+  If the callback returns nothing, the app shows the comment itself; mark an
+  entry `pending: true` to show it pending (the dot shows at once), or
+  `error: 'raw message'` to show the ErrorBox, with Retry calling
+  `onretry(threadId, entry)`.
+- **The comment box.** `commentBox(spec)` makes the box, so an app can use
+  an editor (the Markdown editor in `@wails-kit/editor`, say) while this
+  package stays dependency-free. It gets
+
+  ```ts
+  { value: string,        // the text to start with (a draft put back by Edit)
+    placeholder: string,  // "Leave a comment", or "Reply"
+    label: string,        // the accessible name the box must carry
+    onSubmit: () => void, // call to send (from your own Mod-Enter, say)
+    onCancel: () => void } // call to close (from your own Escape)
+  ```
+
+  and returns `{ element, value, focus(), destroy() }`: `element` goes in
+  the frame above Cancel and Comment (which the diff draws); `value` is
+  read when the comment is sent; `focus()` is called when the box opens or
+  is reopened; `destroy()` when it closes. `focus` and `destroy` are
+  optional, and returning a bare element (with `value` and `focus`) also
+  works. The element is moved, not rebuilt, when the view switches, so an
+  editor keeps its state. If the box doesn't handle Escape or Ctrl/Cmd+Enter
+  (it didn't call `preventDefault()`), the diff does. If the factory
+  throws, the default box is used: a `wk-field` textarea
+  (`wk-diff-compose-field`).
+- **With `@wails-kit/editor`'s Markdown editor.** An adapter of a few
+  lines; this package imports nothing from the editor. The editor's element
+  has `value`, `focus()` and `destroy()`, so it is returned as is; leave
+  out its `actions`, since the diff draws Cancel and Comment.
+
+  ```js
+  import { wkMarkdownEditor, renderMarkdown } from './vendor/wails-kit-editor/markdown.js';
+
+  const open = url => Browser.OpenURL(url);
+  wkDiff({
+    // …
+    commentBox: ({ value, placeholder, label, onSubmit, onCancel }) =>
+      wkMarkdownEditor({ value, placeholder, label, onlink: open, onsubmit: onSubmit, oncancel: onCancel }),
+    renderBody: entry => {
+      const body = document.createElement('div');
+      body.className = 'wk-markdown';
+      body.append(renderMarkdown(entry.body, { onlink: open }));
+      return body;   // or renderMarkdownElement(entry.body, { onlink: open }), where the editor has it
+    },
+  });
+  ```
+
+  The diff closes the box as soon as the comment is sent and shows it as
+  pending itself, so `onSubmit` returns nothing. Keys typed in the box
+  (including in a disabled editor, `contenteditable="false"`) never reach
+  the diff's single-key shortcuts.
+- **Classes** (proposed for the design system): `wk-diff-comments` (the
+  row under a line), `wk-diff-outdated`, `wk-diff-thread` (with
+  `data-side`, `data-resolved`, `data-outdated`, `data-local` while
+  posting), `wk-diff-thread-head`, `wk-diff-thread-toggle`,
+  `wk-diff-thread-body`, `wk-diff-comment-list`, `wk-diff-comment` (with
+  `data-state="pending"` or `"error"`), `wk-diff-comment-head`,
+  `wk-diff-avatar`, `wk-diff-author`, `wk-diff-time`, `wk-diff-comment-body`,
+  `wk-diff-comment-state`, `wk-diff-errorbox`, `wk-diff-comment-actions`,
+  `wk-diff-thread-actions`, `wk-diff-compose`, `wk-diff-compose-field`,
+  `wk-diff-compose-actions`, `wk-diff-add-comment`,
+  `wk-diff-comment-count`; selected lines carry `data-selected`, and a
+  focused split row `data-focus-side`. In forced colours the selection is a
+  `Highlight` outline, the + button a `ButtonText` border on `ButtonFace`,
+  and pending text `GrayText`.
 
 ## Settings window
 
@@ -429,15 +571,15 @@ that themes set only theme tokens and meet the contrast rules, that colours in
 component rules come from tokens, that the code syntax colours reach 4.5:1 on
 the control colour, that every selector is scoped, that nothing
 loads from outside the package or names an app, the chart's layout rules, the
-diff's parser, pairing and word marks, the contrast of text on the diff tints, the
-settings window's rules, and that `dist/` matches a fresh build.
+diff's parser, pairing and word marks, where review threads go, the contrast of
+text on the diff tints, the settings window's rules, and that `dist/` matches a fresh build.
 
 `npm run test:browser` drives the review pages with `playwright-core` and
 Chrome (set `CHROME_PATH`, or have it at `/usr/bin/google-chrome` or the macOS
 default; without Chrome it skips, unless `CI` is set). It covers the
 WAI-ARIA keyboard patterns of every custom element, focus return, imperative
 construction and clean-up, forced colours, the chart, the diff (lines in both
-views, keyboard, copy, forced colours, a 5,000-line diff), the prebuilt module's
+views, keyboard, copy, forced colours, a 5,000-line diff, review comments), the prebuilt module's
 exports, and the settings window. The kit targets WebKit (Wails on macOS) as
 well as WebView2; these checks run in Chrome, so check WebKit by hand on a Mac
 for a change in behaviour.

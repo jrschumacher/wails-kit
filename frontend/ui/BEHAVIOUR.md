@@ -570,6 +570,10 @@ Where shipped code doesn't yet follow this page:
   override it.
 - The diff view's "Show more" button sets `disabled` while loading, which drops focus,
   and each hunk has its own `aria-live` note instead of the shared announcer.
+- The diff's review comments announce outcomes ("Comment posted", "Couldn't post the
+  comment") through a polite region of their own, not the shared announcer. Escape in a
+  comment box discards its draft with no Undo, and Resolve shows no busy state while
+  the app works.
 - The settings window validates on `change` only: it doesn't re-check as the person
   types once a field shows an error, and it has no pending state for a field whose
   check is still running. It marks a tab with attention but shows no window Notice
