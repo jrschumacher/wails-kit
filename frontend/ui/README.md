@@ -265,7 +265,8 @@ markup.
 width and its pressed face (`--wk-color-fill-strong`), with the `progress`
 cursor, not the 45% disabled look. The kit drops a click, from the pointer
 or the keyboard, when the control pressed (the nearest `button`, `a[href]`,
-`input`, `summary`, `[role="button"]` or `[role^="menuitem"]` to the click)
+`input`, `select`, `summary`, or element with role `button`, `link`,
+`menuitem…`, `switch`, `checkbox`, `radio`, `tab` or `option`, to the click)
 itself has both `data-busy` and `aria-disabled="true"`, so a second press
 never reaches the app. Other controls inside a busy region (a Stop button in
 a busy row) still work, and `data-busy` without `aria-disabled` blocks
@@ -316,8 +317,16 @@ setProgress(bar, { done: 40, total: 40, unit: 'files' });         // finished: b
 allows). The four value attributes change together, and at most every
 `timings.progressValueEvery` (5 s), so a screen reader isn't flooded: a call
 within 5 s of the last change moves the fill only, and the next call after
-that sets them. The first call, and a call with `done >= total`, always set
-them. `text` replaces the default words ("Step 2 of 3 · 12 of 40 files").
+that sets them. They change at once on the first call, when `done` reaches
+`total`, when `total`, `unit` or `text` differs from the last values set (so
+they never describe another total), and when `clock` reads earlier than the
+last set. Nothing fires later by itself: if the updates stop inside the
+window, the attributes stay behind the fill until the next call, so pass
+`aria: 'now'` when the work pauses or changes stage. The task helper
+(`wkTask`, #142) does so on waiting, pause and each change of stage. A `text`
+that changes on every call (one that embeds the count) changes the
+attributes on every call: put the count in `done` and `unit`, and keep
+`text` for words that change with the stage. `text` replaces the default words ("Step 2 of 3 · 12 of 40 files").
 Options: `aria: 'now'` sets them whatever the cap (a change of stage),
 `aria: false` never does (except on the first call, since a bar without
 `aria-valuenow` is indeterminate), and `clock` returns milliseconds for the

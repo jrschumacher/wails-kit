@@ -1936,17 +1936,19 @@ try {
     await page.close();
   });
 
-  await check('busy: only the pressed control counts; a control inside a [data-busy] container still works, and data-busy without aria-disabled is not blocked', async () => {
+  await check('busy: only the pressed control counts; a control inside a [data-busy] container still works, data-busy without aria-disabled is not blocked, and a busy ARIA switch, tab or menu item is', async () => {
     const { page, problems } = await open();
     const out = await page.evaluate(() => {
       const host = document.createElement('div');
       host.innerHTML = '<div data-busy aria-disabled="true"><button class="wk-button" type="button" id="t-stop">Stop</button><span id="t-text">Removing…</span></div>'
         + '<button class="wk-button" type="button" data-busy id="t-pressed">Pressed only</button>'
-        + '<div role="menu"><button role="menuitem" type="button" data-busy aria-disabled="true" id="t-item">Item</button></div>';
+        + '<div role="menu"><button role="menuitem" type="button" data-busy aria-disabled="true" id="t-item">Item</button></div>'
+        + '<div role="switch" aria-checked="false" tabindex="0" data-busy aria-disabled="true" id="t-switch"><span id="t-switch-knob">Sync</span></div>'
+        + '<div role="tablist"><div role="tab" tabindex="0" data-busy aria-disabled="true" id="t-tab"><span id="t-tab-label">Tab</span></div></div>';
       document.getElementById('busy').append(host);
       const hits = window.hits = {};
       host.addEventListener('click', e => { const id = e.target.closest('[id]').id; hits[id] = (hits[id] || 0) + 1; });
-      for (const id of ['t-stop', 't-text', 't-pressed', 't-item']) document.getElementById(id).click();
+      for (const id of ['t-stop', 't-text', 't-pressed', 't-item', 't-switch', 't-switch-knob', 't-tab-label']) document.getElementById(id).click();
       return hits;
     });
     assert.deepEqual(out, { 't-stop': 1, 't-text': 1, 't-pressed': 1 });
@@ -2027,6 +2029,34 @@ try {
         ],
       };
     });
+    // A new total, unit or words inside the window, and a clock that reads
+    // earlier than the last set, change the attributes at once.
+    const changed = await page.evaluate(async () => {
+      const { setProgress } = await import('/src/index.js');
+      const bar = document.createElement('div');
+      bar.className = 'wk-progress';
+      document.getElementById('busy').append(bar);
+      let t = 0;
+      const set = (p, at) => { t = at; setProgress(bar, p, { clock: () => t }); return [bar.getAttribute('aria-valuemax'), bar.getAttribute('aria-valuenow'), bar.getAttribute('aria-valuetext'), bar.style.getPropertyValue('--wk-progress-value')]; };
+      return [
+        set({ done: 1, total: 4 }, 0),
+        set({ done: 1, total: 10 }, 100),
+        set({ done: 2, total: 10 }, 200),
+        set({ done: 2, total: 10, unit: 'files' }, 300),
+        set({ done: 3, total: 10, unit: 'files', text: 'Step 2 of 3' }, 400),
+        set({ done: 4, total: 10, unit: 'files', text: 'Step 2 of 3' }, 500),
+        set({ done: 5, total: 10, unit: 'files', text: 'Step 2 of 3' }, 50),
+      ];
+    });
+    assert.deepEqual(changed, [
+      ['4', '1', '1 of 4', '25%'],                    // first
+      ['10', '1', '1 of 10', '10%'],                  // a new total: at once
+      ['10', '1', '1 of 10', '20%'],                  // within the window: fill only
+      ['10', '2', '2 of 10 files', '20%'],            // a new unit: at once
+      ['10', '3', 'Step 2 of 3', '30%'],              // new words: at once
+      ['10', '3', 'Step 2 of 3', '40%'],              // the same again: fill only
+      ['10', '5', 'Step 2 of 3', '50%'],              // a clock reading earlier than the last set: at once
+    ]);
     assert.equal(capped.every, 5000);
     assert.deepEqual(capped.steps, [['1', '10%'], ['1', '20%'], ['1', '30%'], ['4', '40%'], ['5', '50%'], ['5', '60%'], ['10', '100%']]);
     const sweep = await page.evaluate(() => {

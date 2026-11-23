@@ -58,20 +58,39 @@ test('no transition in the kit has a literal duration: each uses a --wk-duration
 // runs as long as the work does: the spinner's turn, the indeterminate bar's
 // sweep and, under reduced motion, its fade. Any other animation uses a token.
 const LOOPS = new Set(['wk-spin', 'wk-progress-sweep', 'wk-progress-fade']);
-test('no animation in the kit has a literal duration, except the indicator loops on the allow-list', () => {
+// Every animation in a declaration, comma lists split: [{ name, value }].
+// An animation-duration list pairs with the rule's animation-name list.
+const topLevel = v => v.split(/,(?![^(]*\))/).map(x => x.trim()).filter(Boolean);
+function animationsOf(r) {
+  const d = decls(r);
+  const out = [];
+  for (const [p, v] of r.decls) {
+    if (p === 'animation' && v !== 'none') for (const one of topLevel(v)) out.push({ name: one.split(/\s+/).find(w => /^wk-/.test(w)) || '', value: one });
+    if (p === 'animation-duration') {
+      const names = topLevel(d['animation-name'] || '');
+      topLevel(v).forEach((one, i) => out.push({ name: names[i % (names.length || 1)] || '', value: one }));
+    }
+  }
+  return out;
+}
+test('no animation in the kit has a literal duration, except the indicator loops on the allow-list (each of a comma list checked)', () => {
   let loops = 0;
   for (const file of ['../src/components.css', '../src/base.css', '../src/settings.css']) {
     for (const r of selectorsOf(read(file))) {
-      const d = decls(r);
-      for (const [p, v] of r.decls) {
-        if (!/^animation(-duration)?$/.test(p) || v === 'none') continue;
-        const name = p === 'animation' ? v.split(/\s+/).find(w => /^wk-/.test(w)) : (d['animation-name'] || '');
-        if (LOOPS.has(name)) { loops++; assert.match(v, /\binfinite\b/, `${file}: ${r.selector}: ${name} is on the allow-list as a loop`); continue; }
-        assert.doesNotMatch(v, /(^|[\s,])[\d.]+m?s\b/, `${file}: ${r.selector} { ${p}: ${v} } needs a --wk-duration-* token`);
+      for (const { name, value } of animationsOf(r)) {
+        if (LOOPS.has(name)) { loops++; assert.match(value, /\binfinite\b/, `${file}: ${r.selector}: ${name} is on the allow-list as a loop`); continue; }
+        assert.doesNotMatch(value, /(^|[\s,])[\d.]+m?s\b/, `${file}: ${r.selector}: ${value} needs a --wk-duration-* token`);
       }
     }
   }
   assert.equal(loops, 3, 'the spinner, the sweep and the reduced-motion fade');
+});
+
+test('the animation check reads every animation of a comma list, and an animation-duration list by name', () => {
+  const rule = (...decl) => ({ selector: '.wk-x', decls: decl });
+  assert.deepEqual(animationsOf(rule(['animation', 'wk-spin .8s linear infinite, wk-pop .2s ease-out'])).map(a => a.name), ['wk-spin', 'wk-pop']);
+  assert.deepEqual(animationsOf(rule(['animation-name', 'wk-spin, wk-pop'], ['animation-duration', '.8s, .2s'])), [{ name: 'wk-spin', value: '.8s' }, { name: 'wk-pop', value: '.2s' }]);
+  assert.deepEqual(animationsOf(rule(['animation', 'wk-a var(--wk-duration-base) cubic-bezier(.2, 0, 0, 1)'])).map(a => a.name), ['wk-a']);
 });
 
 // Kit names the design system lacks (proposed for it), each a rule here.

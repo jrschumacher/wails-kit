@@ -524,8 +524,10 @@ same values as the tokens) and `reducedMotion()`. `tokens.css` sets `--wk-durati
   panels, sheets and standalone regions; in a table or list row, progress is words
   beside the dot, with no bar. On failure the bar goes and the words take its place.
   `setProgress(bar, { done, total, unit })` moves the fill on every call and changes
-  the value attributes together, at most every 5 s (always on the first call and when
-  done; `{ aria: 'now' }` forces it).
+  the value attributes together, at most every 5 s (at once on the first call, when
+  done, and when the total, unit or words change; `{ aria: 'now' }` forces it). It
+  sets no timer, so `wkTask` passes `aria: 'now'` on waiting, pause and each change of
+  stage, and the attributes never stay behind the fill while the work stands still.
 - **Spinner:** in a button, `<span class="wk-spinner" aria-hidden="true">`; on its own,
   `<span class="wk-spinner" role="progressbar" aria-label="Fetching runs">`. 12 px in a
   small button and 14 px otherwise, drawn with a border in `currentColor`. In a button

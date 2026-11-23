@@ -777,7 +777,7 @@ document.addEventListener('input', e => { if (e.target instanceof Element && e.t
 // the control that was pressed counts: it must itself have data-busy and
 // aria-disabled="true", so other controls inside a busy region (a Stop
 // button in a busy row) still work.
-const PRESSABLE = 'button, a[href], input, summary, [role="button"], [role^="menuitem"]';
+const PRESSABLE = 'button, a[href], input, select, summary, [role="button"], [role="link"], [role^="menuitem"], [role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="option"]';
 window.addEventListener('click', e => {
   const control = e.target instanceof Element && e.target.closest(PRESSABLE);
   if (control && control.matches('[data-busy][aria-disabled="true"]')) {
@@ -791,22 +791,31 @@ window.addEventListener('click', e => {
 // together (the words default to "12 of 40 files" from unit). The value
 // attributes change at most every timings.progressValueEvery (5 s), so a
 // screen reader isn't flooded: a call within that window moves the fill
-// only, and the next call after it sets them. The first call, and a call
-// with done >= total, always sets them. options.aria: true (the default)
-// follows that cap, 'now' sets them whatever the cap, false never sets them
-// (except on the first call: a bar without aria-valuenow is indeterminate).
-// options.clock returns milliseconds (default performance.now).
-const progressSetAt = new WeakMap();
+// only, and the next call after it sets them. They change at once on the
+// first call, when done reaches total, when total, unit or text differs
+// from the last values set (so they never describe another total), and when
+// the clock reads earlier than the last set (a different clock). Nothing
+// fires later by itself: updates that stop inside the window leave the
+// attributes behind the fill, so a caller that pauses passes aria: 'now'
+// (wkTask does on waiting, pause and a change of stage). options.aria: true
+// (the default) follows the cap, 'now' sets them whatever the cap, false
+// never sets them (except on the first call: a bar without aria-valuenow is
+// indeterminate). options.clock returns milliseconds (default
+// performance.now).
+const progressSet = new WeakMap();
 function setProgress(bar, { done = 0, total, unit = '', text } = {}, { aria = true, clock = () => performance.now() } = {}) {
   const max = Number(total);
   if (!Number.isFinite(max) || max <= 0) throw new RangeError(`setProgress: total must be a positive number, not ${total}`);
   const now = Math.min(Math.max(Number(done) || 0, 0), max);
   bar.style.setProperty('--wk-progress-value', `${Math.round(now / max * 10_000) / 100}%`);
   const at = clock();
-  const first = !bar.hasAttribute('aria-valuenow') || !progressSetAt.has(bar);
-  const due = first || aria === 'now' || (aria && (now >= max || at - progressSetAt.get(bar) >= timings.progressValueEvery));
+  const last = progressSet.get(bar);
+  const first = !bar.hasAttribute('aria-valuenow') || !last;
+  const due = first || aria === 'now' || (aria && (
+    now >= max || max !== last.max || unit !== last.unit || text !== last.text ||
+    at < last.at || at - last.at >= timings.progressValueEvery));
   if (!due) return;
-  progressSetAt.set(bar, at);
+  progressSet.set(bar, { at, max, unit, text });
   bar.setAttribute('aria-valuemin', '0');
   bar.setAttribute('aria-valuemax', String(max));
   bar.setAttribute('aria-valuenow', String(now));
