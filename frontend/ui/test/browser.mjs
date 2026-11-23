@@ -99,8 +99,8 @@ try {
       for (const scheme of ['light', 'dark']) {
         const { page, problems } = await open(url, { colorScheme: scheme });
         const font = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
-        if (url === '/demo/themed.html') assert.match(font, /^"?Avenir Next"?,/);
-        else assert.match(font, /^system-ui,/);
+        // The example theme keeps the kit's font.
+        assert.match(font, /^system-ui,/);
         const bg = await page.evaluate(() => getComputedStyle(document.querySelector('.wk-root')).backgroundColor);
         assert.equal(bg, scheme === 'light' ? 'rgb(252, 252, 251)' : 'rgb(24, 26, 31)');
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -121,13 +121,19 @@ try {
           const root = getComputedStyle(document.documentElement);
           const d = document.querySelector('#demo-dialog dialog'); d.showModal();
           const backdrop = getComputedStyle(d, '::backdrop').backgroundColor; d.close();
-          return { bg: root.backgroundColor, scheme: root.colorScheme, fill: root.getPropertyValue('--wk-color-attention-fill').trim(), backdrop };
+          const probe = document.createElement('i');
+          probe.style.backgroundColor = 'var(--wk-color-attention-fill)';
+          document.body.append(probe);
+          const fill = getComputedStyle(probe).backgroundColor;
+          probe.remove();
+          return { bg: root.backgroundColor, scheme: root.colorScheme, fill, backdrop };
         });
         const dark = want === 'dark';
         assert.equal(look.bg, dark ? 'rgb(24, 26, 31)' : 'rgb(252, 252, 251)', `${url} system ${scheme}, data-theme ${attr}`);
         assert.equal(look.scheme, want, `${url} color-scheme, system ${scheme}, data-theme ${attr}`);
         assert.equal(look.backdrop, dark ? 'rgba(0, 0, 0, 0.5)' : 'rgba(15, 20, 30, 0.28)');
-        if (url === '/demo/themed.html') assert.equal(look.fill.replace(/\s+/g, ''), dark ? 'rgba(238,107,95,.12)' : 'rgba(196,55,43,.08)');
+        // Derived from the theme's attention: #ee6b5f at 12% in dark, #bc3529 at 8% in light.
+        if (url === '/demo/themed.html') assert.equal(look.fill.replace(/\s+/g, ''), dark ? 'color(srgb0.9333330.4196080.372549/0.12)' : 'color(srgb0.7372550.2078430.160784/0.08)');
         assert.deepEqual(problems, []);
         await page.close();
       }
@@ -1017,6 +1023,59 @@ try {
     assert.deepEqual(one, { top: 'solid', atStart: true, atEnd: false, count: 1 });
     assert.deepEqual(problems, []);
     await page.close();
+  });
+
+  await check('derived colours: a theme that changes only the accent and attention changes selection, chart-1, destructive text and attention fill with them, in light and dark', async () => {
+    for (const scheme of ['light', 'dark']) {
+      const { page, problems } = await open('/demo/index.html', { colorScheme: scheme });
+      // A theme in a stylesheet object (the page's CSP blocks inline <style>).
+      const read = () => page.evaluate(() => {
+        const probe = (prop, token) => { const e = document.createElement('i'); e.style[prop] = `var(${token})`; document.body.append(e); const v = getComputedStyle(e)[prop]; e.remove(); return v; };
+        return { selection: probe('backgroundColor', '--wk-color-selection'), chart: probe('color', '--wk-color-chart-1'), destructive: probe('color', '--wk-color-destructive-text'), fill: probe('backgroundColor', '--wk-color-attention-fill') };
+      });
+      const before = await read();
+      await page.evaluate(() => {
+        const sheet = new CSSStyleSheet();
+        const theme = '--wk-color-accent: #ff0000; --wk-color-attention: #0000ff; --wk-color-attention-text: #00aa00;';
+        sheet.replaceSync(`:root { ${theme} } @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { ${theme} } } :root[data-theme="dark"] { ${theme} }`);
+        document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+      });
+      const after = await read();
+      const dark = scheme === 'dark';
+      assert.deepEqual(after, {
+        selection: `color(srgb 1 0 0 / ${dark ? 0.16 : 0.12})`,
+        chart: 'rgb(255, 0, 0)',
+        destructive: 'rgb(0, 170, 0)',
+        fill: `color(srgb 0 0 1 / ${dark ? 0.12 : 0.08})`,
+      }, scheme);
+      assert.notDeepEqual(after, before);
+      assert.deepEqual(problems, []);
+      await page.close();
+    }
+  });
+
+  await check('field border: a text field, select, checkbox, radio, off switch and stepper outline reach 3:1 on the window, in light and dark; a button keeps the soft border', async () => {
+    for (const scheme of ['light', 'dark']) {
+      const { page, problems } = await open('/demo/index.html', { colorScheme: scheme });
+      const ratios = await page.evaluate(() => {
+        const rgb = c => c.match(/[\d.]+/g).slice(0, 3).map(Number);
+        const lum = c => { const [r, g, b] = rgb(c).map(x => { x /= 255; return x <= .03928 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4; }); return .2126 * r + .7152 * g + .0722 * b; };
+        const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + .05) / (y + .05); };
+        const bg = getComputedStyle(document.documentElement).backgroundColor;
+        const of = sel => { const el = document.querySelector(sel); return el ? +ratio(getComputedStyle(el).borderTopColor, bg).toFixed(2) : null; };
+        return {
+          field: of('input.wk-field:not([readonly]):not(:disabled)'), select: of('.wk-select:not(:disabled)'), checkbox: of('.wk-checkbox:not(:checked):not(:disabled)'),
+          radio: of('.wk-radio:not(:checked):not(:disabled)'), switch: of('.wk-switch:not(:checked):not(:disabled)'), stepper: of('.wk-stepper-arrows'), button: of('.wk-button:not(.wk-button--primary):not(.wk-button--quiet)'),
+        };
+      });
+      for (const [what, r] of Object.entries(ratios)) {
+        assert.ok(r !== null, `${what} is on the page`);
+        if (what === 'button') assert.ok(r < 3, `${scheme}: the button keeps the soft border (${r}:1)`);
+        else assert.ok(r >= 3, `${scheme}: the ${what} outline is ${r}:1 on the window`);
+      }
+      assert.deepEqual(problems, []);
+      await page.close();
+    }
   });
 
   // ---- The prebuilt module and the settings window ----

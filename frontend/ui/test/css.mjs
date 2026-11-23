@@ -70,19 +70,32 @@ export const TOKEN_SELECTORS = { light: ':root', dark: ':root:not([data-theme="l
 export const isTokenSelector = selector => Object.values(TOKEN_SELECTORS).includes(selector);
 
 // The --wk-* tokens a sheet sets: light (:root), dark (the media query) and
-// attrDark (data-theme="dark"). misplaced lists token blocks that follow
-// neither pattern, such as a bare :root inside the media query.
+// attrDark (data-theme="dark"). Blocks inside @supports (color: color-mix())
+// are the derived colours, kept apart in derived.light / .dark / .attrDark
+// so the literals outside stay the fallback. misplaced lists token blocks
+// that follow neither pattern, such as a bare :root inside the media query.
+// A theme's own values for those four where color-mix() is missing, in
+// @supports not (color: color-mix()), are kept apart in fallback.
+const SUPPORTS_MIX = /^@supports\s*\(\s*color\s*:\s*color-mix\(/;
+const SUPPORTS_NO_MIX = /^@supports\s+not\s*\(\s*color\s*:\s*color-mix\(/;
 export function tokens(css) {
   const light = new Map(), dark = new Map(), attrDark = new Map(), misplaced = [];
+  const derived = { light: new Map(), dark: new Map(), attrDark: new Map() };
+  const fallback = { light: new Map(), dark: new Map(), attrDark: new Map() };
   for (const r of rules(css)) {
     if (!isTokenSelector(r.selector)) continue;
-    const map = !r.dark && r.selector === TOKEN_SELECTORS.light ? light
-      : r.dark && r.selector === TOKEN_SELECTORS.dark ? dark
-      : !r.dark && r.selector === TOKEN_SELECTORS.attrDark ? attrDark : null;
+    const inMix = r.atRules.some(a => SUPPORTS_MIX.test(a));
+    const noMix = r.atRules.some(a => SUPPORTS_NO_MIX.test(a));
+    const others = r.atRules.filter(a => !SUPPORTS_MIX.test(a) && !SUPPORTS_NO_MIX.test(a) && !DARK.test(a));
+    const into = inMix ? derived : noMix ? fallback : { light, dark, attrDark };
+    const map = others.length ? null
+      : !r.dark && r.selector === TOKEN_SELECTORS.light ? into.light
+      : r.dark && r.selector === TOKEN_SELECTORS.dark ? into.dark
+      : !r.dark && r.selector === TOKEN_SELECTORS.attrDark ? into.attrDark : null;
     if (!map) { misplaced.push(`${r.atRules.join(' ')} ${r.selector}`.trim()); continue; }
     for (const [p, v] of r.decls) if (p.startsWith('--wk-')) map.set(p, v);
   }
-  return { light, dark, attrDark, misplaced };
+  return { light, dark, attrDark, derived, fallback, misplaced };
 }
 
 // A selector without the theme prefix of a dark rule, and which appearance

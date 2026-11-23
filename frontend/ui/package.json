@@ -34,7 +34,8 @@
     "src",
     "theme",
     "dist",
-    "README.md"
+    "README.md",
+    "THEMING.md"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",

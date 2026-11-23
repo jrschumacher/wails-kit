@@ -79,7 +79,7 @@ ${section('type', 'Type scale', `
 ${section('tokens', 'Tokens', `<div id="demo-swatches" class="demo-swatches"></div>
 <dl id="demo-values" class="demo-values"></dl>`)}
 
-${section('dots', 'Status dot', dots, 'Shapes × tones, small (data-size="sm", 8 px), at the default size and at 14 px. Tones: neutral, working, attention; the working tone draws its outline in wk-color-working-ring. No state names.')}
+${section('dots', 'Status dot', dots, 'Shapes × tones, small (data-size="sm", 8 px), at the default size and at 14 px. Tones: neutral, working, attention (three only; there is no warning tone). No state names.')}
 
 ${section('buttons', 'Buttons and links', `
 <div class="demo-row">
