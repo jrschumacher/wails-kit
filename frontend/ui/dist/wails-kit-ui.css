@@ -7,9 +7,11 @@
    data-theme="dark" whatever the system says. The two dark blocks hold the
    same values (test/tokens.test.mjs checks that they match). Sizes,
    type and radii are the same in both. An app's theme file overrides a few
-   of these (accent, state colours, font family, radii) after this stylesheet;
-   theme/theme.css lists them. The
-   accent and state defaults are deliberately plain so the kit stands alone.
+   of these after this stylesheet: THEMING.md is the contract, and
+   theme/theme.css lists the tokens with these defaults. The accent and
+   state defaults are deliberately plain so the kit stands alone. Four
+   colours are derived from the theme's (the block at the end); the literals
+   for them here are the fallback where color-mix() is missing.
    :root holds only these --wk-* custom properties; everything that styles
    the page is scoped under .wk-root (base.css). */
 :root {
@@ -28,19 +30,24 @@
   /* Lines */
   --wk-color-hairline: #e6e7ea;
   --wk-color-hairline-strong: #d3d5da;
+  /* Soft outline of buttons and segmented controls, which their face and
+     label already set apart. */
   --wk-color-control-border: #cfd2d8;
+  /* Outline of the controls known only by it: text fields, selects, search,
+     steppers, checkboxes, radios, an off switch. 3:1 or more on wk-color-bg
+     and wk-color-surface (WCAG 1.4.11). */
+  --wk-color-field-border: #858b95;
   /* Tints laid over any surface: rest, then hover and pressed. */
   --wk-color-fill: rgba(27, 31, 39, .045);
   --wk-color-fill-strong: rgba(27, 31, 39, .07);
   /* Accent: primary buttons, links, focus, selection. */
   --wk-color-accent: #3d4452;
   --wk-color-on-accent: #ffffff;
-  --wk-color-selection: rgba(61, 68, 82, .1);
-  /* State tones: the status dot and anything that must be acted on. */
-  --wk-color-working: #3f73c4;
-  /* The working dot's outline: a darker step of working where working alone
-     does not reach 3:1 on wk-color-bg (a theme's light working colour). */
-  --wk-color-working-ring: #3f73c4;
+  --wk-color-selection: rgba(61, 68, 82, .12);
+  /* State tones: the status dot and anything that must be acted on. Three
+     only (neutral is wk-color-text); no warning tone. Working and attention
+     each reach 3:1 on wk-color-bg and differ by 1.5:1 or more. */
+  --wk-color-working: #628ccf;
   --wk-color-attention: #c23a2c;
   --wk-color-on-attention: #ffffff;
   --wk-color-attention-text: #a3301f;
@@ -55,9 +62,18 @@
   /* Chart series, in order. */
   --wk-color-chart-1: #3d4452;
   --wk-color-chart-2: #1c8a72;
-  --wk-color-chart-3: #3f73c4;
+  --wk-color-chart-3: #628ccf;
   --wk-color-chart-4: #8a55a6;
   --wk-color-chart-5: #b8592c;
+  /* Diff rows: an added line's tint, a removed line's, and the stronger
+     step that marks the words that changed. Removed is the attention hue;
+     added is blue, not green, so the pair stays apart for red-green colour
+     blindness. The + and − markers carry the meaning; text reaches 4.5:1 on
+     every tint. */
+  --wk-color-diff-add: rgba(63, 115, 196, .1);
+  --wk-color-diff-add-strong: rgba(63, 115, 196, .24);
+  --wk-color-diff-del: rgba(194, 58, 44, .09);
+  --wk-color-diff-del-strong: rgba(194, 58, 44, .22);
   /* Shadows */
   --wk-shadow-control: 0 1px 0 rgba(15, 20, 30, .04);
   --wk-shadow-raised: 0 .5px 2px rgba(15, 20, 30, .2);
@@ -65,9 +81,11 @@
   --wk-shadow-dialog: 0 24px 48px -22px rgba(15, 20, 30, .45), 0 0 0 1px rgba(15, 20, 30, .1);
 
   /* Type */
-  --wk-font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --wk-font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   --wk-font-family-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
-  --wk-font-features: normal;
+  /* Inter's single-storey a (cv11) and round quotes and commas (ss03);
+     base.css turns them on. */
+  --wk-font-features: "cv11", "ss03";
   --wk-font-size-xs: 11px;
   --wk-font-size-sm: 12px;
   --wk-font-size-base: 13px;
@@ -89,8 +107,8 @@
   --wk-space-6: 32px;
   /* Radii */
   --wk-radius-small: 3px;
-  --wk-radius-control: 5px;
-  --wk-radius-group: 7px;
+  --wk-radius-control: 6px;
+  --wk-radius-group: 8px;
   --wk-radius-window: 10px;
   --wk-radius-pill: 999px;
   /* Sizes */
@@ -112,17 +130,17 @@
     --wk-color-control: #262a31;
     --wk-color-text: #eceef2;
     --wk-color-text-secondary: #9aa1ae;
-    --wk-color-text-secondary-on-selected: #b4bac5;
+    --wk-color-text-secondary-on-selected: #bbc0ca;
     --wk-color-hairline: #2a2e36;
     --wk-color-hairline-strong: #3a3f49;
     --wk-color-control-border: #3a3f49;
+    --wk-color-field-border: #707682;
     --wk-color-fill: rgba(236, 238, 242, .055);
     --wk-color-fill-strong: rgba(236, 238, 242, .09);
     --wk-color-accent: #c3c9d4;
     --wk-color-on-accent: #15181d;
-    --wk-color-selection: rgba(195, 201, 212, .14);
-    --wk-color-working: #79a6ee;
-    --wk-color-working-ring: #79a6ee;
+    --wk-color-selection: rgba(195, 201, 212, .16);
+    --wk-color-working: #9dbff3;
     --wk-color-attention: #ee6b5f;
     --wk-color-on-attention: #20100e;
     --wk-color-attention-text: #f48c82;
@@ -133,9 +151,13 @@
     --wk-color-on-inverse: #181a1f;
     --wk-color-chart-1: #c3c9d4;
     --wk-color-chart-2: #35b597;
-    --wk-color-chart-3: #79a6ee;
+    --wk-color-chart-3: #9dbff3;
     --wk-color-chart-4: #b98bd0;
     --wk-color-chart-5: #e0825a;
+    --wk-color-diff-add: rgba(121, 166, 238, .14);
+    --wk-color-diff-add-strong: rgba(121, 166, 238, .3);
+    --wk-color-diff-del: rgba(238, 107, 95, .14);
+    --wk-color-diff-del-strong: rgba(238, 107, 95, .3);
     --wk-shadow-control: 0 1px 0 rgba(0, 0, 0, .25);
     --wk-shadow-raised: 0 .5px 2px rgba(0, 0, 0, .5);
     --wk-shadow-popover: 0 12px 30px -8px rgba(0, 0, 0, .7), 0 0 0 1px rgba(255, 255, 255, .08);
@@ -149,17 +171,17 @@
   --wk-color-control: #262a31;
   --wk-color-text: #eceef2;
   --wk-color-text-secondary: #9aa1ae;
-  --wk-color-text-secondary-on-selected: #b4bac5;
+  --wk-color-text-secondary-on-selected: #bbc0ca;
   --wk-color-hairline: #2a2e36;
   --wk-color-hairline-strong: #3a3f49;
   --wk-color-control-border: #3a3f49;
+  --wk-color-field-border: #707682;
   --wk-color-fill: rgba(236, 238, 242, .055);
   --wk-color-fill-strong: rgba(236, 238, 242, .09);
   --wk-color-accent: #c3c9d4;
   --wk-color-on-accent: #15181d;
-  --wk-color-selection: rgba(195, 201, 212, .14);
-  --wk-color-working: #79a6ee;
-  --wk-color-working-ring: #79a6ee;
+  --wk-color-selection: rgba(195, 201, 212, .16);
+  --wk-color-working: #9dbff3;
   --wk-color-attention: #ee6b5f;
   --wk-color-on-attention: #20100e;
   --wk-color-attention-text: #f48c82;
@@ -170,13 +192,46 @@
   --wk-color-on-inverse: #181a1f;
   --wk-color-chart-1: #c3c9d4;
   --wk-color-chart-2: #35b597;
-  --wk-color-chart-3: #79a6ee;
+  --wk-color-chart-3: #9dbff3;
   --wk-color-chart-4: #b98bd0;
   --wk-color-chart-5: #e0825a;
+  --wk-color-diff-add: rgba(121, 166, 238, .14);
+  --wk-color-diff-add-strong: rgba(121, 166, 238, .3);
+  --wk-color-diff-del: rgba(238, 107, 95, .14);
+  --wk-color-diff-del-strong: rgba(238, 107, 95, .3);
   --wk-shadow-control: 0 1px 0 rgba(0, 0, 0, .25);
   --wk-shadow-raised: 0 .5px 2px rgba(0, 0, 0, .5);
   --wk-shadow-popover: 0 12px 30px -8px rgba(0, 0, 0, .7), 0 0 0 1px rgba(255, 255, 255, .08);
   --wk-shadow-dialog: 0 24px 48px -22px rgba(0, 0, 0, .8), 0 0 0 1px rgba(255, 255, 255, .1);
+}
+/* Derived colours: a theme sets accent and attention; the kit works out
+   selection, chart-1, destructive text and attention fill from them, so a
+   theme never sets these four (THEMING.md). The literals above stay as the
+   fallback where color-mix() is missing (Safari before 16.2, WebKitGTK
+   before 2.40): a var() inside an unsupported value would invalidate the
+   whole declaration, not fall back, hence @supports. Each block repeats all
+   four, so a dark block above cannot win over the derivation. */
+@supports (color: color-mix(in srgb, red, blue)) {
+  :root {
+    --wk-color-selection: color-mix(in srgb, var(--wk-color-accent) 12%, transparent);
+    --wk-color-chart-1: var(--wk-color-accent);
+    --wk-color-destructive-text: var(--wk-color-attention-text);
+    --wk-color-attention-fill: color-mix(in srgb, var(--wk-color-attention) 8%, transparent);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --wk-color-selection: color-mix(in srgb, var(--wk-color-accent) 16%, transparent);
+      --wk-color-chart-1: var(--wk-color-accent);
+      --wk-color-destructive-text: var(--wk-color-attention-text);
+      --wk-color-attention-fill: color-mix(in srgb, var(--wk-color-attention) 12%, transparent);
+    }
+  }
+  :root[data-theme="dark"] {
+    --wk-color-selection: color-mix(in srgb, var(--wk-color-accent) 16%, transparent);
+    --wk-color-chart-1: var(--wk-color-accent);
+    --wk-color-destructive-text: var(--wk-color-attention-text);
+    --wk-color-attention-fill: color-mix(in srgb, var(--wk-color-attention) 12%, transparent);
+  }
 }
 
 /* ---- base.css ---- */
@@ -190,6 +245,30 @@
    components. Components are designed and tested inside a wk-root. The
    selectors use :where() so these rules keep the low specificity of the
    element selectors they stand for, and any component class wins over them. */
+
+/* Inter, bundled: one variable file per script (weights 100 to 900, SIL
+   OFL 1.1, fonts/OFL-Inter.txt). The files sit in the package's fonts/
+   folder, which this url() names relative to src/; the build rewrites it
+   to fonts/ for dist/, which carries its own copy. A bundler copies
+   whichever the stylesheet names. unicode-range keeps each file from loading until
+   the page uses one of its characters; a page whose --wk-font-family does
+   not name Inter loads neither. */
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/Inter-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: Inter;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/Inter-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 :where(.wk-root), :where(.wk-root)::before, :where(.wk-root)::after,
 :where(.wk-root) *, :where(.wk-root) *::before, :where(.wk-root) *::after { box-sizing: border-box; }
 :where(.wk-root)[hidden], :where(.wk-root) [hidden] { display: none !important; }
@@ -281,7 +360,7 @@ button.wk-link:disabled { color: var(--wk-color-text-secondary); text-decoration
 .wk-field {
   -webkit-appearance: none; appearance: none;
   min-width: 0; min-height: var(--wk-control-height); padding: 4px 8px;
-  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border: var(--wk-hairline-width) solid var(--wk-color-field-border);
   border-radius: var(--wk-radius-control);
   background: var(--wk-color-control); color: var(--wk-color-text);
   font-size: var(--wk-font-size-base); line-height: var(--wk-line-height);
@@ -316,7 +395,7 @@ textarea.wk-field { min-height: 64px; padding: 6px 8px; resize: vertical; }
   -webkit-appearance: none; appearance: none;
   display: inline-grid; place-content: center; flex: none;
   width: 14px; height: 14px; margin: 0;
-  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border: var(--wk-hairline-width) solid var(--wk-color-field-border);
   border-radius: var(--wk-radius-small);
   background: var(--wk-color-control); box-shadow: var(--wk-shadow-control);
   vertical-align: -2px; cursor: pointer;
@@ -332,7 +411,7 @@ textarea.wk-field { min-height: 64px; padding: 6px 8px; resize: vertical; }
   -webkit-appearance: none; appearance: none;
   display: inline-grid; place-content: center; flex: none;
   width: 14px; height: 14px; margin: 0;
-  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border: var(--wk-hairline-width) solid var(--wk-color-field-border);
   border-radius: 50%;
   background: var(--wk-color-control); box-shadow: var(--wk-shadow-control);
   vertical-align: -2px; cursor: pointer;
@@ -347,7 +426,7 @@ textarea.wk-field { min-height: 64px; padding: 6px 8px; resize: vertical; }
   -webkit-appearance: none; appearance: none;
   position: relative; flex: none; display: inline-block;
   width: 34px; height: 20px; margin: 0;
-  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border: var(--wk-hairline-width) solid var(--wk-color-field-border);
   border-radius: var(--wk-radius-pill);
   background: var(--wk-color-fill-strong);
   vertical-align: middle; cursor: pointer;
@@ -379,7 +458,7 @@ textarea.wk-field { min-height: 64px; padding: 6px 8px; resize: vertical; }
 .wk-select {
   -webkit-appearance: none; appearance: none;
   min-height: var(--wk-control-height); padding: 0 26px 0 8px;
-  border: var(--wk-hairline-width) solid var(--wk-color-control-border);
+  border: var(--wk-hairline-width) solid var(--wk-color-field-border);
   border-radius: var(--wk-radius-control);
   background-color: var(--wk-color-control); color: var(--wk-color-text);
   background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
@@ -421,7 +500,7 @@ textarea.wk-field { min-height: 64px; padding: 6px 8px; resize: vertical; }
 .wk-segmented input:disabled { cursor: default; }
 .wk-segmented input:disabled + span { color: var(--wk-color-text-secondary); opacity: .6; }
 
-/* ---- Chip and pill ----------------------------------------------------- */
+/* ---- Chip -------------------------------------------------------------- */
 .wk-chip {
   display: inline-flex; align-items: center; gap: 4px;
   min-height: 20px; padding: 0 8px;
@@ -435,10 +514,16 @@ button.wk-chip:hover:not(:disabled) { background: var(--wk-color-fill); color: v
 button.wk-chip:disabled { opacity: .45; cursor: default; }
 .wk-chip--count { min-width: 20px; justify-content: center; padding: 0 6px; border-color: transparent; background: var(--wk-color-fill-strong); color: var(--wk-color-text-secondary-on-selected); font-weight: var(--wk-font-weight-medium); font-variant-numeric: tabular-nums; }
 .wk-chip--attention { border-color: transparent; background: var(--wk-color-attention); color: var(--wk-color-on-attention); }
-/* Lock: what the person may do here ("View only", "Can manage"), its glyph
-   first. data-level="manage" reads in the text colour. */
-.wk-chip--lock > svg { width: var(--wk-font-size-xs); height: var(--wk-font-size-xs); flex: none; }
-.wk-chip--lock[data-level="manage"] { color: var(--wk-color-text); }
+/* A leading status dot (data-size="sm"), then the item and its state in
+   words: pulled toward the chip's edge. */
+.wk-chip > .wk-dot { margin-left: -3px; }
+/* Muted: a dashed chip that says something is absent ("No runs yet"). */
+.wk-chip--muted { border-style: dashed; font-weight: var(--wk-font-weight-medium); }
+/* Access: what the person may do here ("View only", "Can manage"), its
+   glyph first, sized to the text. data-level="manage" reads in the text
+   colour. */
+.wk-chip--access > svg { width: var(--wk-font-size-xs); height: var(--wk-font-size-xs); flex: none; }
+.wk-chip--access[data-level="manage"] { color: var(--wk-color-text); }
 
 /* ---- Table: row hairlines, no stripes ---------------------------------- */
 .wk-table { width: 100%; border-collapse: collapse; font-size: var(--wk-font-size-base); }
@@ -447,10 +532,40 @@ button.wk-chip:disabled { opacity: .45; cursor: default; }
 .wk-table tbody td, .wk-table tbody th { border-bottom: var(--wk-hairline-width) solid var(--wk-color-hairline); }
 .wk-table tbody tr:last-child > * { border-bottom: 0; }
 .wk-table .wk-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Zebra: every other row tinted, for wide tables read across. It comes
+   before the selection rules, so a selected or current row keeps its tint. */
+.wk-table--zebra tbody tr:nth-child(even) > * { background: var(--wk-color-fill); }
 .wk-table tbody tr[aria-selected="true"] > *,
 .wk-table tbody tr[aria-current]:not([aria-current="false"]) > * { background: var(--wk-color-selection); }
 .wk-table tbody tr[aria-selected="true"] .wk-secondary,
 .wk-table tbody tr[aria-current]:not([aria-current="false"]) .wk-secondary { color: var(--wk-color-text-secondary-on-selected); }
+/* data-muted: a row that no longer counts (a removed item), in secondary
+   text with its name struck. */
+.wk-table tbody tr[data-muted] > * { color: var(--wk-color-text-secondary); }
+.wk-table tbody tr[data-muted] .wk-table-name { text-decoration: line-through; }
+/* The row's name as a <button> that opens the item, in the text colour. */
+.wk-table-name { padding: 2px 0; border: 0; background: none; color: inherit; font: inherit; font-weight: var(--wk-font-weight-semibold); text-align: left; cursor: pointer; }
+.wk-table-name:hover { text-decoration: underline; }
+/* A cell's row actions (small buttons), kept on one line. */
+.wk-table-actions { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+
+/* ---- List: selectable rows of any height ------------------------------- */
+/* For items that do not share columns: a <ul class="wk-list"> of
+   <li class="wk-list-row">, each laid out by the app (a title, a meta line,
+   chips). The selected row carries aria-selected="true" (role="option" in a
+   role="listbox") or aria-current; selection is the quiet tint, never the
+   accent. wk-list-heading names a group, with its count in a <span>. The app
+   moves focus between rows (one row tabindex="0", the rest "-1"). */
+.wk-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0 var(--wk-space-2) var(--wk-space-2); list-style: none; }
+.wk-list-row { display: block; padding: var(--wk-space-2) 10px; border-radius: var(--wk-radius-control); cursor: default; }
+.wk-list-row:hover { background: var(--wk-color-fill); }
+.wk-list-row[aria-selected="true"],
+.wk-list-row[aria-current]:not([aria-current="false"]) { background: var(--wk-color-selection); }
+.wk-list-row[aria-selected="true"] .wk-secondary,
+.wk-list-row[aria-current]:not([aria-current="false"]) .wk-secondary { color: var(--wk-color-text-secondary-on-selected); }
+.wk-list-row:focus-visible { outline-offset: -2px; }
+.wk-list-heading { display: flex; align-items: baseline; gap: var(--wk-space-2); margin: 0; padding: 10px 18px var(--wk-space-1); font-size: var(--wk-font-size-base); font-weight: var(--wk-font-weight-semibold); }
+.wk-list-heading > span { color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-regular); font-variant-numeric: tabular-nums; }
 
 /* ---- Sidebar ----------------------------------------------------------- */
 .wk-sidebar {
@@ -474,6 +589,8 @@ button.wk-chip:disabled { opacity: .45; cursor: default; }
 .wk-sidebar-item > .wk-chip--count, .wk-sidebar-item > .wk-chip--attention { margin-left: auto; }
 .wk-sidebar-item > .wk-chip--count + .wk-chip--attention { margin-left: 0; }
 .wk-sidebar-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Short trailing text on an item ("Running", "Idle"), at its end. */
+.wk-sidebar-detail { margin-left: auto; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .wk-sidebar ul ul .wk-sidebar-item { padding-left: 30px; }
 .wk-sidebar summary.wk-sidebar-item { list-style: none; }
 .wk-sidebar summary.wk-sidebar-item::-webkit-details-marker { display: none; }
@@ -489,6 +606,8 @@ button.wk-chip:disabled { opacity: .45; cursor: default; }
   background: var(--wk-color-bg);
 }
 .wk-toolbar-title { margin: 0; font-size: var(--wk-font-size-md); font-weight: var(--wk-font-weight-bold); }
+/* What the view counts over ("last 14 days"), after the title. */
+.wk-toolbar-subtitle { margin-left: 6px; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-regular); }
 .wk-toolbar-spacer { flex: 1; }
 
 /* ---- Footer bar -------------------------------------------------------- */
@@ -543,6 +662,12 @@ wk-context-menu { display: contents; }
 .wk-menu-heading { padding: 4px 10px 2px; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-xs); font-weight: var(--wk-font-weight-semibold); }
 .wk-menu-shortcut { margin-left: auto; padding-left: var(--wk-space-4); color: var(--wk-color-text-secondary); }
 .wk-menu [role^="menuitem"]:focus .wk-menu-shortcut { color: inherit; opacity: .75; }
+/* An <a href role="menuitem"> for a URL: no underline, like the others. */
+.wk-menu a[role^="menuitem"] { text-decoration: none; }
+/* Inline: the same items laid out in place (in a popover, say), with no
+   float, border or shadow. Wrap it in <wk-menu> with no button for the
+   menu's keys; it never opens or closes. */
+.wk-menu--inline { position: static; z-index: auto; min-width: 0; max-width: none; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 
 /* ---- Tooltip (wk-tooltip) ---------------------------------------------- */
 wk-tooltip { display: inline-block; }
@@ -635,23 +760,29 @@ wk-dialog { display: contents; }
 
 /* ---- Status dot: shapes and tones, no state names ---------------------- */
 /* Sizes: wk-dot-size, or wk-dot-size-small with data-size="sm" (a dot beside
-   small text: a sidebar item, a connection line). The working tone draws its
-   outline in wk-color-working-ring, so the mark reaches 3:1 on the ground
-   where the working colour alone does not. */
+   small text: a sidebar item, a connection line). --wk-dot-ground is the
+   surface the dot sits on (wk-color-bg unless set): the gap in the running
+   dot's halo is drawn in it. */
 .wk-dot {
   --wk-dot-color: var(--wk-color-text);
+  --wk-dot-ground: var(--wk-color-bg);
   display: inline-block; flex: none; width: var(--wk-dot-size); height: var(--wk-dot-size);
   border: 1.5px solid var(--wk-dot-color); border-radius: 50%;
   background: var(--wk-dot-color); vertical-align: middle;
 }
 .wk-dot[data-size="sm"] { width: var(--wk-dot-size-small); height: var(--wk-dot-size-small); }
-.wk-dot[data-tone="working"] { --wk-dot-color: var(--wk-color-working); border-color: var(--wk-color-working-ring); }
+.wk-dot[data-tone="working"] { --wk-dot-color: var(--wk-color-working); }
 .wk-dot[data-tone="attention"] { --wk-dot-color: var(--wk-color-attention); }
 .wk-dot[data-shape="ringed"] { background: radial-gradient(circle, var(--wk-dot-color) 0 36%, transparent 40%); }
 .wk-dot[data-shape="half"] { background: linear-gradient(90deg, var(--wk-dot-color) 50%, transparent 50%); }
 .wk-dot[data-shape="hollow"] { background: transparent; }
 .wk-dot[data-shape="dashed"] { background: transparent; border-style: dashed; }
 .wk-dot[data-shape="bar"] { background: linear-gradient(transparent 35%, var(--wk-dot-color) 35% 65%, transparent 65%); }
+/* Running: the filled working dot at the default size gets a halo, so it
+   reads apart from a half dot at a glance. Set --wk-dot-ground on the dot
+   when it sits on something other than wk-color-bg. */
+.wk-dot[data-tone="working"]:not([data-shape]):not([data-size="sm"]),
+.wk-dot[data-tone="working"][data-shape="filled"]:not([data-size="sm"]) { box-shadow: 0 0 0 var(--wk-focus-offset) var(--wk-dot-ground), 0 0 0 calc(var(--wk-focus-offset) + 1.5px) var(--wk-dot-color); }
 /* A dot and the words it stands for, as one line ("Reconnecting"): the small
    dot, then the words in secondary text. */
 .wk-dot-label { display: inline-flex; align-items: center; gap: var(--wk-space-2); white-space: nowrap; }
@@ -677,6 +808,15 @@ wk-dialog { display: contents; }
 .wk-settings-tab[aria-selected="true"] { background: var(--wk-color-fill-strong); }
 .wk-settings-tab[aria-selected="true"] > svg { color: var(--wk-color-accent); }
 .wk-settings-tab[data-attention]::after { content: ""; position: absolute; top: 4px; right: 10px; width: 7px; height: 7px; border-radius: 50%; background: var(--wk-color-attention); }
+
+/* ---- Utilities --------------------------------------------------------- */
+/* Read by assistive technology, not drawn: a label a layout shows by
+   position alone. */
+.wk-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* A pane body that scrolls under a fixed toolbar. Give it tabindex="0" and a
+   name (aria-label or aria-labelledby), so keyboard users can scroll it. */
+.wk-pane-scroll { flex: 1; min-height: 0; overflow: auto; }
+.wk-pane-scroll:focus-visible { outline-offset: -2px; }
 
 /* ---- Panel: a boxed group ----------------------------------------------- */
 /* Rows that belong together on the window ground. --rows: settings rows
@@ -729,13 +869,13 @@ wk-dialog { display: contents; }
 /* ---- Code block: monospace text to copy or read exactly ---------------- */
 /* A <code> (one value) or a <pre> (lines), then optionally a wk-copy.
    --scroll stops a long <pre> at 200 px. */
-.wk-codeblock { display: flex; align-items: flex-start; gap: var(--wk-space-2); min-width: 0; padding: var(--wk-space-2) 10px; border: var(--wk-hairline-width) solid var(--wk-color-control-border); border-radius: var(--wk-radius-control); background: var(--wk-color-fill); }
-.wk-codeblock > pre, .wk-codeblock > code { flex: 1; min-width: 0; margin: 0; font-family: var(--wk-font-family-mono); font-size: var(--wk-font-size-sm); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-.wk-codeblock > code { word-break: break-all; }
-.wk-codeblock--scroll > pre { max-height: 200px; overflow-y: auto; }
+.wk-code { display: flex; align-items: flex-start; gap: var(--wk-space-2); min-width: 0; padding: var(--wk-space-2) 10px; border: var(--wk-hairline-width) solid var(--wk-color-control-border); border-radius: var(--wk-radius-control); background: var(--wk-color-fill); }
+.wk-code > pre, .wk-code > code { flex: 1; min-width: 0; margin: 0; font-family: var(--wk-font-family-mono); font-size: var(--wk-font-size-sm); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.wk-code > code { word-break: break-all; }
+.wk-code--scroll > pre { max-height: 200px; overflow-y: auto; }
 /* A <pre> that scrolls takes focus (tabindex="0", role="region" and a name) so the keyboard can scroll it; its ring sits inside. */
-.wk-codeblock > pre:focus-visible, .wk-errorbox > pre:focus-visible { outline-offset: calc(-1 * var(--wk-focus-width)); }
-.wk-codeblock > .wk-button { margin: -4px -6px -4px 0; }
+.wk-code > pre:focus-visible, .wk-errorbox > pre:focus-visible { outline-offset: calc(-1 * var(--wk-focus-width)); }
+.wk-code > .wk-button { margin: -4px -6px -4px 0; }
 
 /* ---- Notice: a strip that names one problem or pending thing ----------- */
 /* An optional glyph, wk-notice-body (a bold first sentence, then a <p>) and
@@ -774,13 +914,27 @@ wk-dialog { display: contents; }
    not the browser's own spinner: the arrows are the stepper's. */
 .wk-stepper > .wk-field[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 .wk-stepper > .wk-field[type="number"]::-webkit-inner-spin-button, .wk-stepper > .wk-field[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-.wk-stepper-arrows { display: inline-flex; flex-direction: column; overflow: hidden; border: var(--wk-hairline-width) solid var(--wk-color-control-border); border-radius: var(--wk-radius-control); background: var(--wk-color-control); }
+.wk-stepper-arrows { display: inline-flex; flex-direction: column; overflow: hidden; border: var(--wk-hairline-width) solid var(--wk-color-field-border); border-radius: var(--wk-radius-control); background: var(--wk-color-control); }
 .wk-stepper-arrows > button { display: grid; place-items: center; flex: 1; width: 18px; padding: 0; border: 0; background: none; color: var(--wk-color-text); cursor: pointer; }
 .wk-stepper-arrows > button + button { border-top: var(--wk-hairline-width) solid var(--wk-color-control-border); }
 .wk-stepper-arrows > button:hover:not(:disabled) { background: var(--wk-color-fill-strong); }
 .wk-stepper-arrows > button:disabled { color: var(--wk-color-text-secondary); opacity: .45; cursor: default; }
 .wk-stepper-arrows > button::before { content: ""; width: 5px; height: 5px; border-left: 1.5px solid currentColor; border-top: 1.5px solid currentColor; transform: translateY(1px) rotate(45deg); }
 .wk-stepper-arrows > button + button::before { transform: translateY(-1px) rotate(225deg); }
+
+/* ---- Range: a slider drawn the same on WebKit and Chromium --------------- */
+/* <input class="wk-range" type="range">, with the value in words beside it
+   (an <output>). The track cannot know its value from CSS: the app sets
+   --wk-range-value to the filled share with
+   el.style.setProperty('--wk-range-value', '60%') (a Content-Security-Policy
+   blocks a style attribute) and updates it on input. The arrow keys step it natively. */
+.wk-range { -webkit-appearance: none; appearance: none; width: 100%; height: 20px; margin: 0; background: transparent; cursor: pointer; }
+.wk-range::-webkit-slider-runnable-track { height: 4px; border-radius: var(--wk-radius-pill); background: linear-gradient(var(--wk-color-accent), var(--wk-color-accent)) 0 / var(--wk-range-value, 50%) 100% no-repeat, var(--wk-color-fill-strong); }
+.wk-range::-moz-range-track { height: 4px; border-radius: var(--wk-radius-pill); background: linear-gradient(var(--wk-color-accent), var(--wk-color-accent)) 0 / var(--wk-range-value, 50%) 100% no-repeat, var(--wk-color-fill-strong); }
+.wk-range::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%; background: var(--wk-color-thumb); box-shadow: var(--wk-shadow-raised), 0 0 0 1px var(--wk-color-control-border); }
+.wk-range::-moz-range-thumb { width: 16px; height: 16px; border: 0; border-radius: 50%; background: var(--wk-color-thumb); box-shadow: var(--wk-shadow-raised), 0 0 0 1px var(--wk-color-control-border); }
+.wk-range:disabled { opacity: .45; cursor: default; }
+.wk-range:focus-visible { outline-offset: 2px; }
 
 /* ---- Chart (wk-chart, built by chart.js) -------------------------------- */
 /* A figure on the surface colour: the 2 px gaps between marks show it. A mark's
@@ -827,6 +981,61 @@ wk-dialog { display: contents; }
 .wk-chart-none { margin: 0; padding: var(--wk-space-4) 0; color: var(--wk-color-text-secondary); }
 .wk-chart-readout { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
+/* ---- Diff (wk-diff, built by diff.js) --------------------------------- */
+/* A region of file cards, each on the surface colour: a header (a wk-link
+   disclosure naming the path, status chips, +n −m counts) over a body of
+   rows. An added or removed row is tinted and carries a + or − marker; the
+   words that changed inside a paired line are a <mark class="wk-diff-word">
+   on the stronger tint. The gutter, the markers and the screen-reader labels
+   cannot be selected, so copying takes the code alone. diff.js sets
+   --wk-diff-digits on a body to the width of its largest line number, and
+   --wk-diff-indent on a code cell (see the hanging indent below). */
+.wk-diff { display: flex; flex-direction: column; gap: var(--wk-space-3); min-width: 0; }
+.wk-diff:focus-visible { outline-offset: var(--wk-focus-offset); }
+.wk-diff-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--wk-space-2) var(--wk-space-3); }
+.wk-diff-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--wk-space-2); margin: 0; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+.wk-diff-none { margin: 0; padding: var(--wk-space-4) 0; color: var(--wk-color-text-secondary); }
+.wk-diff-counts { display: inline-flex; gap: 6px; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wk-diff-counts > span[aria-hidden] { display: inline-flex; gap: 6px; }
+.wk-diff-count-add, .wk-diff-count-del { font-weight: var(--wk-font-weight-medium); }
+.wk-diff-file { position: relative; min-width: 0; overflow: hidden; border: var(--wk-hairline-width) solid var(--wk-color-hairline); border-radius: var(--wk-radius-group); background: var(--wk-color-surface); }
+.wk-diff-file-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--wk-space-2); min-height: 36px; padding: 6px var(--wk-space-3); }
+.wk-diff-file-title { flex: 1 1 14em; min-width: 0; margin: 0; font-size: var(--wk-font-size-base); font-weight: var(--wk-font-weight-semibold); line-height: var(--wk-line-height); }
+.wk-diff-toggle.wk-link { display: inline-flex; flex-wrap: wrap; max-width: 100%; color: var(--wk-color-text); font-family: var(--wk-font-family-mono); font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-semibold); text-align: left; }
+.wk-diff-toggle > .wk-diff-path { min-width: 0; overflow-wrap: anywhere; }
+.wk-diff-arrow { flex: none; color: var(--wk-color-text-secondary); white-space: pre; }
+.wk-diff-body { position: relative; overflow-x: auto; border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); font-family: var(--wk-font-family-mono); font-size: var(--wk-font-size-sm); line-height: 20px; }
+.wk-diff-rows { width: max-content; min-width: 100%; }
+.wk-diff-body[data-wrap] > .wk-diff-rows { width: auto; }
+.wk-diff-note { margin: 0; padding: var(--wk-space-3); color: var(--wk-color-text-secondary); font-family: var(--wk-font-family); font-size: var(--wk-font-size-base); }
+.wk-diff-hunk { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--wk-space-3); min-height: 28px; padding: 4px var(--wk-space-3); border-block: var(--wk-hairline-width) solid var(--wk-color-hairline); background: var(--wk-color-fill); color: var(--wk-color-text-secondary); }
+.wk-diff-rows > .wk-diff-hunk:first-child { border-top: 0; }
+.wk-diff-hunk:focus-visible { outline-offset: calc(-1 * var(--wk-focus-width)); }
+.wk-diff-hunk-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.wk-diff-more.wk-link { font-family: var(--wk-font-family); font-size: var(--wk-font-size-sm); }
+.wk-diff-more-note { color: var(--wk-color-text-secondary); font-family: var(--wk-font-family); font-size: var(--wk-font-size-sm); }
+.wk-diff-more-note:empty { display: none; }
+.wk-diff-line { display: grid; grid-template-columns: calc(var(--wk-diff-digits) * 1ch + 20px) calc(var(--wk-diff-digits) * 1ch + 20px) 1.75em minmax(0, 1fr); }
+.wk-diff-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.wk-diff-half { display: grid; grid-template-columns: calc(var(--wk-diff-digits) * 1ch + 20px) 1.75em minmax(0, 1fr); min-width: 0; }
+.wk-diff-half + .wk-diff-half { border-left: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+.wk-diff-line[data-kind="add"], .wk-diff-half[data-kind="add"] { background: var(--wk-color-diff-add); }
+.wk-diff-line[data-kind="del"], .wk-diff-half[data-kind="del"] { background: var(--wk-color-diff-del); }
+.wk-diff-half[data-kind="empty"] { background: var(--wk-color-fill); }
+.wk-diff-num, .wk-diff-mark, .wk-diff-eof, .wk-diff-sr { -webkit-user-select: none; user-select: none; }
+.wk-diff-num { padding: 0 10px; color: var(--wk-color-text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
+.wk-diff-mark { color: var(--wk-color-text-secondary); text-align: center; }
+[data-kind="add"] > .wk-diff-mark, [data-kind="del"] > .wk-diff-mark { color: var(--wk-color-text); font-weight: var(--wk-font-weight-semibold); }
+.wk-diff-code { min-width: 0; padding-right: var(--wk-space-3); color: var(--wk-color-text); white-space: pre; tab-size: 4; }
+.wk-diff-body[data-wrap] .wk-diff-code { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* A wrapped line hangs under its own indent: diff.js sets --wk-diff-indent
+   on the cell to its leading whitespace, in columns. */
+.wk-diff-body[data-wrap] .wk-diff-code { padding-inline-start: calc(var(--wk-diff-indent, 0) * 1ch); text-indent: calc(var(--wk-diff-indent, 0) * -1ch); }
+.wk-diff-word { border-radius: 2px; background: var(--wk-color-diff-add-strong); color: inherit; }
+[data-kind="del"] .wk-diff-word { background: var(--wk-color-diff-del-strong); }
+.wk-diff-eof { grid-column: -2; padding: 0 var(--wk-space-3) 2px 0; color: var(--wk-color-text-secondary); font-family: var(--wk-font-family); font-size: var(--wk-font-size-xs); }
+.wk-diff-sr { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
 /* ---- Forced colours (Windows High Contrast) ---------------------------
    The system replaces backgrounds, shadows and most border colours with its
    own. Where a state is drawn only with those, these rules redraw it with
@@ -843,11 +1052,17 @@ wk-dialog { display: contents; }
   .wk-chip--attention { forced-color-adjust: none; border-color: CanvasText; background: CanvasText; color: Canvas; }
   .wk-table tbody tr[aria-selected="true"] > *,
   .wk-table tbody tr[aria-current]:not([aria-current="false"]) > * { border-top: 2px solid Highlight; border-bottom: 2px solid Highlight; }
+  .wk-list-row[aria-selected="true"],
+  .wk-list-row[aria-current]:not([aria-current="false"]) { forced-color-adjust: none; background: Highlight; color: HighlightText; }
+  .wk-list-row[aria-selected="true"] .wk-secondary,
+  .wk-list-row[aria-current]:not([aria-current="false"]) .wk-secondary { color: HighlightText; }
   .wk-tablist [role="tab"] { forced-color-adjust: none; border-bottom-color: transparent; color: CanvasText; }
   .wk-tablist [role="tab"]:disabled, .wk-tablist [role="tab"][aria-disabled="true"] { color: GrayText; }
   .wk-tablist [role="tab"][aria-selected="true"] { border-bottom-color: Highlight; }
   .wk-settings-tab[aria-selected="true"], .wk-settings-tab[aria-selected="true"] > svg { forced-color-adjust: none; border-color: Highlight; background: Highlight; color: HighlightText; }
   .wk-settings-tab[data-attention]::after { forced-color-adjust: none; background: CanvasText; }
+  /* A link item would take LinkText: draw it as the other items. */
+  .wk-menu a[role^="menuitem"] { color: CanvasText; }
   .wk-menu [role^="menuitem"]:focus { forced-color-adjust: none; background: Highlight; color: HighlightText; }
   .wk-menu [role^="menuitem"][aria-disabled="true"]:focus { background: Canvas; color: GrayText; outline: 2px solid Highlight; outline-offset: -2px; }
   .wk-radio::before { forced-color-adjust: none; background: Canvas; }
@@ -855,7 +1070,31 @@ wk-dialog { display: contents; }
   .wk-radio:checked::before { background: HighlightText; }
   .wk-chart-key, .wk-chart-bar, .wk-chart-band, .wk-chart-dot { forced-color-adjust: none; fill: CanvasText; background: CanvasText; }
   .wk-chart-line { forced-color-adjust: none; stroke: CanvasText; }
+  /* The track and thumb are drawn with backgrounds and shadows, which the
+     system drops: redraw them. */
+  .wk-range::-webkit-slider-runnable-track { forced-color-adjust: none; background: CanvasText; }
+  .wk-range::-moz-range-track { forced-color-adjust: none; background: CanvasText; }
+  .wk-range::-webkit-slider-thumb { forced-color-adjust: none; background: ButtonFace; box-shadow: 0 0 0 1px ButtonText; }
+  .wk-range::-moz-range-thumb { forced-color-adjust: none; background: ButtonFace; box-shadow: 0 0 0 1px ButtonText; }
+  /* Disabled: GrayText, not a faded CanvasText. */
+  .wk-range:disabled { opacity: 1; }
+  .wk-range:disabled::-webkit-slider-runnable-track { background: GrayText; }
+  .wk-range:disabled::-moz-range-track { background: GrayText; }
+  .wk-range:disabled::-webkit-slider-thumb { background: Canvas; box-shadow: 0 0 0 1px GrayText; }
+  .wk-range:disabled::-moz-range-thumb { background: Canvas; box-shadow: 0 0 0 1px GrayText; }
   .wk-dot, .wk-dot[data-tone] { forced-color-adjust: none; --wk-dot-color: CanvasText; border-color: CanvasText; }
+  /* The running dot's halo: an outline, since the gap's ground is a token. */
+  .wk-dot[data-tone="working"]:not([data-shape]):not([data-size="sm"]),
+  .wk-dot[data-tone="working"][data-shape="filled"]:not([data-size="sm"]) { outline: 1.5px solid CanvasText; outline-offset: 2px; box-shadow: none; }
+  /* Diff: tints become a bar at the start of the row, solid for added and
+     dashed for removed, and the changed words are underlined; the + and −
+     markers stay. */
+  .wk-diff-line, .wk-diff-half { border-inline-start: 4px solid Canvas; }
+  .wk-diff-pair { border-inline-start: 0; }
+  .wk-diff-line[data-kind="add"], .wk-diff-half[data-kind="add"] { border-inline-start: 4px solid CanvasText; }
+  .wk-diff-line[data-kind="del"], .wk-diff-half[data-kind="del"] { border-inline-start: 4px dashed CanvasText; }
+  .wk-diff-word, [data-kind="add"] .wk-diff-word, [data-kind="del"] .wk-diff-word { forced-color-adjust: none; background: Canvas; color: CanvasText; text-decoration: underline; text-decoration-thickness: 2px; }
+  .wk-diff-hunk { border-color: GrayText; }
 }
 
 /* ---- settings.css ---- */

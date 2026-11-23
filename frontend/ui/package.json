@@ -19,9 +19,11 @@
     "./ui.css": "./src/ui.css",
     "./theme.css": "./theme/theme.css",
     "./themes/example.css": "./theme/example.css",
+    "./theme/check": "./theme/check.mjs",
     "./dist/wails-kit-ui.css": "./dist/wails-kit-ui.css",
     "./dist/wails-kit-ui.js": "./dist/wails-kit-ui.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./fonts/*": "./fonts/*"
   },
   "sideEffects": [
     "./src/index.js",
@@ -34,7 +36,10 @@
     "src",
     "theme",
     "dist",
-    "README.md"
+    "fonts",
+    "README.md",
+    "THEMING.md",
+    "BEHAVIOUR.md"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",

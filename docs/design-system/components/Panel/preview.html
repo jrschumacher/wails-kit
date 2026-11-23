@@ -1,0 +1,33 @@
+<!-- @dsCard group="Containers" height=230 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Panel</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: var(--wk-space-4); align-items: start; padding: var(--wk-space-4); }
+  .spec > div { display: flex; flex-direction: column; gap: var(--wk-space-3); min-width: 0; }
+  .host { font-family: var(--wk-font-family-mono); font-size: var(--wk-font-size-md); font-weight: var(--wk-font-weight-semibold); overflow-wrap: anywhere; }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec">
+  <section class="wk-panel" aria-label="Manage macbookpro">
+    <div class="wk-panel-row"><span><b>On duty</b> · takes new jobs</span><button class="wk-button" type="button">Take off duty…</button></div>
+    <p class="wk-panel-hint">Finish first or stop now. Stays off duty through sleep and restarts until someone puts it back.</p>
+    <div class="wk-panel-row"><span>Slots</span><span class="wk-stepper"><input class="wk-field" type="text" inputmode="numeric" value="2" aria-label="Slots"><span class="wk-stepper-arrows"><button type="button" aria-label="More" disabled></button><button type="button" aria-label="Fewer"></button></span></span></div>
+    <div class="wk-panel-row"><span>Remove from HQ</span><button class="wk-button wk-button--destructive" type="button">Revoke…</button></div>
+  </section>
+  <div>
+    <div class="wk-panel wk-panel--rows">
+      <div class="wk-settings-row"><label class="wk-check wk-check--row"><span>Open at login</span><input class="wk-switch" type="checkbox" role="switch" checked></label></div>
+      <div class="wk-settings-row"><label class="wk-check wk-check--row"><span>Show Muster in the menu bar</span><input class="wk-switch" type="checkbox" role="switch"></label></div>
+    </div>
+    <div class="wk-panel wk-panel--dashed">
+      <div><div class="wk-caption">If they ask, read them this</div><div class="host">hq.schumacher.home:8443</div><div class="wk-caption">Key <span class="wk-mono">3F9A 21C0 7B4E</span></div></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

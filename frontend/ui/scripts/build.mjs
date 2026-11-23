@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 // Builds dist/ for apps without a bundler: one stylesheet and one ES module.
-//   dist/wails-kit-ui.css  src/ui.css with its @imports inlined, in order
+//   dist/wails-kit-ui.css  src/ui.css with its @imports inlined, in order;
+//                          its font url()s point at dist/fonts/
+//   dist/fonts/            the bundled font files and their licence, copied
+//                          from fonts/, so dist/ is self-contained
 //   dist/wails-kit-ui.js   the modules src/index.js exports from, joined in
 //                          dependency order, with the imports between them
 //                          removed; it exports what src/index.js exports
 // No dependencies. Usage: node scripts/build.mjs [outDir]  (default: dist)
 // test/build.test.mjs builds into a temporary folder and checks that the
 // committed dist/ matches.
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, copyFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -23,8 +26,12 @@ export function buildCss() {
     parts.push(`/* ---- ${file} ---- */\n${readFileSync(path.join(src, file), 'utf8').trimEnd()}\n`);
   }
   if (!parts.length) throw new Error('src/ui.css imports nothing');
-  return banner + parts.join('\n');
+  // src/ reaches the fonts at ../fonts/; dist/ carries its own copy.
+  return banner + parts.join('\n').replaceAll('url("../fonts/', 'url("fonts/');
 }
+
+// The files dist/fonts/ holds: everything in fonts/.
+export const fontFiles = () => readdirSync(path.join(root, 'fonts')).sort();
 
 // The modules index.js re-exports from, each after the modules it imports.
 function moduleOrder() {
@@ -58,5 +65,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   mkdirSync(out, { recursive: true });
   writeFileSync(path.join(out, 'wails-kit-ui.css'), buildCss());
   writeFileSync(path.join(out, 'wails-kit-ui.js'), buildJs());
+  mkdirSync(path.join(out, 'fonts'), { recursive: true });
+  for (const file of fontFiles()) copyFileSync(path.join(root, 'fonts', file), path.join(out, 'fonts', file));
   console.log(`built ${path.relative(process.cwd(), out) || '.'}/wails-kit-ui.css and wails-kit-ui.js`);
 }

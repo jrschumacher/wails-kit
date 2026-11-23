@@ -2,7 +2,7 @@
 
 Base UI for Wails desktop apps: design tokens in light and dark, a type scale,
 CSS components on native elements, a few custom elements where behaviour needs
-them, charts, a small theme file an app overrides, and a settings window drawn
+them, charts, a diff view, a small theme file an app overrides, and a settings window drawn
 from wails-kit's [`settings`](../../settings/README.md) schema.
 
 The kit is one design of its own on every platform. It does not imitate macOS
@@ -35,14 +35,16 @@ Run this from the app's frontend directory, replacing the tag placeholder:
 tag='REPLACE_WITH_RELEASE_TAG'
 checkout=$(mktemp -d)
 git clone --depth 1 --branch "$tag" https://github.com/jrschumacher/wails-kit.git "$checkout"
-mkdir -p vendor/wails-kit-ui
+mkdir -p vendor/wails-kit-ui/fonts
 cp "$checkout/frontend/ui/dist/wails-kit-ui.css" vendor/wails-kit-ui/
 cp "$checkout/frontend/ui/dist/wails-kit-ui.js" vendor/wails-kit-ui/
+# Inter and its licence: the stylesheet loads them from fonts/ beside it.
+cp "$checkout/frontend/ui/dist/fonts/"* vendor/wails-kit-ui/fonts/
 # Optional TypeScript declarations, named to match the vendored JS module.
 cp "$checkout/frontend/ui/src/index.d.ts" vendor/wails-kit-ui/wails-kit-ui.d.ts
 printf 'Source: https://github.com/jrschumacher/wails-kit\nTag: %s\nCommit: %s\n' \
   "$tag" "$(git -C "$checkout" rev-parse HEAD)" > vendor/wails-kit-ui/SOURCES.md
-(cd vendor/wails-kit-ui && shasum -a 256 wails-kit-ui.css wails-kit-ui.js wails-kit-ui.d.ts > SHA256SUMS)
+(cd vendor/wails-kit-ui && shasum -a 256 wails-kit-ui.css wails-kit-ui.js wails-kit-ui.d.ts fonts/* > SHA256SUMS)
 ```
 
 Commit the vendored files, `SOURCES.md` and `SHA256SUMS` with the app. To update,
@@ -82,8 +84,62 @@ import { wkChart } from './vendor/wails-kit-ui/wails-kit-ui.js';
 
 `dist/wails-kit-ui.js` exports exactly what the package entry exports, and
 `dist/wails-kit-ui.css` is `src/ui.css` with its imports inlined. Neither loads
-anything else. The first line of each file names the package version; the tag,
-commit and checksums recorded above identify the exact vendored release.
+anything else, except the stylesheet's two font files from `fonts/` beside
+it. The first line of each file names the package version; the tag, commit and
+checksums recorded above identify the exact vendored release.
+
+## Font
+
+The kit sets everything in [Inter](https://rsms.me/inter/), and the package
+includes it: two variable woff2 files (weights 100 to 900), one for Latin
+(`Inter-latin.woff2`, 67 KB) and one for the rest of the Latin script
+(`Inter-latin-ext.woff2`, 87 KB). Each has an `@font-face` with a
+`unicode-range`, so a file loads only when the page shows one of its
+characters, and `font-display: swap`. Nothing comes from the network: desktop
+apps can't rely on a font CDN at run time. The faces are in `src/base.css`,
+pointing at the package's `fonts/` folder; `dist/wails-kit-ui.css` points at
+its own copy in `dist/fonts/`. A bundler copies whichever the stylesheet you
+import names. `--wk-font-features` turns on Inter's `cv11` (single-storey a)
+and `ss03` (round quotes and commas), and the base rule applies it. The files
+are subset from upstream Inter 4.1 with its OpenType features kept; see
+[Rebuilding the font files](#rebuilding-the-font-files).
+
+Inter is © The Inter Project Authors, under the SIL Open Font License 1.1
+(`fonts/OFL-Inter.txt`, also in `dist/fonts/`). The licence lets an app bundle
+and ship the font; keep the licence file with it.
+
+Inter is part of the theme contract: a theme may add fallbacks after it but
+not replace it ([THEMING.md](THEMING.md)). An app that still needs another
+font sets `--wk-font-family` to a stack without Inter in its own stylesheet,
+outside its theme, and sets `--wk-font-features: normal` too, since `cv11`
+and `ss03` are Inter's and may mean something else, or nothing, in another
+font. An `@font-face` that no element uses downloads nothing, so the files
+then never load, and when vendoring you can leave out `fonts/`. The kit is
+designed and tested in Inter, so expect small differences in widths.
+
+### Rebuilding the font files
+
+The files come from `InterVariable.ttf` (the roman variable font) in
+[Inter 4.1](https://github.com/rsms/inter/releases/download/v4.1/Inter-4.1.zip),
+with fontTools 4.68 and brotli. The optical-size axis is pinned at 14, its
+default, leaving the weight axis (100 to 900); each file keeps every OpenType
+layout feature and drops hinting. The unicode ranges are the ones in the
+`@font-face` rules in `src/base.css`.
+
+```sh
+fonttools varLib.instancer InterVariable.ttf opsz=14 -o Inter-opsz14.ttf
+latin='U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD'
+ext='U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF'
+pyftsubset Inter-opsz14.ttf --unicodes="$latin" --layout-features='*' \
+  --flavor=woff2 --no-hinting --output-file=fonts/Inter-latin.woff2
+pyftsubset Inter-opsz14.ttf --unicodes="$ext" --layout-features='*' \
+  --flavor=woff2 --no-hinting --output-file=fonts/Inter-latin-ext.woff2
+cp LICENSE.txt fonts/OFL-Inter.txt  # from the same zip
+npm run build                       # copies them to dist/fonts/
+```
+
+The browser checks confirm that `cv11` and `ss03` change what the bundled file
+renders.
 
 ## Light and dark
 
@@ -95,31 +151,43 @@ repeated on `:root[data-theme="dark"]`.
 
 ## The theme file
 
-[`theme/theme.css`](theme/theme.css) lists the values an app sets to make the
-kit its own, with the kit's defaults. Copy it into the app, change the values,
-and link it after the kit's stylesheet. A theme sets only these:
+An app makes the kit its own with one theme file, linked after the kit's
+stylesheet. [THEMING.md](THEMING.md) is the contract:
 
-| Group | Tokens | What they colour |
-|---|---|---|
-| Accent | `--wk-color-accent`, `--wk-color-on-accent`, `--wk-color-selection` | primary buttons, links, the focus ring, selected rows and tabs |
-| Working | `--wk-color-working`, `--wk-color-working-ring` | the "something is happening" tone; the ring is a darker step where working is under 3:1 on the background |
-| Attention | `--wk-color-attention`, `--wk-color-attention-text`, `--wk-color-attention-fill`, `--wk-color-destructive-text` | someone must act; destructive buttons |
-| Charts | `--wk-color-chart-1`, `--wk-color-chart-3` | the series that usually follow the accent and working |
-| Type | `--wk-font-family`, `--wk-font-features` | the font and its OpenType features |
-| Corners | `--wk-radius-control`, `--wk-radius-group` | controls; groups and panels |
+| | Tokens |
+|---|---|
+| Must set (identity) | `--wk-color-accent`, `--wk-color-on-accent`, `--wk-color-working`, `--wk-color-attention`, `--wk-color-attention-text` |
+| May set (grounds, all ten or none) | `--wk-color-bg`, `-sidebar`, `-surface`, `-control`, `-hairline`, `-hairline-strong`, `-control-border`, `-field-border`, `-text`, `-text-secondary` |
+| May set | `--wk-font-family` (fallbacks after the kit's first family); `--wk-radius-control`, `-group`, `-window` (within 2px of the kit's) |
+| Must not set (derived) | `--wk-color-selection`, `-chart-1`, `-destructive-text`, `-attention-fill`: the kit derives them from the accent and attention with `color-mix()` inside `@supports` |
 
 Each colour needs a light value and a dark value, written in the two dark
-blocks with the same values. A font the theme names is the app's to bundle:
-add an `@font-face` in the theme that points at a file the app ships, and never
-load a font from the network. [`theme/example.css`](theme/example.css) is an
-example theme (a green accent, an amber working tone, rounder corners), shown
-on `demo/themed.html`.
+blocks with the same values. [`theme/theme.css`](theme/theme.css) lists them
+with the kit's defaults: copy it, change the values, and link it after the
+kit's stylesheet. [`theme/example.css`](theme/example.css) is an example theme
+(a green accent, an amber working tone, rounder corners), shown on
+`demo/themed.html`.
 
-The package's checks hold every theme in `theme/` to these rules: only theme
-tokens, light and dark for each colour, the same values in both dark blocks,
-4.5:1 for secondary text on a selection and for text on the accent, and 3:1
-for the working ring on the background. An app should check its own theme the
-same way.
+There are three state tones (neutral, working, attention) and no warning tone.
+Text fields, selects, checkboxes and the like are outlined in
+`--wk-color-field-border` (3:1 or more on the window); buttons keep the soft
+`--wk-color-control-border`. `color-mix()` needs Safari 16.2 or later (on
+macOS 11 and later), WebView2 Chromium 111 or WebKitGTK 2.40; below that the
+kit's literals apply, and on older Linux the app runs headless.
+
+[`theme/check.mjs`](theme/check.mjs) ships with the package and checks a theme
+against the contract: its blocks, the tokens it sets (opaque `#rrggbb`
+colours), all-or-none grounds, radii, and contrast (text 4.5:1 on every ground,
+the field border 3:1, working and attention 3:1 on the window and 1.5:1 apart).
+The package's tests run it on the kit, both theme files in `theme/` and a
+tinted-grounds fixture. An app runs it on its own theme, with no dependencies:
+
+```sh
+node node_modules/@wails-kit/ui/theme/check.mjs path/to/theme.css
+```
+
+It exits 1 when there are problems. As a module it is
+`@wails-kit/ui/theme/check` (`checkTheme`).
 
 ## Components
 
@@ -136,20 +204,24 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Checkbox, radio, switch | `wk-check`, `wk-checkbox`, `wk-radio`, `wk-switch` (`role="switch"`); `wk-check--row`, `wk-check--top` |
 | Select | `wk-select` |
 | Filter buttons, segmented control | `wk-filters` / `wk-filter`, `wk-segmented` |
-| Chip and pill | `wk-chip`, `wk-pill` |
-| Table | `wk-table` |
-| Sidebar, toolbar, footer bar | `wk-sidebar`, `wk-toolbar`, `wk-footer-bar` |
-| Three-pane layout | `wk-panes`, `wk-pane-list`, `wk-pane-inspector` |
+| Chip | `wk-chip` (a `<button class="wk-chip">` filters, with hover and disabled states; a leading `wk-dot data-size="sm"` then the item and its state in words), `--count`, `--attention`, `--muted` (dashed, for an absence), `--access` (what the person may do: a glyph first, then "View only" or "Can manage" with `data-level="manage"`, in the text colour) |
+| Table | `wk-table` (`--zebra` tints every other row); `wk-table-name`, the row's name as a `<button>` that opens the item; `wk-table-actions`, a cell's row actions on one line; `tr[data-muted]`, a row that no longer counts (secondary text, its name struck) |
+| List | `wk-list`, `wk-list-row` (`aria-selected` or `aria-current`), `wk-list-heading` (its count in a `<span>`). Selectable rows of any height. The app lays out each row and moves focus: one row `tabindex="0"`, the rest `-1`; Up and Down move, Home and End jump, Space or a click selects (the demo page shows it). |
+| Sidebar, toolbar, footer bar | `wk-sidebar` (`wk-sidebar-detail`: short trailing text on an item, "Running"), `wk-toolbar` (`wk-toolbar-subtitle` after the title: what the view counts over, "last 14 days"; keep a space before it, `Now <span class="wk-toolbar-subtitle">`, so the text reads "Now last 14 days" when copied or styles are off), `wk-footer-bar` |
+| Three-pane layout | `wk-three-pane`, `wk-pane-list`, `wk-pane-inspector`; `wk-pane-scroll`, a pane body that scrolls under a fixed toolbar (give it `tabindex="0"` and a name) |
 | Tabs | `wk-tablist` inside `<wk-tabs>` |
-| Menu, context menu, tooltip | `wk-menu` and its items, `wk-tooltip` |
+| Menu, context menu, tooltip | `wk-menu` and its items (`<button>`, or `<a href>` for a URL), `wk-menu--inline` (the items laid out in place, as in a popover), `wk-tooltip` |
 | Dialog, sheet, popover surface | `wk-dialog` (`--alert`, sheets), `wk-popover` |
 | Settings group, row and tabs | `wk-settings-heading`, `wk-settings-group`, `wk-settings-row`, `wk-settings-label`, `wk-settings-help`, `wk-settings-note`, `wk-settings-tabs` / `wk-settings-tab` (`data-attention`) |
 | Panel, facts, section heading | `wk-panel` (`--rows`, `--dashed`), `wk-facts`, `wk-section-heading` |
-| Status dot | `wk-dot` with `data-shape` (`filled`, `ringed`, `half`, `hollow`, `dashed`, `bar`), `data-tone` (`neutral`, `working`, `attention`) and `data-size="sm"`. It has no state names: the app maps its own states onto shapes and tones. |
-| Empty state, notice, error box | `wk-empty`, `wk-notice`, `wk-error-box` |
+| Status dot | `wk-dot` with `data-shape` (`filled`, `ringed`, `half`, `hollow`, `dashed`, `bar`), `data-tone` (`neutral`, `working`, `attention`) and `data-size="sm"`. It has no state names: the app maps its own states onto shapes and tones. The filled working dot at the default size has a halo (running), its gap drawn in `--wk-dot-ground`; set that on the dot when it sits on something other than `wk-color-bg`. |
+| Utilities | `wk-visually-hidden`: read by assistive technology, not drawn |
+| Empty state, notice, error box | `wk-empty`, `wk-notice`, `wk-errorbox` |
 | Stat, code block, copy button | `wk-stat`, `wk-code`, `wk-copy` |
 | Stepper | `wk-stepper` (an input and two arrow buttons; see `syncSteppers`) |
+| Range | `wk-range` on `<input type="range">`, drawn the same on WebKit and Chromium. The app sets `--wk-range-value` to the filled share (`el.style.setProperty('--wk-range-value', '60%')`, which a Content-Security-Policy allows where a `style` attribute is blocked) and updates it on `input`; show the value beside it in an `<output>`. |
 | Chart | `wk-chart`, built by `wkChart()` |
+| Diff | `wk-diff`, built by `wkDiff()` |
 
 `demo/index.html` shows every component in each state it can show without a
 pointer, the tokens and every status dot. Serve the package folder (for
@@ -160,17 +232,106 @@ example `npx serve .`) and open `/demo/index.html`.
 | Export | What it is |
 |---|---|
 | `<wk-dialog>` (`WkDialog`) | wraps a native `<dialog>` and opens it modally; focus returns to the opener; `open` attribute; `[data-wk-close]` buttons set `returnValue`; `light-dismiss` attribute; events `wk-open`, `wk-close`. Any element with `data-wk-open="<id>"` opens the dialog with that id. |
-| `<wk-menu>` (`WkMenu`) | a WAI-ARIA menu button: a `<button>` followed by a `[role=menu]`; event `wk-select`, `wk-toggle` |
+| `<wk-menu>` (`WkMenu`) | a WAI-ARIA menu button: a `<button>` followed by a `[role=menu]`; event `wk-select`, `wk-toggle`. Around a `wk-menu--inline` with no button, the same keys in place: one tab stop, arrows, Home, End and typeahead move, Enter and Space activate (`wk-select`); it never opens or closes, and leaves Escape and Tab to the page. A link item (`<a href role="menuitem">`) follows its link on Enter or Space. |
 | `<wk-context-menu for="id">` (`WkContextMenu`) | the same menu, opened by right-click, Shift+F10 or the Menu key; `detail.context` is the element it opened on |
 | `<wk-tabs>` (`WkTabs`) | WAI-ARIA tabs with automatic activation; event `wk-change` |
 | `<wk-tooltip>` (`WkTooltip`) | WAI-ARIA tooltip on focus and after a hover delay (`delay="ms"`); event `wk-toggle` |
 | `syncSteppers(root?)` | redraws stepper arrows after the app sets a value itself |
 | `wkChart(spec)` | bars, stacked bars, or a line with a band, as plain SVG, with a legend, hover and keyboard readout, and a Chart/Table switch; colours from `--wk-color-chart-1` to `-5` (`tone` 1 to 5 or `"neutral"`) |
 | `niceTicks`, `labelStep`, `runs`, `roundedTop`, `roundedEnd`, `tableModel`, `readout` | the chart's layout rules, with no DOM |
+| `wkDiff(spec)` | a read-only diff of one or more files, unified or split, with collapsible files, word marks, keyboard navigation and "Show more" context; see [Diff](#diff) |
+| `parseUnifiedDiff`, `diffSplitRows`, `diffWordRanges` | the diff's parser, split-view pairing and word marks, with no DOM |
 
 Every element works when the app builds the DOM imperatively: it may be
 connected before its children exist, moved, or removed while open, and it
 removes everything it added to the document when it is disconnected.
+
+## Diff
+
+`wkDiff(spec)` returns a `<section class="wk-diff">`: a focusable region with
+a Unified/Split switch and one card per file. It builds plain DOM and has no
+dependencies.
+
+```js
+import { wkDiff } from './vendor/wails-kit-ui/wails-kit-ui.js';
+
+pane.append(wkDiff({
+  id: 'changes',                 // names the parts: changes-file-0, changes-file-0-toggle, …
+  label: 'Changes',              // the region's accessible name
+  diff: patchText,               // git's unified diff (one or more files), or parsed files
+  view: 'unified',               // or 'split'; onview(view) reports the switch
+  wrap: false,                   // unified: wrap long lines, or scroll the file sideways
+  collapseAbove: 400,            // files with more lines start collapsed,
+  collapseCharsAbove: 200000,    // and files with more characters
+  generated: file => file.path.endsWith('.lock'),     // these start collapsed too
+  headingLevel: 3,               // each file's header is a heading of this level (2 to 6)
+  emptyText: 'No changes',       // all a diff with no files shows
+  getContext: (file, range) => readLines(file.path, range.newStart, range.newEnd),
+  highlight: (file, line) => null,                     // a DocumentFragment, or null for plain text
+  onrender: (fileElement, file) => {},                 // after a file's rows are (re)built
+}));
+```
+
+- **Input.** A unified diff string (git format or `diff -u`, LF or CRLF), or
+  files already parsed: `{ path, oldPath, status, hunks: [{ header, lines:
+  [{ kind: 'context'|'add'|'del', old, new, text }] }] }`, where `status` is
+  `modified`, `added`, `deleted`, `renamed`, `copied` or `binary`. Counts and
+  hunk ranges are filled in when missing; lines without `old`/`new` are
+  numbered from the hunk's start (context takes both, `del` the old number,
+  `add` the new), and a line of any other kind is shown as context.
+  `parseUnifiedDiff(text)` returns the
+  same shape, with `binary`, `oldMode`/`newMode`, `additions`/`deletions` and a
+  `noNewline` flag on a line that ended its file without a newline. Paths come
+  without git's prefixes, whichever it wrote (`a/` `b/`, `--no-prefix`,
+  `diff.mnemonicPrefix`, `--src-prefix`/`--dst-prefix`); in a plain diff,
+  a first folder that differs between the `---` and `+++` paths of the same
+  file is taken as the prefix. A hunk whose header claims more lines than
+  follow ends at the next file. Combined diffs (`diff --cc`, from a merge)
+  are not supported: such a file shows "No changes to show".
+- **Per file.** A header (a `wk-link` disclosure naming the path, `old → new`
+  for a rename, status chips, `+n −m` counts in tabular figures). Large,
+  generated and binary files start collapsed (a parsed file's `collapsed`
+  overrides this; its `generated` marks it generated); rows are built when a
+  file is first expanded. The empty text is all an empty diff shows. A binary file
+  shows "Binary file not shown."
+- **Lines.** Old and new line numbers in a gutter; added and removed rows are
+  tinted and carry a `+` or `−` marker, and each row has a screen-reader label,
+  the same in both views ("Added 14:", "Removed 13:", "Line 10:", or "Line
+  10, now 12:" for an unchanged line whose number moved). When removed lines are followed by added ones,
+  they pair up and the changed words are marked (`<mark class="wk-diff-word">`;
+  not for a line over 10,000 characters).
+  The split view puts old beside new, row by row, and always wraps long lines
+  so its halves stay aligned.
+- **Context.** With `getContext(file, { oldStart, oldEnd, newStart, newEnd })`
+  (1-based, inclusive; returns the lines as strings, or a promise of them),
+  each hunk header offers "Show more" for the unchanged lines above it,
+  `contextStep` (20) at a time. If the callback throws or rejects, the button
+  stays and a note says "Couldn’t load lines" (announced politely); an empty
+  result removes the button. Lines that arrive after a view switch go into
+  the view then shown. A wrapped line hangs under its own indent.
+- **Highlighting** is not built in: `highlight(file, line)` may return a node
+  (a `DocumentFragment` of spans) to use as the line's code. Word marks are
+  laid over it when its text is the line's text. If it throws, that line is
+  plain text.
+- **Keyboard.** While focus is in the diff, `n` and `p` move to the next or
+  previous hunk (in expanded files), `]` and `[` to the next or previous file.
+  Copying copies the code alone: the gutter, the markers and the labels are
+  not selectable, and in the split view only the side the selection starts on
+  is copied.
+- **Colours.** `--wk-color-diff-add` and `--wk-color-diff-del` tint rows;
+  `--wk-color-diff-add-strong` and `--wk-color-diff-del-strong` mark changed
+  words. Removed uses the attention hue, added a blue rather than a green, so
+  the pair stays distinct with red-green colour blindness; text reaches 4.5:1
+  on every tint (checked by `npm test`). In forced colours the tints become a
+  bar at the start of the row, solid for added and dashed for removed, and the
+  markers stay.
+- **Hooks for comments.** Each file card has `data-path`. A unified row has
+  `data-kind` and its `data-old` and `data-new` numbers (one of them for an
+  added or removed line); a split half has `data-kind`, `data-side` (`old` or
+  `new`) and only its own side's number (`data-old` on the old half,
+  `data-new` on the new). A file's rows are built lazily and rebuilt on a
+  view switch, so anything an app adds among them belongs in `onrender`,
+  which runs after every build of a file's rows.
 
 ## Settings window
 
@@ -236,11 +397,14 @@ renderers: `settingsModel(schema, values, errors)`, `conditionMet`,
 | Path | |
 |---|---|
 | `src/ui.css` | the stylesheet entry: `tokens.css`, `base.css`, `components.css`, `settings.css` |
-| `src/index.js` | the module entry: `kit.js` (custom elements), `chart.js`, `settings-model.js`, `settings.js` |
+| `src/index.js` | the module entry: `kit.js` (custom elements), `chart.js`, `diff.js`, `settings-model.js`, `settings.js` |
 | `src/index.d.ts` | TypeScript types |
 | `theme/theme.css`, `theme/example.css` | the theme file and an example theme |
+| `theme/check.mjs` | the theme check, shipped: checks a theme against `THEMING.md` |
+| `THEMING.md` | the theme contract |
 | `BEHAVIOUR.md` | how components behave over time: the action lifecycle and its timings, feedback, undo and confirm, loading, retries, motion, accessibility and desktop behaviour |
-| `dist/wails-kit-ui.css`, `dist/wails-kit-ui.js` | the prebuilt files, committed and checked against `src/` |
+| `fonts/` | Inter (two variable woff2 files) and its licence, SIL OFL 1.1 |
+| `dist/wails-kit-ui.css`, `dist/wails-kit-ui.js`, `dist/fonts/` | the prebuilt files and a copy of the fonts, committed and checked against `src/` and `fonts/` |
 | `demo/` | review pages: `index.html`, `themed.html`, `dist.html`, `settings.html` |
 | `scripts/build.mjs` | builds `dist/` with no dependencies |
 | `test/` | the checks |
@@ -259,13 +423,15 @@ token has light and dark values (and the same values in both dark blocks),
 that themes set only theme tokens and meet the contrast rules, that colours in
 component rules come from tokens, that every selector is scoped, that nothing
 loads from outside the package or names an app, the chart's layout rules, the
+diff's parser, pairing and word marks, the contrast of text on the diff tints, the
 settings window's rules, and that `dist/` matches a fresh build.
 
 `npm run test:browser` drives the review pages with `playwright-core` and
 Chrome (set `CHROME_PATH`, or have it at `/usr/bin/google-chrome` or the macOS
 default; without Chrome it skips, unless `CI` is set). It covers the
 WAI-ARIA keyboard patterns of every custom element, focus return, imperative
-construction and clean-up, forced colours, the chart, the prebuilt module's
+construction and clean-up, forced colours, the chart, the diff (lines in both
+views, keyboard, copy, forced colours, a 5,000-line diff), the prebuilt module's
 exports, and the settings window. The kit targets WebKit (Wails on macOS) as
 well as WebView2; these checks run in Chrome, so check WebKit by hand on a Mac
 for a change in behaviour.
