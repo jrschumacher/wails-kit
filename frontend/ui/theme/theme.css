@@ -41,7 +41,7 @@
   --wk-color-text: #1b1f27;
   --wk-color-text-secondary: #626977;
   /* Type and corners: optional. */
-  --wk-font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --wk-font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   --wk-radius-control: 6px;
   --wk-radius-group: 8px;
   --wk-radius-window: 10px;

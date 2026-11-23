@@ -100,7 +100,7 @@ try {
         const { page, problems } = await open(url, { colorScheme: scheme });
         const font = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
         // The example theme keeps the kit's font.
-        assert.match(font, /^system-ui,/);
+        assert.match(font, /^Inter,/);
         const bg = await page.evaluate(() => getComputedStyle(document.querySelector('.wk-root')).backgroundColor);
         assert.equal(bg, scheme === 'light' ? 'rgb(252, 252, 251)' : 'rgb(24, 26, 31)');
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -1038,6 +1038,40 @@ try {
     await page.close();
   });
 
+  await check('Inter: a wk-root page with no network loads the bundled Inter, from src/ and from dist/, with cv11 and ss03 on; latin-ext loads only when used', async () => {
+    for (const url of ['/demo/index.html', '/demo/dist.html']) {
+      const { page, problems } = await open(url);
+      const fonts = await page.evaluate(async () => {
+        await document.fonts.ready;
+        const loaded = () => [...document.fonts].filter(f => f.family.replace(/"/g, '') === 'Inter' && f.status === 'loaded').length;
+        const before = loaded();
+        const files = () => performance.getEntriesByType('resource').map(e => new URL(e.name).pathname).filter(n => n.endsWith('.woff2')).sort();
+        const fetchedBefore = files();
+        const check = document.fonts.check('13px Inter');
+        const root = getComputedStyle(document.querySelector('.wk-root'));
+        const p = document.createElement('p');
+        p.textContent = 'Łódź, Kraków, Þórsmörk';
+        document.body.append(p);
+        await document.fonts.load('13px Inter', p.textContent);
+        const after = loaded();
+        p.remove();
+        return { check, before, after, fetchedBefore, fetchedAfter: files(), features: root.fontFeatureSettings, family: root.fontFamily };
+      });
+      assert.equal(fonts.check, true, `${url}: document.fonts.check('13px Inter')`);
+      assert.equal(fonts.before, 1, `${url}: only the latin file loads for latin text`);
+      assert.equal(fonts.after, 2, `${url}: the latin-ext file loads for "Łódź"`);
+      // The package's own files, not a font installed on the machine.
+      const dir = url.includes('dist') ? '/dist/fonts/' : '/fonts/';
+      assert.deepEqual(fonts.fetchedBefore, [`${dir}Inter-latin.woff2`]);
+      assert.deepEqual(fonts.fetchedAfter, [`${dir}Inter-latin-ext.woff2`, `${dir}Inter-latin.woff2`]);
+      assert.equal(fonts.features, '"cv11", "ss03"');
+      assert.match(fonts.family, /^Inter,/);
+      // problems include any request that left the local server.
+      assert.deepEqual(problems, [], url);
+      await page.close();
+    }
+  });
+
   await check('derived colours: a theme that changes only the accent and attention changes selection, chart-1, destructive text and attention fill with them, in light and dark', async () => {
     for (const scheme of ['light', 'dark']) {
       const { page, problems } = await open('/demo/index.html', { colorScheme: scheme });
@@ -1063,6 +1097,37 @@ try {
       }, scheme);
       assert.notDeepEqual(after, before);
       assert.deepEqual(problems, []);
+      await page.close();
+    }
+  });
+
+  await check('Inter: the bundled files carry cv11 and ss03, so --wk-font-features changes what renders', async () => {
+    for (const file of ['/fonts/Inter-latin.woff2', '/dist/fonts/Inter-latin.woff2']) {
+      const { page, problems } = await open();
+      // Loaded under its own family name, so an Inter installed on the
+      // machine can't stand in for the bundled file.
+      await page.evaluate(async file => {
+        const face = new FontFace('WkFeatureCheck', `url(${file})`);
+        document.fonts.add(await face.load());
+        const box = document.createElement('div');
+        box.id = 'feature-check';
+        box.style.cssText = 'position: fixed; top: 0; left: 0; background: #fff; color: #000; z-index: 99';
+        for (const [id, text, features] of [['a', 'aaaaaaaaaa', 'normal'], ['a-cv11', 'aaaaaaaaaa', '"cv11"'], ['q', ',,“”,,', 'normal'], ['q-ss03', ',,“”,,', '"ss03"']]) {
+          const s = document.createElement('span');
+          s.id = `feature-${id}`;
+          s.style.cssText = `display: inline-block; font: 40px WkFeatureCheck; font-feature-settings: ${features}; white-space: pre; padding: 4px`;
+          s.textContent = text;
+          box.append(s, document.createElement('br'));
+        }
+        document.body.append(box);
+      }, file);
+      const width = id => page.locator(`#feature-${id}`).evaluate(el => el.getBoundingClientRect().width);
+      // cv11, the single-storey a, has its own advance width.
+      assert.notEqual(await width('a-cv11'), await width('a'), `${file}: cv11 changes a run of "a"`);
+      // ss03, round quotes and commas: commas keep their width, so compare pixels.
+      const shot = id => page.locator(`#feature-${id}`).screenshot();
+      assert.ok(!(await shot('q-ss03')).equals(await shot('q')), `${file}: ss03 changes quotes and commas`);
+      assert.deepEqual(problems, [], file);
       await page.close();
     }
   });

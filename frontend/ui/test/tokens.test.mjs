@@ -278,7 +278,7 @@ test('one CSS entry and one ES module entry; no shadow DOM, customized built-ins
 });
 
 test('nothing names an app, and nothing loads from outside the package', () => {
-  const shipped = [...walk(src), ...walk(themeDir), ...walk(path.join(root, 'demo')), ...walk(path.join(root, 'dist')), ...walk(path.join(root, 'scripts')),
+  const shipped = [...walk(src), ...walk(themeDir), ...walk(path.join(root, 'demo')), ...walk(path.join(root, 'dist')).filter(p => !p.endsWith('.woff2')), ...walk(path.join(root, 'scripts')),
     path.join(root, 'README.md'), path.join(root, 'THEMING.md'), path.join(root, 'package.json')];
   const outside = ref => !ref.startsWith('data:') && (/^[a-z][a-z0-9+.-]*:|^\//i.test(ref));
   for (const file of shipped) {
@@ -297,13 +297,38 @@ test('nothing names an app, and nothing loads from outside the package', () => {
     if (file.startsWith(src) || file.startsWith(themeDir)) {
       // The kit itself loads nothing outside its own folder.
       // theme/check.mjs is a Node script: it uses Node's built-ins and reads
-      // the kit's own tokens.css, both inside the package.
-      const allowed = ref => file === path.join(themeDir, 'check.mjs') && (/^node:/.test(ref) || ref === '../src/tokens.css');
+      // the kit's own tokens.css, both inside the package. src/ loads the
+      // package's own fonts/, shared by src/ and dist/.
+      const allowed = ref => (file === path.join(themeDir, 'check.mjs') && (/^node:/.test(ref) || ref === '../src/tokens.css')) || (file.startsWith(src) && /^\.\.\/fonts\/[\w.-]+\.woff2$/.test(ref));
       for (const ref of refs) if (!allowed(ref)) assert.ok(!outside(ref) && !/(^|\/)\.\.(\/|$)/.test(ref), `${rel(file)} loads ${ref} from outside its folder`);
     } else {
       for (const ref of refs) if (!/^node:/.test(ref)) assert.ok(!outside(ref), `${rel(file)} loads ${ref} from outside the package`);
     }
   }
+});
+
+test('Inter is bundled: two variable woff2 files and the OFL, each named by an @font-face that resolves from src/ and from dist/ (its own copy)', () => {
+  const fontsDir = path.join(root, 'fonts');
+  assert.deepEqual(readdirSync(fontsDir).sort(), ['Inter-latin-ext.woff2', 'Inter-latin.woff2', 'OFL-Inter.txt']);
+  assert.match(read(path.join(fontsDir, 'OFL-Inter.txt')), /SIL Open Font License, Version 1\.1/);
+  for (const file of readdirSync(fontsDir).filter(f => f.endsWith('.woff2'))) assert.equal(readFileSync(path.join(fontsDir, file)).subarray(0, 4).toString('latin1'), 'wOF2', `${file} is a woff2 file`);
+  for (const css of [path.join(src, 'base.css'), path.join(root, 'dist', 'wails-kit-ui.css')]) {
+    const faces = rules(read(css)).filter(r => r.selector === '@font-face').map(r => Object.fromEntries(r.decls));
+    assert.equal(faces.length, 2, rel(css));
+    for (const face of faces) {
+      assert.equal(face['font-family'], 'Inter');
+      assert.equal(face['font-weight'], '100 900');
+      assert.equal(face['font-display'], 'swap');
+      assert.ok(face['unicode-range'], 'each face has a unicode-range');
+      const url = face.src.match(/url\("([^"]+)"\)/)[1];
+      assert.ok(statSync(path.resolve(path.dirname(css), url)).isFile(), `${rel(css)}: ${url} resolves to a file`);
+    }
+  }
+  const kit = kitTokens();
+  assert.match(kit.light.get('--wk-font-family'), /^Inter,/);
+  assert.equal(kit.light.get('--wk-font-features'), '"cv11", "ss03"');
+  const pkg = JSON.parse(read(path.join(root, 'package.json')));
+  assert.ok(pkg.files.includes('fonts') && pkg.exports['./fonts/*'] === './fonts/*', 'package.json ships and exports fonts/');
 });
 
 test('the design system\'s names: wk-code and wk-chip--access, not the old wk-codeblock and wk-chip--lock', () => {
