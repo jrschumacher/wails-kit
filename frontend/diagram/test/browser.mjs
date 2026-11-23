@@ -105,7 +105,9 @@ const view = (page, id) => page.evaluate(i => {
 const close = (a, b, eps = 0.5) => Math.abs(a - b) <= eps;
 
 const failures = [];
+// WK_CHECK=<text> runs only the checks whose name contains it.
 async function check(name, fn) {
+  if (process.env.WK_CHECK && !name.includes(process.env.WK_CHECK)) return;
   try {
     await fn();
     console.log(`ok    ${name}`);

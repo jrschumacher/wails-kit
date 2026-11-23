@@ -42,7 +42,7 @@ export type DiagramErrorEvent = CustomEvent<DiagramFailure>;
 export interface DiagramElement extends HTMLDivElement {
   /** The Mermaid text. Setting it re-renders. */
   source: string;
-  /** Settles when the current render has finished (drawn, or the ErrorBox shown). */
+  /** Settles when the diagram shows the current source in the current appearance and theme (drawn, or the ErrorBox shown); it re-renders first if the theme changed and the change has not been picked up yet. */
   readonly ready: Promise<void>;
   /** The zoom level (1 is 100%). */
   readonly zoom: number;

@@ -113,8 +113,8 @@ let counter = 0;
 
 /**
  * Builds a diagram from Mermaid text. Returns a <div class="wk-diagram">
- * with `source` (get and set: setting re-renders), `ready` (a promise for
- * the current render), `zoom`, `fit()`, `zoomTo(scale)`, `zoomBy(factor)`,
+ * with `source` (get and set: setting re-renders), `ready` (a promise that
+ * settles once the current source is drawn in the current theme), `zoom`, `fit()`, `zoomTo(scale)`, `zoomBy(factor)`,
  * `toSVG()`, `toPNG(scale)`, `copySource()` and `destroy()`. It fires
  * `wk-render` ({ detail: { type } }) when a diagram is drawn and `wk-error`
  * ({ detail: { message, line, kind } }) when it cannot be.
@@ -385,8 +385,21 @@ export function wkDiagram(spec = {}) {
   // ends within 400 ms; once shown, the indicator stays 500 ms; after 3 s a
   // line says what is loading. A diagram already shown stays until the new
   // one replaces it, with the indicator in the corner.
+  // The theme where the diagram sits now, and its key ('' if unreadable).
+  function themeNow() {
+    try {
+      const theme = readTheme(el);
+      return { theme, key: JSON.stringify(theme) };
+    } catch (error) {
+      return { error, key: '' };
+    }
+  }
+
   function render() {
     const gen = ++generation;
+    // The key of the theme this render is for, recorded now: a theme check
+    // that runs while it loads compares against it, not an older render's.
+    themeKey = themeNow().key;
     describe();
     if (!svg && !failure) setState('loading');
     let shownAt = 0;
@@ -418,11 +431,14 @@ export function wkDiagram(spec = {}) {
         showError({ message: String(err?.message ?? err), kind: 'load' });
         return;
       }
-      let theme, result, error;
+      let result, error;
       try {
-        theme = readTheme(el);
-        themeKey = JSON.stringify(theme);
-        result = await mod.render(source, theme);
+        // Read again after the load: the element may have been connected,
+        // or the appearance changed, meanwhile.
+        const now = themeNow();
+        if (now.error) throw now.error;
+        if (gen === generation) themeKey = now.key;
+        result = await mod.render(source, now.theme);
       } catch (err) {
         error = err;
       }
@@ -526,11 +542,24 @@ export function wkDiagram(spec = {}) {
     themeChanged() {
       if (destroyed) return;
       if (!el.isConnected) { stale = true; return; }
-      let key;
-      try { key = JSON.stringify(readTheme(el)); } catch { key = ''; }
-      if (key !== themeKey) render();
+      if (themeNow().key !== themeKey) render();
     },
   };
+
+  // Settles once the diagram shows the current source in the current theme.
+  // An appearance change reaches the theme check on the next frame (media
+  // query change events and the requestAnimationFrame behind them), so a
+  // caller awaiting `ready` straight after one would otherwise get the
+  // render for the old appearance; it re-checks the theme here, and waits
+  // again if a newer render started meanwhile.
+  async function settled() {
+    for (;;) {
+      if (!destroyed && el.isConnected && themeNow().key !== themeKey) render();
+      const run = current;
+      await run;
+      if (run === current) return;
+    }
+  }
   live.add(instance);
 
   Object.defineProperties(el, {
@@ -544,7 +573,7 @@ export function wkDiagram(spec = {}) {
       },
       enumerable: true,
     },
-    ready: { get: () => current },
+    ready: { get: () => settled() },
     zoom: { get: () => view.k },
     type: { get: () => type },
     fit: { value: () => fit() },

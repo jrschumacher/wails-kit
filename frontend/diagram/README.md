@@ -125,7 +125,7 @@ wherever you like.
 | Property or method | |
 |---|---|
 | `source` | Get or set the text; setting it re-renders. |
-| `ready` | A promise that settles when the current render has finished. |
+| `ready` | A promise that settles when the diagram shows the current source in the current appearance and theme (drawn, or the error box shown). Read straight after a theme change, it checks the tokens itself rather than waiting for the next frame's check. |
 | `type` | The diagram's type (`'flowchart'`, `'sequence'`, `'state'`, `'class'`, `'er'`, `'gantt'`) or `null`. |
 | `zoom` | The zoom level; 1 is 100%. |
 | `fit()`, `zoomTo(scale)`, `zoomBy(factor)` | Pan and zoom from code. The zoom runs from 10% to 800%. |
@@ -240,7 +240,7 @@ npm run test:browser   # every diagram type, errors, theme, pan and zoom, export
 `@wails-kit/ui`'s stylesheet), opens `demo/index.html` and `demo/themed.html`
 under their strict CSP, and fails on any console error, CSP violation, failed
 request or request outside the server. It needs Chrome (`CHROME_PATH`, or the
-default install path); without it, it skips, unless `CI` is set.
+default install path); without it, it skips, unless `CI` is set. `WK_CHECK=<text>` runs only the checks whose name contains the text.
 
 The demo pages are the gallery's: each diagram type, a syntax error and an
 unsupported type, with a light, dark and system switch. Serve `frontend/`
