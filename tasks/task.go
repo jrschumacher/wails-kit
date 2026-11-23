@@ -126,8 +126,9 @@ func (t *Task) SetWords(words string) {
 
 // SetTimeout changes the task's timeout on silence: 0 uses the service's,
 // NoTimeout turns it off while it waits on something it has named. When the
-// task next goes from Waiting to Running, its own timeout (Spec.Timeout)
-// comes back.
+// task next goes from a Waiting the app set to Running, its own timeout
+// (Spec.Timeout) comes back; the service's switch to Waiting after a quiet
+// spell keeps it.
 func (t *Task) SetTimeout(d time.Duration) {
 	s := t.svc
 	s.mu.Lock()

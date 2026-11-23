@@ -59,7 +59,10 @@ app := application.New(application.Options{
 ```
 
 `Bindings` has only `Tasks`, `Get`, `Stop`, `Pause`, `Resume`, `Retry`, `Dismiss` and
-`DismissFinished`.
+`DismissFinished`. Its `Get(id)` returns `(Snapshot, error)`, with a
+`tasks_not_found` error for a task that isn't in the list, so JavaScript gets a
+snapshot or a rejected promise. (`Service.Get` returns `(Snapshot, bool)`, which Wails
+would send as an array.)
 
 ### Attempts and handles
 
@@ -167,8 +170,10 @@ the task.
 As BEHAVIOUR.md's lifecycle says, the kit starts Waiting: a running task that goes
 30 s without a report (progress, words or a change of state) moves to `waiting` at
 once, with `Spec.WaitingWords` if set ("Waiting for GitHub…"), or else its current
-words. The next report moves it back to `running`. The switch doesn't restart the
-timeout on silence: that still counts from the last report. The frontend just draws
+words. The next report moves it back to `running`, with the words it had before the
+switch (unless the report brings new ones). The switch doesn't restart the timeout on
+silence, which still counts from the last report, and it doesn't change the task's
+timeout: one the app set with `SetTimeout` still applies when it runs again. The frontend just draws
 the snapshot. `WithWaitingAfter` changes the 30 s; `NoTimeout` turns the switch off.
 
 ## Coalescing
@@ -188,9 +193,10 @@ Every running task fails after 2 minutes without a report ("Timed out after 2 mi
 code `timeout`), and its context is cancelled. Progress, words and changes of state
 all restart the clock. `Spec.Timeout` sets a task's own; `tasks.NoTimeout` turns it
 off, and `task.SetTimeout` changes it later, for a task that waits on something it has
-named (a job queued on GitHub). That change lasts while the task waits: when it goes
-from `waiting` back to `running`, its own timeout (`Spec.Timeout`, or the service's)
-comes back. Queued, paused and stalled tasks have no timeout. The words are
+named (a job queued on GitHub). A change made while the app has the task in
+`waiting` lasts while it waits: when it goes back to `running`, its own timeout
+(`Spec.Timeout`, or the service's) comes back. Leaving the service's own `waiting`
+(after a quiet spell) keeps whatever timeout the task has. Queued, paused and stalled tasks have no timeout. The words are
 `WithTimeoutWords`' (English by default), with durations rounded: 90 s reads "2 min".
 
 ## Retries
@@ -257,7 +263,7 @@ calls `Sleep` and `Wake` itself everywhere.
 |---|---|
 | `Add(spec) (*Task, error)` | Adds a task and sends a snapshot |
 | `Tasks() []Snapshot` | The current list |
-| `Get(id) (Snapshot, bool)` | One task |
+| `Get(id) (Snapshot, bool)` | One task (`Bindings.Get` returns an error instead of the bool) |
 | `Stop(id) error` | Asks to stop. A task waiting to retry finishes at once: Stopped if its mode is `stop` or `stop-asks`, else Cancelled. A queued task without `OnStop` is Cancelled at once |
 | `Pause(id)`, `Resume(id) error` | Ask to pause (from running or waiting) or resume (from paused), through `OnPause` and `OnResume`; from any other state, `tasks_invalid_state` |
 | `Retry(id) error` | Runs a failed task again, or a waiting one now |

@@ -3,6 +3,7 @@ package tasks
 import (
 	stderrors "errors"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -226,9 +227,12 @@ func TestWaitingAfterQuietSpell(t *testing.T) {
 		t.Fatalf("a report should bring it back to Running: %+v", s)
 	}
 	h.clock.Advance(30 * time.Second)
+	if h.last("a").Words != "Waiting for GitHub…" {
+		t.Fatalf("a second quiet spell: %+v", h.last("a"))
+	}
 	task.Progress(Progress{Done: 2, Total: 4})
-	if h.last("a").State != StateRunning {
-		t.Fatal("progress should bring it back to Running")
+	if s := h.last("a"); s.State != StateRunning || s.Words != "Fetching runs" {
+		t.Fatalf("progress should bring it back to Running with its own words: %+v", s)
 	}
 	h.clock.Advance(2 * time.Minute)
 	if s := h.last("a"); s.State != StateFailed {
@@ -294,8 +298,8 @@ func TestBindingsSurface(t *testing.T) {
 	if len(b.Tasks()) != 1 {
 		t.Fatal("Tasks")
 	}
-	if _, ok := b.Get("a"); !ok {
-		t.Fatal("Get")
+	if _, err := b.Get("a"); err != nil {
+		t.Fatalf("Get: %v", err)
 	}
 	if err := b.Stop("a"); err != nil || task.Context().Err() == nil {
 		t.Fatalf("Stop: %v", err)
@@ -315,5 +319,91 @@ func TestBindingsSurface(t *testing.T) {
 	}
 	if b.DismissFinished() != 0 || len(b.Tasks()) != 0 {
 		t.Error("DismissFinished")
+	}
+}
+
+// Retry on a task that isn't failed, while it changes state, must not race.
+func TestRetryErrorDoesNotRace(t *testing.T) {
+	s := NewService(WithWakeDetection(0, 0))
+	defer s.Close()
+	task, err := s.Add(Spec{ID: "a", OnRetry: func(*Task) {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		<-start
+		for i := 0; i < 5000; i++ {
+			if i%2 == 0 {
+				task.Waiting("Waiting for GitHub…")
+			} else {
+				task.Running("Fetching runs")
+			}
+			runtime.Gosched()
+		}
+	}()
+	close(start)
+	for i := 0; i < 5000; i++ {
+		if err := s.Retry("a"); !errors.IsCode(err, ErrInvalidState) {
+			t.Fatalf("Retry on an active task: %v", err)
+		}
+		runtime.Gosched()
+	}
+	<-done
+}
+
+// The words the service set for a quiet spell go when the task runs again.
+func TestWaitingWordsRestoredOnReport(t *testing.T) {
+	h := newHarness(t)
+	task := h.add(Spec{ID: "a", Words: "Fetching runs", WaitingWords: "Waiting for GitHub…"})
+	h.clock.Advance(30 * time.Second)
+	if h.last("a").Words != "Waiting for GitHub…" {
+		t.Fatalf("expected the waiting words: %+v", h.last("a"))
+	}
+	task.Progress(Progress{Done: 1, Total: 4})
+	if s := h.last("a"); s.State != StateRunning || s.Words != "Fetching runs" {
+		t.Errorf("the task's own words should come back with Running: %+v", s)
+	}
+	h.clock.Advance(30 * time.Second)
+	task.Running("")
+	if s := h.last("a"); s.Words != "Fetching runs" {
+		t.Errorf("Running with no words should restore them too: %+v", s)
+	}
+	h.clock.Advance(30 * time.Second)
+	task.SetWords("Fetching 2 of 4 runs")
+	if s := h.last("a"); s.State != StateRunning || s.Words != "Fetching 2 of 4 runs" {
+		t.Errorf("SetWords sets new words: %+v", s)
+	}
+}
+
+// A quiet spell doesn't throw away a timeout the app set.
+func TestQuietSpellKeepsAppTimeout(t *testing.T) {
+	h := newHarness(t)
+	task := h.add(Spec{ID: "a"})
+	task.SetTimeout(10 * time.Minute)
+	h.clock.Advance(30 * time.Second) // the service's Waiting
+	task.Progress(Progress{Done: 1})
+	h.clock.Advance(2*time.Minute + time.Second)
+	if s := h.last("a"); s.State.Finished() {
+		t.Fatalf("the app's 10 min timeout was lost: %+v", s)
+	}
+	h.clock.Advance(8 * time.Minute)
+	if s := h.last("a"); s.State != StateFailed || s.Words != "Timed out after 10 min" {
+		t.Errorf("the 10 min timeout should still apply: %+v", s)
+	}
+}
+
+// Bindings.Get reports a missing task as an error, for JavaScript.
+func TestBindingsGetError(t *testing.T) {
+	h := newHarness(t)
+	h.add(Spec{ID: "a"})
+	b := h.svc.Bindings()
+	if s, err := b.Get("a"); err != nil || s.ID != "a" {
+		t.Errorf("Get: %+v, %v", s, err)
+	}
+	if _, err := b.Get("nope"); !errors.IsCode(err, ErrNotFound) {
+		t.Errorf("Get on a missing task: %v", err)
 	}
 }

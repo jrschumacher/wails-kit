@@ -211,8 +211,11 @@ type entry struct {
 	attempts    int    // failed attempts, for MaxAttempts
 	backoffStep int    // position in the backoff; wake resets it
 	autoWaiting bool   // Waiting because of a quiet spell, not the app
-	removed     bool
-	current     *Task
+	// wordsBeforeWait are the words from before a quiet spell, restored
+	// when the task runs again.
+	wordsBeforeWait string
+	removed         bool
+	current         *Task
 }
 
 // NewService creates a task service.
@@ -424,8 +427,9 @@ func (s *Service) Retry(id string) error {
 		return errors.New(ErrUnsupported, fmt.Sprintf("task %q can't be retried", id), nil)
 	}
 	if e.snap.State != StateFailed && !e.retryPending() {
+		err := errors.New(ErrInvalidState, fmt.Sprintf("task %q is %s, not failed", id, e.snap.State), nil)
 		s.mu.Unlock()
-		return errors.New(ErrInvalidState, fmt.Sprintf("task %q is %s, not failed", id, e.snap.State), nil)
+		return err
 	}
 	h := s.beginAttemptLocked(e)
 	s.changedLocked(true)
@@ -631,11 +635,17 @@ func (s *Service) removeLocked(remove []*entry) {
 	s.order = kept
 }
 
-// setRunningLocked moves the task to Running. Leaving Waiting restores the
-// task's own timeout, which SetTimeout(NoTimeout) may have turned off.
+// setRunningLocked moves the task to Running. Leaving a Waiting the app set
+// restores the task's own timeout, which SetTimeout(NoTimeout) may have
+// turned off. Leaving a Waiting the service set after a quiet spell keeps
+// the timeout and brings back the words from before it.
 func (s *Service) setRunningLocked(e *entry) {
 	if e.snap.State == StateWaiting {
-		e.timeout = e.spec.Timeout
+		if e.autoWaiting {
+			e.snap.Words = e.wordsBeforeWait
+		} else {
+			e.timeout = e.spec.Timeout
+		}
 	}
 	e.snap.State = StateRunning
 	e.autoWaiting = false
@@ -692,6 +702,7 @@ func (s *Service) onQuiet(e *entry, gen uint64) {
 	e.quiet = nil
 	e.snap.State = StateWaiting
 	e.autoWaiting = true
+	e.wordsBeforeWait = e.snap.Words
 	if e.spec.WaitingWords != "" {
 		e.snap.Words = e.spec.WaitingWords
 	}
