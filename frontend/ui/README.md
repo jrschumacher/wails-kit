@@ -108,12 +108,14 @@ Inter is © The Inter Project Authors, under the SIL Open Font License 1.1
 (`fonts/OFL-Inter.txt`, also in `dist/fonts/`). The licence lets an app bundle
 and ship the font; keep the licence file with it.
 
-To opt out, set `--wk-font-family` in the app's theme to a stack without Inter,
-and set `--wk-font-features: normal`, since `cv11` and `ss03` are Inter's and
-may mean something else, or nothing, in another font
-([`theme/example.css`](theme/example.css) does both). An `@font-face` that no
-element uses downloads nothing, so the files then never load. When vendoring, you can also leave out `fonts/`. The kit is designed and
-tested in Inter, so expect small differences in widths.
+Inter is part of the theme contract: a theme may add fallbacks after it but
+not replace it ([THEMING.md](THEMING.md)). An app that still needs another
+font sets `--wk-font-family` to a stack without Inter in its own stylesheet,
+outside its theme, and sets `--wk-font-features: normal` too, since `cv11`
+and `ss03` are Inter's and may mean something else, or nothing, in another
+font. An `@font-face` that no element uses downloads nothing, so the files
+then never load, and when vendoring you can leave out `fonts/`. The kit is
+designed and tested in Inter, so expect small differences in widths.
 
 ### Rebuilding the font files
 
@@ -149,31 +151,43 @@ repeated on `:root[data-theme="dark"]`.
 
 ## The theme file
 
-[`theme/theme.css`](theme/theme.css) lists the values an app sets to make the
-kit its own, with the kit's defaults. Copy it into the app, change the values,
-and link it after the kit's stylesheet. A theme sets only these:
+An app makes the kit its own with one theme file, linked after the kit's
+stylesheet. [THEMING.md](THEMING.md) is the contract:
 
-| Group | Tokens | What they colour |
-|---|---|---|
-| Accent | `--wk-color-accent`, `--wk-color-on-accent`, `--wk-color-selection` | primary buttons, links, the focus ring, selected rows and tabs |
-| Working | `--wk-color-working`, `--wk-color-working-ring` | the "something is happening" tone; the ring is a darker step where working is under 3:1 on the background |
-| Attention | `--wk-color-attention`, `--wk-color-attention-text`, `--wk-color-attention-fill`, `--wk-color-destructive-text` | someone must act; destructive buttons |
-| Charts | `--wk-color-chart-1`, `--wk-color-chart-3` | the series that usually follow the accent and working |
-| Type | `--wk-font-family`, `--wk-font-features` | the font and its OpenType features |
-| Corners | `--wk-radius-control`, `--wk-radius-group` | controls; groups and panels |
+| | Tokens |
+|---|---|
+| Must set (identity) | `--wk-color-accent`, `--wk-color-on-accent`, `--wk-color-working`, `--wk-color-attention`, `--wk-color-attention-text` |
+| May set (grounds, all ten or none) | `--wk-color-bg`, `-sidebar`, `-surface`, `-control`, `-hairline`, `-hairline-strong`, `-control-border`, `-field-border`, `-text`, `-text-secondary` |
+| May set | `--wk-font-family` (fallbacks after the kit's first family); `--wk-radius-control`, `-group`, `-window` (within 2px of the kit's) |
+| Must not set (derived) | `--wk-color-selection`, `-chart-1`, `-destructive-text`, `-attention-fill`: the kit derives them from the accent and attention with `color-mix()` inside `@supports` |
 
 Each colour needs a light value and a dark value, written in the two dark
-blocks with the same values. A font the theme names is the app's to bundle:
-add an `@font-face` in the theme that points at a file the app ships, and never
-load a font from the network. [`theme/example.css`](theme/example.css) is an
-example theme (a green accent, an amber working tone, rounder corners), shown
-on `demo/themed.html`.
+blocks with the same values. [`theme/theme.css`](theme/theme.css) lists them
+with the kit's defaults: copy it, change the values, and link it after the
+kit's stylesheet. [`theme/example.css`](theme/example.css) is an example theme
+(a green accent, an amber working tone, rounder corners), shown on
+`demo/themed.html`.
 
-The package's checks hold every theme in `theme/` to these rules: only theme
-tokens, light and dark for each colour, the same values in both dark blocks,
-4.5:1 for secondary text on a selection and for text on the accent, and 3:1
-for the working ring on the background. An app should check its own theme the
-same way.
+There are three state tones (neutral, working, attention) and no warning tone.
+Text fields, selects, checkboxes and the like are outlined in
+`--wk-color-field-border` (3:1 or more on the window); buttons keep the soft
+`--wk-color-control-border`. `color-mix()` needs Safari 16.2 or later (on
+macOS 11 and later), WebView2 Chromium 111 or WebKitGTK 2.40; below that the
+kit's literals apply, and on older Linux the app runs headless.
+
+[`theme/check.mjs`](theme/check.mjs) ships with the package and checks a theme
+against the contract: its blocks, the tokens it sets (opaque `#rrggbb`
+colours), all-or-none grounds, radii, and contrast (text 4.5:1 on every ground,
+the field border 3:1, working and attention 3:1 on the window and 1.5:1 apart).
+The package's tests run it on the kit, both theme files in `theme/` and a
+tinted-grounds fixture. An app runs it on its own theme, with no dependencies:
+
+```sh
+node node_modules/@wails-kit/ui/theme/check.mjs path/to/theme.css
+```
+
+It exits 1 when there are problems. As a module it is
+`@wails-kit/ui/theme/check` (`checkTheme`).
 
 ## Components
 
@@ -190,19 +204,22 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Checkbox, radio, switch | `wk-check`, `wk-checkbox`, `wk-radio`, `wk-switch` (`role="switch"`); `wk-check--row`, `wk-check--top` |
 | Select | `wk-select` |
 | Filter buttons, segmented control | `wk-filters` / `wk-filter`, `wk-segmented` |
-| Chip and pill | `wk-chip`, `wk-pill` |
-| Table | `wk-table` |
-| Sidebar, toolbar, footer bar | `wk-sidebar`, `wk-toolbar`, `wk-footer-bar` |
-| Three-pane layout | `wk-panes`, `wk-pane-list`, `wk-pane-inspector` |
+| Chip | `wk-chip` (a `<button class="wk-chip">` filters, with hover and disabled states; a leading `wk-dot data-size="sm"` then the item and its state in words), `--count`, `--attention`, `--muted` (dashed, for an absence), `--access` (what the person may do: a glyph first, then "View only" or "Can manage" with `data-level="manage"`, in the text colour) |
+| Table | `wk-table` (`--zebra` tints every other row); `wk-table-name`, the row's name as a `<button>` that opens the item; `wk-table-actions`, a cell's row actions on one line; `tr[data-muted]`, a row that no longer counts (secondary text, its name struck) |
+| List | `wk-list`, `wk-list-row` (`aria-selected` or `aria-current`), `wk-list-heading` (its count in a `<span>`). Selectable rows of any height. The app lays out each row and moves focus: one row `tabindex="0"`, the rest `-1`; Up and Down move, Home and End jump, Space or a click selects (the demo page shows it). |
+| Sidebar, toolbar, footer bar | `wk-sidebar` (`wk-sidebar-detail`: short trailing text on an item, "Running"), `wk-toolbar` (`wk-toolbar-subtitle` after the title: what the view counts over, "last 14 days"; keep a space before it, `Now <span class="wk-toolbar-subtitle">`, so the text reads "Now last 14 days" when copied or styles are off), `wk-footer-bar` |
+| Three-pane layout | `wk-three-pane`, `wk-pane-list`, `wk-pane-inspector`; `wk-pane-scroll`, a pane body that scrolls under a fixed toolbar (give it `tabindex="0"` and a name) |
 | Tabs | `wk-tablist` inside `<wk-tabs>` |
-| Menu, context menu, tooltip | `wk-menu` and its items, `wk-tooltip` |
+| Menu, context menu, tooltip | `wk-menu` and its items (`<button>`, or `<a href>` for a URL), `wk-menu--inline` (the items laid out in place, as in a popover), `wk-tooltip` |
 | Dialog, sheet, popover surface | `wk-dialog` (`--alert`, sheets), `wk-popover` |
 | Settings group, row and tabs | `wk-settings-heading`, `wk-settings-group`, `wk-settings-row`, `wk-settings-label`, `wk-settings-help`, `wk-settings-note`, `wk-settings-tabs` / `wk-settings-tab` (`data-attention`) |
 | Panel, facts, section heading | `wk-panel` (`--rows`, `--dashed`), `wk-facts`, `wk-section-heading` |
-| Status dot | `wk-dot` with `data-shape` (`filled`, `ringed`, `half`, `hollow`, `dashed`, `bar`), `data-tone` (`neutral`, `working`, `attention`) and `data-size="sm"`. It has no state names: the app maps its own states onto shapes and tones. |
-| Empty state, notice, error box | `wk-empty`, `wk-notice`, `wk-error-box` |
+| Status dot | `wk-dot` with `data-shape` (`filled`, `ringed`, `half`, `hollow`, `dashed`, `bar`), `data-tone` (`neutral`, `working`, `attention`) and `data-size="sm"`. It has no state names: the app maps its own states onto shapes and tones. The filled working dot at the default size has a halo (running), its gap drawn in `--wk-dot-ground`; set that on the dot when it sits on something other than `wk-color-bg`. |
+| Utilities | `wk-visually-hidden`: read by assistive technology, not drawn |
+| Empty state, notice, error box | `wk-empty`, `wk-notice`, `wk-errorbox` |
 | Stat, code block, copy button | `wk-stat`, `wk-code`, `wk-copy` |
 | Stepper | `wk-stepper` (an input and two arrow buttons; see `syncSteppers`) |
+| Range | `wk-range` on `<input type="range">`, drawn the same on WebKit and Chromium. The app sets `--wk-range-value` to the filled share (`el.style.setProperty('--wk-range-value', '60%')`, which a Content-Security-Policy allows where a `style` attribute is blocked) and updates it on `input`; show the value beside it in an `<output>`. |
 | Chart | `wk-chart`, built by `wkChart()` |
 
 `demo/index.html` shows every component in each state it can show without a
@@ -214,7 +231,7 @@ example `npx serve .`) and open `/demo/index.html`.
 | Export | What it is |
 |---|---|
 | `<wk-dialog>` (`WkDialog`) | wraps a native `<dialog>` and opens it modally; focus returns to the opener; `open` attribute; `[data-wk-close]` buttons set `returnValue`; `light-dismiss` attribute; events `wk-open`, `wk-close`. Any element with `data-wk-open="<id>"` opens the dialog with that id. |
-| `<wk-menu>` (`WkMenu`) | a WAI-ARIA menu button: a `<button>` followed by a `[role=menu]`; event `wk-select`, `wk-toggle` |
+| `<wk-menu>` (`WkMenu`) | a WAI-ARIA menu button: a `<button>` followed by a `[role=menu]`; event `wk-select`, `wk-toggle`. Around a `wk-menu--inline` with no button, the same keys in place: one tab stop, arrows, Home, End and typeahead move, Enter and Space activate (`wk-select`); it never opens or closes, and leaves Escape and Tab to the page. A link item (`<a href role="menuitem">`) follows its link on Enter or Space. |
 | `<wk-context-menu for="id">` (`WkContextMenu`) | the same menu, opened by right-click, Shift+F10 or the Menu key; `detail.context` is the element it opened on |
 | `<wk-tabs>` (`WkTabs`) | WAI-ARIA tabs with automatic activation; event `wk-change` |
 | `<wk-tooltip>` (`WkTooltip`) | WAI-ARIA tooltip on focus and after a hover delay (`delay="ms"`); event `wk-toggle` |
@@ -293,6 +310,8 @@ renderers: `settingsModel(schema, values, errors)`, `conditionMet`,
 | `src/index.js` | the module entry: `kit.js` (custom elements), `chart.js`, `settings-model.js`, `settings.js` |
 | `src/index.d.ts` | TypeScript types |
 | `theme/theme.css`, `theme/example.css` | the theme file and an example theme |
+| `theme/check.mjs` | the theme check, shipped: checks a theme against `THEMING.md` |
+| `THEMING.md` | the theme contract |
 | `fonts/` | Inter (two variable woff2 files) and its licence, SIL OFL 1.1 |
 | `dist/wails-kit-ui.css`, `dist/wails-kit-ui.js`, `dist/fonts/` | the prebuilt files and a copy of the fonts, committed and checked against `src/` and `fonts/` |
 | `demo/` | review pages: `index.html`, `themed.html`, `dist.html`, `settings.html` |

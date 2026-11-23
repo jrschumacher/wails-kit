@@ -1,0 +1,35 @@
+<!-- @dsCard group="Overlays" height=220 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Menu</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: flex; gap: var(--wk-space-5); align-items: flex-start; padding: var(--wk-space-4); }
+  .spec .wk-menu:not(.wk-menu--inline) { position: static; }
+  .inline { width: 240px; padding: 4px; border: var(--wk-hairline-width) solid var(--wk-color-hairline); border-radius: var(--wk-radius-group); background: var(--wk-color-surface); }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec">
+  <div class="wk-menu" role="menu" aria-label="Job actions">
+    <div class="wk-menu-heading">opentdf/platform#2210</div>
+    <a role="menuitem" href="#gh">Open in GitHub<span class="wk-menu-shortcut">⌘O</span></a>
+    <button role="menuitem" type="button">Copy head SHA<span class="wk-menu-shortcut">⌘C</span></button>
+    <div role="separator"></div>
+    <button role="menuitem" type="button" aria-disabled="true">Retry stalled job</button>
+  </div>
+  <div class="wk-menu" role="menu" aria-label="Sort">
+    <button role="menuitemradio" type="button" aria-checked="true">Newest first</button>
+    <button role="menuitemradio" type="button" aria-checked="false">Oldest first</button>
+    <div role="separator"></div>
+    <button role="menuitemcheckbox" type="button" aria-checked="true">Show skipped jobs</button>
+  </div>
+  <div class="inline"><div class="wk-menu wk-menu--inline" role="menu" aria-label="Peanut">
+    <button role="menuitem" type="button">Settings…<span class="wk-menu-shortcut">⌘,</span></button>
+    <button role="menuitem" type="button">Quit Peanut<span class="wk-menu-shortcut">⌘Q</span></button>
+  </div></div>
+</div>
+</body>
+</html>

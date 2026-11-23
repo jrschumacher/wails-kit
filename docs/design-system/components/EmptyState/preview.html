@@ -1,0 +1,32 @@
+<!-- @dsCard group="Feedback" height=270 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>EmptyState</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--wk-space-4); padding: var(--wk-space-2) var(--wk-space-4); }
+  .spec > .wk-empty { padding: var(--wk-space-5) var(--wk-space-3); }
+  .mark-dark { display: none; }
+  [data-theme="dark"] .mark-light { display: none; }
+  [data-theme="dark"] .mark-dark { display: block; }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec">
+  <div class="wk-empty">
+    <img class="mark-light" src="/_blob/53865862f19e0ce0130b4047b86227dc" alt="">
+    <img class="mark-dark" src="/_blob/68383adba0f3895abdacc5e2f5d7df4e" alt="">
+    <h2 class="wk-empty-title">No machines yet</h2>
+    <p>HQ is serving 6 repos and waiting for its first machine. Invite one to start running jobs.</p>
+    <button class="wk-button wk-button--primary" type="button">Invite a machine</button>
+  </div>
+  <div class="wk-empty">
+    <h2 class="wk-empty-title">Can't reach HQ</h2>
+    <p>Showing what HQ reported at 1:52 pm. Controls are off until it reconnects. Muster tries again on its own.</p>
+    <button class="wk-button" type="button">Show last report</button>
+  </div>
+</div>
+</body>
+</html>

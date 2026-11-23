@@ -1,0 +1,233 @@
+{
+ "v": 3,
+ "layout": "files",
+ "createdOnFiles": {
+  "v": 1,
+  "at": "2026-11-12T17:43:57Z"
+ },
+ "title": "Wails Kit Design System",
+ "namespace": "Muster",
+ "libraries": [],
+ "sections": {},
+ "groups": [
+  "Logos",
+  "Icons"
+ ],
+ "assetGroups": {
+  "Icons": {
+   "name": "Icons",
+   "tile": "s",
+   "order": [
+    "i-about.svg",
+    "i-copy.svg",
+    "i-eye.svg",
+    "i-gen.svg",
+    "i-hist.svg",
+    "i-hq.svg",
+    "i-lend.svg",
+    "i-lock.svg",
+    "i-mac.svg",
+    "i-mach.svg",
+    "i-now.svg",
+    "i-repo.svg",
+    "s-cal.svg",
+    "s-fast.svg",
+    "s-jobs.svg",
+    "s-ok.svg",
+    "s-slots.svg",
+    "s-time.svg",
+    "tmpl-alert.svg",
+    "tmpl-idle.svg",
+    "tmpl-lost.svg",
+    "tmpl-off.svg",
+    "tmpl.svg",
+    "warn.svg"
+   ],
+   "files": {
+    "i-about.svg": {
+     "name": "i-about.svg",
+     "blob": "b6efa0d1b47e1116e3a42579f1750267",
+     "size": 226,
+     "type": "image/svg+xml"
+    },
+    "i-copy.svg": {
+     "name": "i-copy.svg",
+     "blob": "2c5f0ace1559759123f349031de97da5",
+     "size": 305,
+     "type": "image/svg+xml"
+    },
+    "i-eye.svg": {
+     "name": "i-eye.svg",
+     "blob": "8c0c51cc243ba5766072ee97c950338a",
+     "size": 221,
+     "type": "image/svg+xml"
+    },
+    "i-gen.svg": {
+     "name": "i-gen.svg",
+     "blob": "7e526734cb89f313b2a052bbe708a0b6",
+     "size": 287,
+     "type": "image/svg+xml"
+    },
+    "i-hist.svg": {
+     "name": "i-hist.svg",
+     "blob": "f9059dcbd2447cc282fff4daceec2f7c",
+     "size": 249,
+     "type": "image/svg+xml"
+    },
+    "i-hq.svg": {
+     "name": "i-hq.svg",
+     "blob": "eccf78961caaad34e52fc87280644569",
+     "size": 211,
+     "type": "image/svg+xml"
+    },
+    "i-lend.svg": {
+     "name": "i-lend.svg",
+     "blob": "2991a0798e2fb553c077aa042ba33eed",
+     "size": 250,
+     "type": "image/svg+xml"
+    },
+    "i-lock.svg": {
+     "name": "i-lock.svg",
+     "blob": "535a36f1a8a044b4b989ee9187ecafa8",
+     "size": 225,
+     "type": "image/svg+xml"
+    },
+    "i-mac.svg": {
+     "name": "i-mac.svg",
+     "blob": "903a162c85fede589cc7f2a4a9c7110f",
+     "size": 200,
+     "type": "image/svg+xml"
+    },
+    "i-mach.svg": {
+     "name": "i-mach.svg",
+     "blob": "5f9e1a7129f92ac6dd514301df17a941",
+     "size": 325,
+     "type": "image/svg+xml"
+    },
+    "i-now.svg": {
+     "name": "i-now.svg",
+     "blob": "9ec7a2cc3d0dceffe25cce015f59dade",
+     "size": 212,
+     "type": "image/svg+xml"
+    },
+    "i-repo.svg": {
+     "name": "i-repo.svg",
+     "blob": "f87d79b732b0319bb769b13ce341cd7c",
+     "size": 225,
+     "type": "image/svg+xml"
+    },
+    "s-cal.svg": {
+     "name": "s-cal.svg",
+     "blob": "9a03519bd1570b8ec642ff4db620031e",
+     "size": 264,
+     "type": "image/svg+xml"
+    },
+    "s-fast.svg": {
+     "name": "s-fast.svg",
+     "blob": "e0213423d12a29dfccc61cc643aee6d6",
+     "size": 218,
+     "type": "image/svg+xml"
+    },
+    "s-jobs.svg": {
+     "name": "s-jobs.svg",
+     "blob": "c4c977a101f6e9a6cf453311426d4d66",
+     "size": 237,
+     "type": "image/svg+xml"
+    },
+    "s-ok.svg": {
+     "name": "s-ok.svg",
+     "blob": "a00f56eb4d131f141ec88aa38bde1dd9",
+     "size": 307,
+     "type": "image/svg+xml"
+    },
+    "s-slots.svg": {
+     "name": "s-slots.svg",
+     "blob": "d99a46ffbb8de14d859694ea4aa13723",
+     "size": 380,
+     "type": "image/svg+xml"
+    },
+    "s-time.svg": {
+     "name": "s-time.svg",
+     "blob": "0f373f5f35281246451ae3d6cec53d17",
+     "size": 232,
+     "type": "image/svg+xml"
+    },
+    "tmpl-alert.svg": {
+     "name": "tmpl-alert.svg",
+     "blob": "a70156eacb3df4cf770888e68e49ac74",
+     "size": 370,
+     "type": "image/svg+xml"
+    },
+    "tmpl-idle.svg": {
+     "name": "tmpl-idle.svg",
+     "blob": "19da3c14425860de47b7eb31e10725ef",
+     "size": 267,
+     "type": "image/svg+xml"
+    },
+    "tmpl-lost.svg": {
+     "name": "tmpl-lost.svg",
+     "blob": "c917b5dcd8b44919a88f9ffd21f94834",
+     "size": 348,
+     "type": "image/svg+xml"
+    },
+    "tmpl-off.svg": {
+     "name": "tmpl-off.svg",
+     "blob": "f00688539ebf8458b45f56c70c2aa6e0",
+     "size": 313,
+     "type": "image/svg+xml"
+    },
+    "tmpl.svg": {
+     "name": "tmpl.svg",
+     "blob": "635767cade9f45bb5dced7977fd2c104",
+     "size": 258,
+     "type": "image/svg+xml"
+    },
+    "warn.svg": {
+     "name": "warn.svg",
+     "blob": "3d8aed1546ad70edba24ecca6174ba50",
+     "size": 222,
+     "type": "image/svg+xml"
+    }
+   }
+  },
+  "Logos": {
+   "name": "Logos",
+   "tile": "l",
+   "order": [
+    "warden.svg",
+    "warden-dark.svg",
+    "appicon.png"
+   ],
+   "files": {
+    "warden.svg": {
+     "name": "warden.svg",
+     "blob": "53865862f19e0ce0130b4047b86227dc",
+     "size": 1366,
+     "type": "image/svg+xml"
+    },
+    "warden-dark.svg": {
+     "name": "warden-dark.svg",
+     "blob": "68383adba0f3895abdacc5e2f5d7df4e",
+     "size": 1432,
+     "type": "image/svg+xml"
+    },
+    "appicon.png": {
+     "name": "appicon.png",
+     "blob": "d2f34b8e9eff15bed515cd1e4ae5a0ff",
+     "size": 7389,
+     "type": "image/png"
+    }
+   }
+  }
+ },
+ "blobs": {},
+ "docs": {
+  "sections": []
+ },
+ "lastChange": {
+  "by": "Ryan",
+  "at": "2026-11-13T19:10:00Z",
+  "via": "Claude Code",
+  "note": "Renamed to Wails Kit Design System; WebKitGTK 2.40 is the Linux minimum, headless below it."
+ }
+}
