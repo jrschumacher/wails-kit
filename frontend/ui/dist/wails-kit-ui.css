@@ -809,8 +809,9 @@ wk-dialog { display: contents; }
 /* ---- Range: a slider drawn the same on WebKit and Chromium --------------- */
 /* <input class="wk-range" type="range">, with the value in words beside it
    (an <output>). The track cannot know its value from CSS: the app sets
-   --wk-range-value to the filled share (style="--wk-range-value: 60%") and
-   updates it on input. The arrow keys step it natively. */
+   --wk-range-value to the filled share with
+   el.style.setProperty('--wk-range-value', '60%') (a Content-Security-Policy
+   blocks a style attribute) and updates it on input. The arrow keys step it natively. */
 .wk-range { -webkit-appearance: none; appearance: none; width: 100%; height: 20px; margin: 0; background: transparent; cursor: pointer; }
 .wk-range::-webkit-slider-runnable-track { height: 4px; border-radius: var(--wk-radius-pill); background: linear-gradient(var(--wk-color-accent), var(--wk-color-accent)) 0 / var(--wk-range-value, 50%) 100% no-repeat, var(--wk-color-fill-strong); }
 .wk-range::-moz-range-track { height: 4px; border-radius: var(--wk-radius-pill); background: linear-gradient(var(--wk-color-accent), var(--wk-color-accent)) 0 / var(--wk-range-value, 50%) 100% no-repeat, var(--wk-color-fill-strong); }
@@ -889,6 +890,8 @@ wk-dialog { display: contents; }
   .wk-tablist [role="tab"][aria-selected="true"] { border-bottom-color: Highlight; }
   .wk-settings-tab[aria-selected="true"], .wk-settings-tab[aria-selected="true"] > svg { forced-color-adjust: none; border-color: Highlight; background: Highlight; color: HighlightText; }
   .wk-settings-tab[data-attention]::after { forced-color-adjust: none; background: CanvasText; }
+  /* A link item would take LinkText: draw it as the other items. */
+  .wk-menu a[role^="menuitem"] { color: CanvasText; }
   .wk-menu [role^="menuitem"]:focus { forced-color-adjust: none; background: Highlight; color: HighlightText; }
   .wk-menu [role^="menuitem"][aria-disabled="true"]:focus { background: Canvas; color: GrayText; outline: 2px solid Highlight; outline-offset: -2px; }
   .wk-radio::before { forced-color-adjust: none; background: Canvas; }
@@ -902,6 +905,12 @@ wk-dialog { display: contents; }
   .wk-range::-moz-range-track { forced-color-adjust: none; background: CanvasText; }
   .wk-range::-webkit-slider-thumb { forced-color-adjust: none; background: ButtonFace; box-shadow: 0 0 0 1px ButtonText; }
   .wk-range::-moz-range-thumb { forced-color-adjust: none; background: ButtonFace; box-shadow: 0 0 0 1px ButtonText; }
+  /* Disabled: GrayText, not a faded CanvasText. */
+  .wk-range:disabled { opacity: 1; }
+  .wk-range:disabled::-webkit-slider-runnable-track { background: GrayText; }
+  .wk-range:disabled::-moz-range-track { background: GrayText; }
+  .wk-range:disabled::-webkit-slider-thumb { background: Canvas; box-shadow: 0 0 0 1px GrayText; }
+  .wk-range:disabled::-moz-range-thumb { background: Canvas; box-shadow: 0 0 0 1px GrayText; }
   .wk-dot, .wk-dot[data-tone] { forced-color-adjust: none; --wk-dot-color: CanvasText; border-color: CanvasText; }
 }
 

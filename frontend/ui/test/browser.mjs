@@ -652,6 +652,14 @@ try {
     const focused = await item.screenshot();
     assert.ok(!focused.equals(unfocused), 'the focused menu item looks like the others in forced colours');
     await page.keyboard.press('Escape');
+    // A link item is drawn as the button items, not in LinkText.
+    const ink = await page.locator('#demo-inline [role=menu]').evaluate(m => {
+      const probe = c => { const e = document.createElement('i'); e.style.forcedColorAdjust = 'none'; e.style.color = c; document.body.append(e); const v = getComputedStyle(e).color; e.remove(); return v; };
+      return { link: getComputedStyle(m.querySelector('a')).color, button: getComputedStyle(m.querySelector('[data-value=settings]')).color, canvasText: probe('CanvasText'), linkText: probe('LinkText') };
+    });
+    assert.notEqual(ink.canvasText, ink.linkText);
+    assert.equal(ink.link, ink.canvasText, 'a link item is CanvasText');
+    assert.equal(ink.link, ink.button, 'a link item looks like a button item');
     assert.deepEqual(problems, []);
     await page.close();
   });
@@ -1099,8 +1107,10 @@ try {
     await page.keyboard.press('End');
     assert.equal(await at(), 'Quit');
     assert.deepEqual(await menu.evaluate(m => [...m.querySelectorAll('[role^=menuitem]')].map(i => i.tabIndex)), [-1, -1, -1, 0], 'the focused item is the tab stop');
-    // Escape is left to the page: the menu stays.
+    // Escape is left to the page: the menu stays, and the page sees the key.
+    await page.evaluate(() => { window.escapes = []; document.addEventListener('keydown', e => { if (e.key === 'Escape') window.escapes.push(e.defaultPrevented); }); });
     await page.keyboard.press('Escape');
+    assert.deepEqual(await page.evaluate(() => window.escapes), [false], 'Escape reaches the document, not prevented');
     assert.equal(await at(), 'Quit');
     assert.equal(await menu.evaluate(m => m.hidden), false);
     // Activating an item keeps the menu in place; a disabled one does nothing.
@@ -1117,9 +1127,12 @@ try {
     await until(page, () => location.hash === '#menus');
     selects = (await events(page, 'wk-select')).filter(e => e.target === 'demo-inline');
     assert.deepEqual(selects.map(e => e.value), ['settings', 'help']);
-    // Items added later: still one tab stop.
-    await menu.evaluate(m => { m.querySelector('a').remove(); const b = document.createElement('button'); b.setAttribute('role', 'menuitem'); b.textContent = 'Later'; m.append(b); });
-    await until(page, () => [...document.querySelectorAll('#demo-inline [role^=menuitem]')].filter(i => i.tabIndex === 0).length === 1);
+    // An item added later, with the tab stop in place: still one tab stop.
+    const tabs = () => menu.evaluate(m => [...m.querySelectorAll('[role^=menuitem]')].map(i => i.tabIndex));
+    assert.deepEqual(await tabs(), [0, -1, -1, -1]);
+    await menu.evaluate(m => { const b = document.createElement('button'); b.setAttribute('role', 'menuitem'); b.textContent = 'Later'; m.append(b); });
+    await until(page, () => document.querySelector('#demo-inline [role^=menuitem]:last-child').tabIndex === -1);
+    assert.deepEqual(await tabs(), [0, -1, -1, -1, -1], 'the new item is not a second tab stop');
     assert.deepEqual(problems, []);
     await page.close();
   });
@@ -1137,11 +1150,103 @@ try {
     await page.keyboard.press('ArrowDown');
     await page.keyboard.press('Enter');
     assert.notEqual(await page.evaluate(() => location.hash), '#dialogs');
+    // A click on the disabled link does not follow it either, and the menu stays open.
+    const hash = await page.evaluate(() => location.hash);
+    await page.locator('#demo-menu a[aria-disabled]').click({ force: true });
+    assert.equal(await page.evaluate(() => location.hash), hash, 'a click on a disabled link follows it');
+    assert.deepEqual(await events(page, 'wk-select'), []);
+    assert.equal(await isOpen(page, 'demo-menu'), true, 'a click on a disabled link closes the menu');
     await page.keyboard.press('ArrowUp');
     await page.keyboard.press('Enter');
     await until(page, () => location.hash === '#tabs');
     assert.equal(await page.evaluate(() => document.querySelector('#demo-menu [role=menu]').hidden), true, 'the menu closed');
     assert.deepEqual((await events(page, 'wk-select')).map(e => e.value), ['go']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('inline menu: hiding the tab stop passes it on; in a hidden section it still has exactly one', async () => {
+    const { page, problems } = await open();
+    const menu = page.locator('#demo-inline [role=menu]');
+    const tabs = () => menu.evaluate(m => [...m.querySelectorAll('[role^=menuitem]')].map(i => [i.dataset.value, i.tabIndex]));
+    assert.deepEqual(await tabs(), [['help', 0], ['settings', -1], ['update', -1], ['quit', -1]]);
+    await menu.evaluate(m => { m.querySelector('[data-value=help]').hidden = true; });
+    await until(page, () => document.querySelector('#demo-inline [data-value=settings]').tabIndex === 0);
+    assert.deepEqual(await tabs(), [['help', -1], ['settings', 0], ['update', -1], ['quit', -1]], 'the next item takes the tab stop');
+    // Tab still reaches the menu, once.
+    await page.locator('#demo-context-target').focus();
+    await page.keyboard.press('Tab'); // the tooltip's button
+    await page.keyboard.press('Tab');
+    assert.equal(await active(page), 'Settings…Ctrl+,');
+    await page.keyboard.press('Tab');
+    assert.equal(await active(page), 'demo-dialog-open');
+    // Shown again, it stays out of the tab order: one tab stop.
+    await menu.evaluate(m => { m.querySelector('[data-value=help]').hidden = false; });
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    assert.deepEqual(await tabs(), [['help', -1], ['settings', 0], ['update', -1], ['quit', -1]]);
+
+    // An inline menu built inside a hidden section: one tab stop, ready for
+    // when the section shows.
+    const late = await page.evaluate(() => {
+      const section = document.createElement('div');
+      section.hidden = true;
+      section.innerHTML = '<wk-menu id="late-inline"><div role="menu" class="wk-menu wk-menu--inline" aria-label="Late"><button role="menuitem" type="button">One</button><button role="menuitem" type="button">Two</button><button role="menuitem" type="button">Three</button></div></wk-menu>';
+      document.body.append(section);
+      const tabs = () => [...section.querySelectorAll('[role=menuitem]')].map(i => i.tabIndex);
+      const hidden = tabs();
+      section.hidden = false;
+      return { hidden, shown: tabs() };
+    });
+    assert.deepEqual(late, { hidden: [0, -1, -1], shown: [0, -1, -1] });
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('range: forced colours draw the track in CanvasText, the thumb apart from it, and a disabled range in GrayText', async () => {
+    const { page, problems } = await open('/demo/index.html', { forcedColors: 'active', reducedMotion: 'reduce' });
+    assert.equal(await page.evaluate(() => matchMedia('(forced-colors: active)').matches), true);
+    const ranges = page.locator('#demo-ranges .wk-range');
+    await ranges.first().scrollIntoViewIfNeeded();
+    const system = await page.evaluate(() => Object.fromEntries(['Canvas', 'CanvasText', 'GrayText'].map(c => {
+      const e = document.createElement('i'); e.style.forcedColorAdjust = 'none'; e.style.color = c; document.body.append(e);
+      const v = getComputedStyle(e).color.match(/\d+/g).slice(0, 3).map(Number); e.remove(); return [c, v];
+    })));
+    // Pixels of a range with its value at 50%: the track at the middle row
+    // near each end, the thumb's centre, and the column through the thumb.
+    const sample = async range => {
+      await range.evaluate(r => { r.value = (Number(r.min) + Number(r.max)) / 2; });
+      const png = (await range.screenshot()).toString('base64');
+      return page.evaluate(async png => {
+        const img = new Image();
+        img.src = `data:image/png;base64,${png}`;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        const g = c.getContext('2d');
+        g.drawImage(img, 0, 0);
+        const data = g.getImageData(0, 0, img.width, img.height).data;
+        const at = (x, y) => [...data.slice((y * img.width + x) * 4, (y * img.width + x) * 4 + 3)];
+        const mid = Math.floor(img.height / 2), cx = Math.round(img.width / 2);
+        const column = [];
+        for (let y = 0; y < img.height; y++) column.push(at(cx, y));
+        return { trackStart: at(4, mid), trackEnd: at(img.width - 5, mid), thumb: at(cx, mid), column, canvas: at(4, 0) };
+      }, png);
+    };
+    const near = (a, b, d = 40) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) < d;
+    const lum = ([r, g, b]) => .2126 * r + .7152 * g + .0722 * b;
+    const on = await sample(ranges.first());
+    assert.ok(lum(system.Canvas) > lum(system.CanvasText) + 100, 'a light Canvas behind dark CanvasText');
+    assert.ok(near(on.canvas, system.Canvas), `the background is Canvas (${on.canvas})`);
+    assert.ok(near(on.trackStart, system.CanvasText), `the track is CanvasText at the start (${on.trackStart})`);
+    assert.ok(near(on.trackEnd, system.CanvasText), `the track is CanvasText at the end (${on.trackEnd})`);
+    assert.ok(lum(on.thumb) - lum(on.trackStart) > 100, `the thumb (${on.thumb}) stands apart from the track (${on.trackStart})`);
+    // The thumb's ring shows above the track, against Canvas.
+    const above = on.column.slice(0, Math.floor(on.column.length / 2) - 3);
+    assert.ok(above.some(p => lum(p) < lum(system.Canvas) - 100), 'the thumb has a dark edge above the track');
+    const off = await sample(ranges.nth(2));
+    assert.equal(await ranges.nth(2).evaluate(r => r.disabled), true);
+    assert.ok(near(off.trackStart, system.GrayText, 24), `a disabled track is GrayText (${off.trackStart}, GrayText ${system.GrayText})`);
+    assert.ok(lum(off.thumb) - lum(off.trackStart) > 60, `a disabled thumb (${off.thumb}) stands apart from its track (${off.trackStart})`);
     assert.deepEqual(problems, []);
     await page.close();
   });

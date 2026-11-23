@@ -123,6 +123,7 @@ class Wired extends HTMLElement {
 // item, else the first); the arrow keys, Home, End, typeahead, Enter and
 // Space work as in a floating menu; Escape and Tab are left to the page.
 const focusItem = el => el.focus({ preventScroll: true });
+const MENU_ITEMS = '[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"]';
 
 class MenuController {
   constructor(host, menu, { onToggle, fallbacks = () => [], inline = false } = {}) {
@@ -178,19 +179,26 @@ class MenuController {
   get isOpen() { return !this.inline && !this.menu.hidden; }
 
   // Inline menus: one item in the tab order, the given one, else the one
-  // that has it now, else the first.
+  // that has it now, else the first. Hidden and disabled items leave the tab
+  // order, so hiding the tab stop passes it on.
   rove(current) {
     const items = this.items();
     current = items.includes(current) ? current : items.find(el => el.tabIndex === 0 && el.hasAttribute('data-wk-rove')) || items[0];
-    for (const item of items) {
+    for (const item of this.menu.querySelectorAll(MENU_ITEMS)) {
       item.tabIndex = item === current ? 0 : -1;
       item.setAttribute('data-wk-rove', '');
     }
   }
 
+  // The items that can take focus: not disabled, and not hidden inside the
+  // menu. A container around the menu is not consulted, so an inline menu
+  // inside a hidden section still has its tab stop when the section shows.
   items() {
-    return [...this.menu.querySelectorAll('[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"]')]
-      .filter(el => !el.hidden && !el.closest('[hidden]:not([role="menu"])'));
+    return [...this.menu.querySelectorAll(MENU_ITEMS)].filter(el => {
+      if (el.matches(':disabled')) return false;
+      for (let n = el; n && n !== this.menu; n = n.parentElement) if (n.hidden) return false;
+      return true;
+    });
   }
 
   open(rect, { focus = 'first', returnFocus = document.activeElement, side = 'below', anchor = null } = {}) {
@@ -310,8 +318,9 @@ class WkMenu extends Wired {
     this.unwire();
     if (menu && !button && menu.classList.contains('wk-menu--inline')) {
       this.controller = new MenuController(this, menu, { inline: true });
-      // Items may be added or replaced later: keep one in the tab order.
-      this.observer.observe(menu, { childList: true, subtree: true });
+      // Items may be added, replaced, hidden or disabled later: keep one
+      // in the tab order.
+      this.observer.observe(menu, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'disabled', 'aria-disabled'] });
       return true;
     }
     if (!button || !menu) return false;
