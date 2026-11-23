@@ -84,31 +84,60 @@ import { wkChart } from './vendor/wails-kit-ui/wails-kit-ui.js';
 
 `dist/wails-kit-ui.js` exports exactly what the package entry exports, and
 `dist/wails-kit-ui.css` is `src/ui.css` with its imports inlined. Neither loads
-anything else, except the stylesheet's two font files from `fonts/` beside it. The first line of each file names the package version; the tag,
-commit and checksums recorded above identify the exact vendored release.
+anything else, except the stylesheet's two font files from `fonts/` beside
+it. The first line of each file names the package version; the tag, commit and
+checksums recorded above identify the exact vendored release.
 
 ## Font
 
 The kit sets everything in [Inter](https://rsms.me/inter/), and the package
 includes it: two variable woff2 files (weights 100 to 900), one for Latin
-(`Inter-latin.woff2`, 47 KB) and one for the rest of the Latin script
-(`Inter-latin-ext.woff2`, 83 KB). Each has an `@font-face` with a
+(`Inter-latin.woff2`, 67 KB) and one for the rest of the Latin script
+(`Inter-latin-ext.woff2`, 87 KB). Each has an `@font-face` with a
 `unicode-range`, so a file loads only when the page shows one of its
 characters, and `font-display: swap`. Nothing comes from the network: desktop
 apps can't rely on a font CDN at run time. The faces are in `src/base.css`,
 pointing at the package's `fonts/` folder; `dist/wails-kit-ui.css` points at
 its own copy in `dist/fonts/`. A bundler copies whichever the stylesheet you
 import names. `--wk-font-features` turns on Inter's `cv11` (single-storey a)
-and `ss03` (open digits), and the base rule applies it.
+and `ss03` (round quotes and commas), and the base rule applies it. The files
+are subset from upstream Inter 4.1 with its OpenType features kept; see
+[Rebuilding the font files](#rebuilding-the-font-files).
 
 Inter is © The Inter Project Authors, under the SIL Open Font License 1.1
 (`fonts/OFL-Inter.txt`, also in `dist/fonts/`). The licence lets an app bundle
 and ship the font; keep the licence file with it.
 
-To opt out, set `--wk-font-family` in the app's theme to a stack without Inter.
-An `@font-face` that no element uses downloads nothing, so the files then never
-load. When vendoring, you can also leave out `fonts/`. The kit is designed and
+To opt out, set `--wk-font-family` in the app's theme to a stack without Inter,
+and set `--wk-font-features: normal`, since `cv11` and `ss03` are Inter's and
+may mean something else, or nothing, in another font
+([`theme/example.css`](theme/example.css) does both). An `@font-face` that no
+element uses downloads nothing, so the files then never load. When vendoring, you can also leave out `fonts/`. The kit is designed and
 tested in Inter, so expect small differences in widths.
+
+### Rebuilding the font files
+
+The files come from `InterVariable.ttf` (the roman variable font) in
+[Inter 4.1](https://github.com/rsms/inter/releases/download/v4.1/Inter-4.1.zip),
+with fontTools 4.68 and brotli. The optical-size axis is pinned at 14, its
+default, leaving the weight axis (100 to 900); each file keeps every OpenType
+layout feature and drops hinting. The unicode ranges are the ones in the
+`@font-face` rules in `src/base.css`.
+
+```sh
+fonttools varLib.instancer InterVariable.ttf opsz=14 -o Inter-opsz14.ttf
+latin='U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD'
+ext='U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF'
+pyftsubset Inter-opsz14.ttf --unicodes="$latin" --layout-features='*' \
+  --flavor=woff2 --no-hinting --output-file=fonts/Inter-latin.woff2
+pyftsubset Inter-opsz14.ttf --unicodes="$ext" --layout-features='*' \
+  --flavor=woff2 --no-hinting --output-file=fonts/Inter-latin-ext.woff2
+cp LICENSE.txt fonts/OFL-Inter.txt  # from the same zip
+npm run build                       # copies them to dist/fonts/
+```
+
+The browser checks confirm that `cv11` and `ss03` change what the bundled file
+renders.
 
 ## Light and dark
 

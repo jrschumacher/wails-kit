@@ -67,8 +67,8 @@
   /* Type */
   --wk-font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
   --wk-font-family-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
-  /* Inter's single-storey a (cv11) and open digits (ss03); base.css turns
-     them on. */
+  /* Inter's single-storey a (cv11) and round quotes and commas (ss03);
+     base.css turns them on. */
   --wk-font-features: "cv11", "ss03";
   --wk-font-size-xs: 11px;
   --wk-font-size-sm: 12px;
@@ -195,8 +195,9 @@
 
 /* Inter, bundled: one variable file per script (weights 100 to 900, SIL
    OFL 1.1, fonts/OFL-Inter.txt). The files sit in the package's fonts/
-   folder, so this url() resolves from src/ and from dist/ alike, and a
-   bundler copies them. unicode-range keeps each file from loading until
+   folder, which this url() names relative to src/; the build rewrites it
+   to fonts/ for dist/, which carries its own copy. A bundler copies
+   whichever the stylesheet names. unicode-range keeps each file from loading until
    the page uses one of its characters; a page whose --wk-font-family does
    not name Inter loads neither. */
 @font-face {

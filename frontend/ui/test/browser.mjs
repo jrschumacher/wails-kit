@@ -1053,6 +1053,37 @@ try {
     }
   });
 
+  await check('Inter: the bundled files carry cv11 and ss03, so --wk-font-features changes what renders', async () => {
+    for (const file of ['/fonts/Inter-latin.woff2', '/dist/fonts/Inter-latin.woff2']) {
+      const { page, problems } = await open();
+      // Loaded under its own family name, so an Inter installed on the
+      // machine can't stand in for the bundled file.
+      await page.evaluate(async file => {
+        const face = new FontFace('WkFeatureCheck', `url(${file})`);
+        document.fonts.add(await face.load());
+        const box = document.createElement('div');
+        box.id = 'feature-check';
+        box.style.cssText = 'position: fixed; top: 0; left: 0; background: #fff; color: #000; z-index: 99';
+        for (const [id, text, features] of [['a', 'aaaaaaaaaa', 'normal'], ['a-cv11', 'aaaaaaaaaa', '"cv11"'], ['q', ',,“”,,', 'normal'], ['q-ss03', ',,“”,,', '"ss03"']]) {
+          const s = document.createElement('span');
+          s.id = `feature-${id}`;
+          s.style.cssText = `display: inline-block; font: 40px WkFeatureCheck; font-feature-settings: ${features}; white-space: pre; padding: 4px`;
+          s.textContent = text;
+          box.append(s, document.createElement('br'));
+        }
+        document.body.append(box);
+      }, file);
+      const width = id => page.locator(`#feature-${id}`).evaluate(el => el.getBoundingClientRect().width);
+      // cv11, the single-storey a, has its own advance width.
+      assert.notEqual(await width('a-cv11'), await width('a'), `${file}: cv11 changes a run of "a"`);
+      // ss03, round quotes and commas: commas keep their width, so compare pixels.
+      const shot = id => page.locator(`#feature-${id}`).screenshot();
+      assert.ok(!(await shot('q-ss03')).equals(await shot('q')), `${file}: ss03 changes quotes and commas`);
+      assert.deepEqual(problems, [], file);
+      await page.close();
+    }
+  });
+
   // ---- The prebuilt module and the settings window ----
   await check('dist/wails-kit-ui.js exports what src/index.js exports, and defines the same elements', async () => {
     const { page, problems } = await open('/demo/dist.html');

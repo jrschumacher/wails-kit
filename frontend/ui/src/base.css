@@ -11,8 +11,9 @@
 
 /* Inter, bundled: one variable file per script (weights 100 to 900, SIL
    OFL 1.1, fonts/OFL-Inter.txt). The files sit in the package's fonts/
-   folder, so this url() resolves from src/ and from dist/ alike, and a
-   bundler copies them. unicode-range keeps each file from loading until
+   folder, which this url() names relative to src/; the build rewrites it
+   to fonts/ for dist/, which carries its own copy. A bundler copies
+   whichever the stylesheet names. unicode-range keeps each file from loading until
    the page uses one of its characters; a page whose --wk-font-family does
    not name Inter loads neither. */
 @font-face {
