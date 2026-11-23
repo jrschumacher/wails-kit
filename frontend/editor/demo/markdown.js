@@ -45,7 +45,7 @@ document.getElementById('demo').innerHTML = `
     </div>
   </nav>
 </header>
-${section('comment', 'Comment box', 'Write and Preview tabs (arrow keys switch them); Mod-B, Mod-I, Mod-E and Mod-K format the selection; Mod-Enter comments. Up to 1000 characters.')}
+${section('comment', 'Comment box', 'Write and Preview tabs (arrow keys switch them); Mod-B, Mod-I, Mod-E and Mod-K format the selection; Mod-Enter comments; Escape cancels. Up to 1000 characters.')}
 ${section('states', 'States', 'Empty with a placeholder; disabled; opened on its preview.')}
 ${section('rendered', 'Rendered comment', 'renderMarkdown() on its own: a posted comment, read-only, under the same rules (no raw HTML, safe links, no remote images).')}
 ${section('events', 'Events', 'Events and link clicks from the editors above. Links go to onlink; the page never navigates.')}
@@ -65,9 +65,10 @@ const onlink = url => { window.links.push(url); note(`link: ${url}`); };
 const comment = wkMarkdownEditor({
   id: 'demo-comment', label: 'Comment', value: sample, maxLength: 1000, placeholder: 'Leave a comment', onlink,
   actions: [
-    { label: 'Cancel', onclick: editor => { editor.value = ''; note('cancel'); } },
+    { label: 'Cancel', cancel: true },
     { label: 'Comment', primary: true, submit: true },
   ],
+  oncancel: editor => { editor.value = ''; note('cancel'); },
   onsubmit: value => { note(`submitted ${value.length} characters`); return window.pendingSubmit; },
 });
 slot('comment').append(comment);
@@ -88,7 +89,7 @@ posted.append(renderMarkdown(sample, { onlink }));
 slot('rendered').append(posted);
 
 slot('events').append(log);
-for (const type of ['wk-change', 'wk-mode', 'wk-submit']) {
+for (const type of ['wk-change', 'wk-mode', 'wk-submit', 'wk-cancel']) {
   document.addEventListener(type, e => {
     if (!e.target.classList?.contains('wk-markdown-editor')) return;
     window.kitEvents.push({ type, target: e.target.id, detail: e.detail });

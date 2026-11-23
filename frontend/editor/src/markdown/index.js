@@ -11,10 +11,11 @@ import { EditorSelection, EditorState, Compartment, Prec } from '@codemirror/sta
 import { EditorView, keymap } from '@codemirror/view';
 import { StyleModule } from 'style-mod';
 import { createCodeEditor } from '../shared/code-editor.js';
-import { renderMarkdown, safeUrl, mountPreviewStyles } from './render.js';
+import { renderMarkdown, renderMarkdownElement, safeUrl, mountPreviewStyles, nestingDepth, MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH } from './render.js';
+import { resolve } from '../shared/languages.js';
 import { editorStyles } from './style-spec.js';
 
-export { renderMarkdown };
+export { renderMarkdown, renderMarkdownElement, MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH };
 
 const SVG = 'http://www.w3.org/2000/svg';
 const MODES = ['write', 'preview'];
@@ -183,10 +184,16 @@ export function wkMarkdownEditor(spec = {}) {
     }),
     ];
   };
+  // Markdown highlighting, off while the text nests deeper than the
+  // renderer's limit: Lezer's highlighter recurses per level and overflows
+  // the stack on hostile text (CodeMirror then logs a crashed plugin).
+  const tooDeep = doc => nestingDepth(doc) > MAX_MARKDOWN_DEPTH;
+  let deep = tooDeep(String(spec.value ?? ''));
+  const language = new Compartment();
+  const languageFor = () => (deep ? [] : resolve('markdown'));
   const { el: text, view } = createCodeEditor({
     label,
     value: spec.value,
-    language: 'markdown',
     lineNumbers: false,
     wrap: true,
     placeholder: spec.placeholder,
@@ -194,6 +201,12 @@ export function wkMarkdownEditor(spec = {}) {
     name: 'wkMarkdownEditor',
     extensions: () => [
       state.of(stateFor()),
+      language.of(languageFor()),
+      EditorState.transactionExtender.of(tr => {
+        if (!tr.docChanged || tooDeep(tr.newDoc.toString()) === deep) return null;
+        deep = !deep;
+        return { effects: language.reconfigure(languageFor()) };
+      }),
       Prec.high(keymap.of([
         { key: 'Mod-Enter', run: () => { submit(); return true; } },
         ...TOOLS.filter(t => t.key).map(t => ({ key: `Mod-${t.key.toLowerCase()}`, run: t.run })),
@@ -205,8 +218,10 @@ export function wkMarkdownEditor(spec = {}) {
       spec.onchange?.(value);
     },
   });
-  if (spec.minHeight) text.style.minHeight = String(spec.minHeight);
-  if (spec.maxHeight) text.style.maxHeight = String(spec.maxHeight);
+  // A number is pixels; a string is any CSS length.
+  const length = v => (typeof v === 'number' && Number.isFinite(v) ? `${v}px` : String(v));
+  if (spec.minHeight != null && spec.minHeight !== '') text.style.minHeight = length(spec.minHeight);
+  if (spec.maxHeight != null && spec.maxHeight !== '') text.style.maxHeight = length(spec.maxHeight);
   const refresh = () => view.dispatch({ effects: state.reconfigure(stateFor()) });
 
   // Tabs.
@@ -252,14 +267,18 @@ export function wkMarkdownEditor(spec = {}) {
 
   // Footer: the count, the error and the actions.
   const count = maxLength ? el('span', { class: 'wk-markdown-editor-count', id: ids.count }) : null;
-  const errorEl = el('p', { class: 'wk-markdown-editor-error', id: ids.error, hidden: true });
+  // A polite live region from the start, so a submit error is announced even
+  // when focus does not move (Mod-Enter in the text). Empty when there is none.
+  const errorEl = el('p', { class: 'wk-markdown-editor-error', id: ids.error, role: 'status' });
   const status = el('div', { class: 'wk-markdown-editor-status' }, [...(count ? [count] : []), errorEl]);
   const actionButtons = [];
   for (const a of Array.isArray(spec.actions) ? spec.actions : []) {
-    const b = el('button', { type: 'button', class: `wk-button${a.primary ? ' wk-button--primary' : ''}`, 'data-submit': a.submit ? '' : null }, [String(a.label ?? '')]);
+    const b = el('button', { type: 'button', class: `wk-button${a.primary ? ' wk-button--primary' : ''}`, 'data-submit': a.submit ? '' : null, 'data-cancel': !a.submit && a.cancel ? '' : null }, [String(a.label ?? '')]);
     b.addEventListener('click', () => {
       if (b.getAttribute('aria-disabled') === 'true') return;
-      if (a.submit) submit(); else a.onclick?.(root);
+      if (a.submit) submit();
+      else if (a.cancel) cancel();
+      else a.onclick?.(root);
     });
     actionButtons.push(b);
   }
@@ -276,7 +295,6 @@ export function wkMarkdownEditor(spec = {}) {
     if (next === error) return;
     error = next;
     errorEl.textContent = next || '';
-    errorEl.hidden = !next;
     refresh();
   }
   // After each edit or load: the count, and a shown error re-checked.
@@ -292,17 +310,34 @@ export function wkMarkdownEditor(spec = {}) {
   }
   function showPreview() {
     const value = view.state.doc.toString();
-    preview.replaceChildren(value.trim() ? renderMarkdown(value, renderOptions) : el('p', { class: 'wk-markdown-editor-empty' }, ['Nothing to preview']));
+    let content;
+    try {
+      content = value.trim() ? renderMarkdown(value, renderOptions) : el('p', { class: 'wk-markdown-editor-empty' }, ['Nothing to preview']);
+    } catch {
+      // renderMarkdown does not throw; anything else still leaves a preview.
+      content = el('p', { class: 'wk-markdown-source' }, [value]);
+    }
+    preview.replaceChildren(content);
   }
   function setDisabled() {
     // Not aria-disabled: the tabs and the preview stay usable.
     root.toggleAttribute('data-disabled', disabled);
-    for (const b of [...toolButtons, ...actionButtons]) b.disabled = disabled;
+    // A disabled button drops focus to <body>: keep it in the editor.
+    const lost = disabled && [...toolButtons, ...actionButtons].includes(document.activeElement);
+    // A cancel action stays usable.
+    for (const b of [...toolButtons, ...actionButtons]) b.disabled = disabled && !b.hasAttribute('data-cancel');
     refresh();
+    // The text is not focusable while disabled: the editor itself takes focus.
+    if (lost && root.isConnected) {
+      root.tabIndex = -1;
+      // The element's own focus(), not the editor's (which focuses the text).
+      HTMLElement.prototype.focus.call(root);
+    }
   }
+  // The busy state lives on the submit controls (BEHAVIOUR.md: aria-disabled
+  // and data-busy), not on the editor.
   function setBusy(on) {
     busy = on;
-    root.toggleAttribute('aria-busy', on);
     for (const b of actionButtons.filter(b => b.hasAttribute('data-submit'))) {
       b.toggleAttribute('data-busy', on);
       if (on) b.setAttribute('aria-disabled', 'true'); else b.removeAttribute('aria-disabled');
@@ -339,9 +374,28 @@ export function wkMarkdownEditor(spec = {}) {
     // The tabs' own event stops here: the editor's wk-change is about the text.
     e.stopPropagation();
     const next = MODES[e.detail.index];
-    show(next);
-    root.dispatchEvent(new CustomEvent('wk-mode', { bubbles: true, detail: { mode: next } }));
-    spec.onmode?.(next);
+    // wk-tabs has switched the panels: the event fires even if drawing fails.
+    try { show(next); } finally {
+      root.dispatchEvent(new CustomEvent('wk-mode', { bubbles: true, detail: { mode: next } }));
+      spec.onmode?.(next);
+    }
+  });
+
+  // Cancel: wk-cancel, then oncancel. Escape cancels when oncancel is set,
+  // unless something else in the editor used the key (a find panel, a
+  // selection to collapse), a CodeMirror panel is open, or an input method
+  // is composing.
+  function cancel() {
+    if (destroyed) return;
+    root.dispatchEvent(new CustomEvent('wk-cancel', { bubbles: true }));
+    spec.oncancel?.(root);
+  }
+  root.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || e.defaultPrevented || !spec.oncancel) return;
+    if (e.isComposing || e.keyCode === 229 || view.composing) return;
+    if (view.dom.querySelector('.cm-panel')) return;
+    e.preventDefault();
+    cancel();
   });
 
   function submit() {
@@ -369,6 +423,7 @@ export function wkMarkdownEditor(spec = {}) {
       get: () => view.state.doc.toString(),
       set: next => {
         if (destroyed) return;
+        deep = tooDeep(String(next ?? ''));
         text.value = next;
         setError(null);
         update();
@@ -387,6 +442,7 @@ export function wkMarkdownEditor(spec = {}) {
     },
     focus: { value: () => { if (destroyed) return; show('write'); view.focus(); } },
     submit: { value: () => submit() },
+    cancel: { value: () => cancel() },
     destroy: {
       value: () => {
         if (destroyed) return;

@@ -53,11 +53,21 @@ export function safeUrl(href) {
 }
 
 // The image URL to load, or null: https, on a host the app allows.
+// The host (with its port, unless it is https's default) must equal an
+// allowed one exactly: no subdomains, no trailing dot, no other port.
 function imageUrl(href, hosts) {
   const url = safeUrl(href);
   if (!url || !hosts.length) return null;
-  const { protocol, hostname } = new URL(url);
-  return protocol === 'https:' && hosts.includes(hostname.toLowerCase()) ? url : null;
+  const { protocol, host } = new URL(url);
+  return protocol === 'https:' && hosts.includes(host) ? url : null;
+}
+
+// An imageHosts entry as URL.host reads it ("Images.Example.com:443" →
+// "images.example.com"), or null when it is not a bare host[:port].
+function normaliseHost(entry) {
+  const text = String(entry).trim();
+  if (!text || /[/?#@\\\s]/.test(text)) return null;
+  try { return new URL(`https://${text}/`).host; } catch { return null; }
 }
 
 let previewModule = null;
@@ -71,7 +81,7 @@ export function mountPreviewStyles() {
 class Builder {
   constructor(options) {
     this.onlink = typeof options.onlink === 'function' ? options.onlink : null;
-    this.hosts = Array.isArray(options.imageHosts) ? options.imageHosts.map(h => String(h).toLowerCase()) : [];
+    this.hosts = Array.isArray(options.imageHosts) ? options.imageHosts.map(normaliseHost).filter(Boolean) : [];
     this.highlight = options.highlight !== false;
   }
 
@@ -176,15 +186,83 @@ class Builder {
   }
 }
 
+// Limits. marked's lexer recurses for each nested quote, list and emphasis
+// run, so hostile text a few kilobytes long can overflow the stack, and a
+// deeply nested list takes time quadratic in its depth. Text past a limit,
+// or that fails to parse, renders as its source in one plain paragraph.
+/** Longest text rendered as Markdown, in characters (UTF-16 code units). */
+export const MAX_MARKDOWN_LENGTH = 100000;
+/** Deepest nesting of quotes and lists rendered as Markdown. */
+export const MAX_MARKDOWN_DEPTH = 32;
+
+const fence = /^ {0,3}(`{3,}|~{3,})/;
+const container = /^[ \t]*(?:>|[-*+](?=[ \t]|$)|\d{1,9}[.)](?=[ \t]|$))[ \t]?/;
+
+/**
+ * An upper bound on how deeply a line of the text nests quotes and lists:
+ * per line outside fenced code, the quote and list markers it starts with,
+ * plus its list indentation (two columns per level). Plain data, for the
+ * limit above.
+ */
+export function nestingDepth(text) {
+  let max = 0, open = null;
+  for (const line of String(text ?? '').split('\n')) {
+    const f = line.match(fence);
+    if (open) { if (f && f[1][0] === open[0] && f[1].length >= open.length) open = null; continue; }
+    if (f) { open = f[1]; continue; }
+    let rest = line, depth = 0, m;
+    const indent = rest.match(/^[ \t]*/)[0].replace(/\t/g, '    ').length;
+    while ((m = rest.match(container))) {
+      depth++;
+      rest = rest.slice(m[0].length);
+      if (depth > MAX_MARKDOWN_DEPTH) return depth;
+    }
+    if (depth) depth += Math.floor(indent / 2);
+    if (depth > max) max = depth;
+  }
+  return max;
+}
+
+// The text as it is, in one paragraph that keeps its line breaks.
+function asSource(text) {
+  const fragment = document.createDocumentFragment();
+  const p = document.createElement('p');
+  p.setAttribute('class', 'wk-markdown-source');
+  p.textContent = text;
+  if (text) fragment.append(p);
+  return fragment;
+}
+
 /**
  * Markdown text as a DocumentFragment, under the rules above. Put it in an
- * element with the class wk-markdown, which the module styles.
+ * element with the class wk-markdown, which the module styles. It does not
+ * throw: text over MAX_MARKDOWN_LENGTH or MAX_MARKDOWN_DEPTH, or that the
+ * parser cannot handle, comes back as its source in a plain paragraph
+ * (p.wk-markdown-source).
  *
  * options: onlink(url) for a link's click; imageHosts: hosts whose https
  * images load; highlight: false for plain code blocks.
  */
 export function renderMarkdown(text, options = {}) {
   mountPreviewStyles();
-  const tokens = Lexer.lex(String(text ?? ''), { gfm: true, breaks: false, async: false });
-  return new Builder(options).blocks(tokens, document.createDocumentFragment());
+  text = String(text ?? '');
+  if (text.length > MAX_MARKDOWN_LENGTH || nestingDepth(text) > MAX_MARKDOWN_DEPTH) return asSource(text);
+  try {
+    const tokens = Lexer.lex(text, { gfm: true, breaks: false, async: false });
+    return new Builder(options).blocks(tokens, document.createDocumentFragment());
+  } catch {
+    // A stack overflow (or any other parser failure) on hostile text.
+    return asSource(text);
+  }
+}
+
+/**
+ * renderMarkdown's output in a <div class="wk-markdown">, ready to place
+ * (a diff view's comment body, a posted comment).
+ */
+export function renderMarkdownElement(text, options = {}) {
+  const el = document.createElement('div');
+  el.setAttribute('class', 'wk-markdown');
+  el.append(renderMarkdown(text, options));
+  return el;
 }

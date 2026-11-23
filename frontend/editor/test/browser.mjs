@@ -647,6 +647,9 @@ try {
   await check('markdown: Mod-Enter and the submit action submit; empty and too long show an error until fixed; a pending onsubmit keeps it busy', async () => {
     const { page, problems } = await open(MD);
     const submits = () => page.evaluate(() => window.kitEvents.filter(e => e.type === 'wk-submit').map(e => e.detail.value));
+    // The error is a polite live region from the start, empty, so a later message is announced.
+    const region = await page.evaluate(() => { const e = document.querySelector('#demo-comment .wk-markdown-editor-error'); return { role: e.getAttribute('role'), text: e.textContent, shown: e.getClientRects().length > 0 || getComputedStyle(e).display !== 'none' }; });
+    assert.deepEqual(region, { role: 'status', text: '', shown: true });
     await mdSet(page, 'Looks good');
     await page.evaluate(() => { window.kitEvents = []; });
     await page.keyboard.press(`${mod}+Enter`);
@@ -662,23 +665,30 @@ try {
     const err = await page.evaluate(() => {
       const c = document.querySelector('#demo-comment .cm-content');
       const e = document.querySelector('#demo-comment .wk-markdown-editor-error');
-      return { text: e.hidden ? null : e.textContent, invalid: c.getAttribute('aria-invalid'), described: c.getAttribute('aria-describedby').split(' ').includes(e.id), focus: document.activeElement === c, mode: document.getElementById('demo-comment').mode };
+      return { text: e.textContent, invalid: c.getAttribute('aria-invalid'), described: c.getAttribute('aria-describedby').split(' ').includes(e.id), focus: document.activeElement === c, mode: document.getElementById('demo-comment').mode };
     });
     assert.deepEqual(err, { text: 'Write something first.', invalid: 'true', described: true, focus: true, mode: 'write' });
     assert.equal((await submits()).length, 2);
     // Typing fixes it, and the error goes.
     await page.keyboard.type('ok');
-    assert.equal(await page.evaluate(() => document.querySelector('#demo-comment .wk-markdown-editor-error').hidden), true);
+    assert.equal(await page.textContent('#demo-comment .wk-markdown-editor-error'), '');
     assert.equal(await page.getAttribute('#demo-comment .cm-content', 'aria-invalid'), null);
     // Too long.
     await mdSet(page, 'x'.repeat(1003));
     await page.keyboard.press(`${mod}+Enter`);
     assert.equal(await page.textContent('#demo-comment .wk-markdown-editor-error'), 'Shorten this by 3 characters.');
+    // Mod-Enter in the text leaves focus there: the live region carries the message to a screen reader.
+    assert.equal(await page.evaluate(() => document.activeElement.matches('#demo-comment .cm-content')), true);
+    const cdp = await page.context().newCDPSession(page);
+    const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+    await cdp.detach();
+    const live = nodes.find(n => !n.ignored && n.role?.value === 'status' && (n.properties || []).some(p => p.name === 'live' && p.value.value === 'polite'));
+    assert.ok(live, 'no polite status region in the accessibility tree');
     await page.keyboard.press('Backspace');
     await page.keyboard.press('Backspace');
     assert.equal(await page.textContent('#demo-comment .wk-markdown-editor-error'), 'Shorten this by 1 character.');
     await page.keyboard.press('Backspace');
-    assert.equal(await page.evaluate(() => document.querySelector('#demo-comment .wk-markdown-editor-error').hidden), true);
+    assert.equal(await page.textContent('#demo-comment .wk-markdown-editor-error'), '');
     assert.equal((await submits()).length, 2);
     // Busy while onsubmit's promise is pending: a second submit does nothing.
     await page.evaluate(() => { window.pendingSubmit = new Promise(r => { window.finishSubmit = r; }); });
@@ -689,12 +699,14 @@ try {
     await page.click('#demo-comment button:text-is("Comment")', { force: true });
     const busy = await page.evaluate(() => {
       const b = [...document.querySelectorAll('#demo-comment button')].find(x => x.textContent === 'Comment');
-      return { busy: document.getElementById('demo-comment').getAttribute('aria-busy'), aria: b.getAttribute('aria-disabled'), data: b.hasAttribute('data-busy'), disabled: b.disabled, cancel: [...document.querySelectorAll('#demo-comment button')].find(x => x.textContent === 'Cancel').getAttribute('aria-disabled') };
+      return { busy: document.getElementById('demo-comment').hasAttribute('aria-busy'), aria: b.getAttribute('aria-disabled'), data: b.hasAttribute('data-busy'), disabled: b.disabled, cancel: [...document.querySelectorAll('#demo-comment button')].find(x => x.textContent === 'Cancel').getAttribute('aria-disabled') };
     });
-    assert.deepEqual(busy, { busy: '', aria: 'true', data: true, disabled: false, cancel: null });
+    // Busy is on the submit control (aria-disabled, data-busy), not aria-busy on the editor.
+    assert.deepEqual(busy, { busy: false, aria: 'true', data: true, disabled: false, cancel: null });
     assert.equal((await submits()).length, 3);
     await page.evaluate(() => window.finishSubmit());
-    await until(page, () => !document.getElementById('demo-comment').hasAttribute('aria-busy'));
+    await until(page, () => !document.querySelector('#demo-comment [data-submit]').hasAttribute('data-busy'));
+    assert.equal(await page.getAttribute('#demo-comment [data-submit]', 'aria-disabled'), null);
     await page.focus('#demo-comment .cm-content');
     await page.keyboard.press(`${mod}+Enter`);
     assert.equal((await submits()).length, 4);
@@ -794,7 +806,7 @@ try {
     const result = await page.evaluate(async () => {
       const { wkMarkdownEditor } = await import('/editor/dist/markdown.js');
       const calls = [];
-      const el = wkMarkdownEditor({ label: 'Note', minHeight: '60px', maxHeight: '120px', onchange: v => calls.push(['onchange', v]), onmode: m => calls.push(['onmode', m]), onsubmit: v => calls.push(['onsubmit', v]) });
+      const el = wkMarkdownEditor({ label: 'Note', minHeight: 60, maxHeight: '120px', onchange: v => calls.push(['onchange', v]), onmode: m => calls.push(['onmode', m]), onsubmit: v => calls.push(['onsubmit', v]) });
       for (const t of ['wk-change', 'wk-mode', 'wk-submit']) el.addEventListener(t, e => calls.push([t, e.detail.value ?? e.detail.mode]));
       document.getElementById('demo').append(el);
       const box = el.querySelector('.wk-code-editor');
@@ -857,6 +869,125 @@ try {
     await page.click('#demo-comment [role=tab]:text-is("Write")');
     await page.click('#demo-comment .cm-content');
     assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#demo-comment .cm-editor')).outlineStyle), 'solid');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('markdown: hostile text previews as its source, quickly, with no error, and wk-mode still fires', async () => {
+    const { page, problems } = await open(MD);
+    for (const [label, text] of [
+      ['nested quotes', '>'.repeat(2000) + ' x'],
+      ['emphasis markers', '*'.repeat(5000) + 'a' + '*'.repeat(5000)],
+      ['quoted list items', '> - '.repeat(5000)],
+      ['deep list', Array.from({ length: 1000 }, (_, i) => `${'  '.repeat(i)}- x`).join('\n')],
+    ]) {
+      await page.evaluate(t => { window.kitEvents = []; const el = document.getElementById('demo-comment'); el.mode = 'write'; el.value = t; }, text);
+      const start = Date.now();
+      await page.click('#demo-comment [role=tab]:text-is("Preview")');
+      const took = Date.now() - start;
+      const look = await page.evaluate(() => ({
+        source: document.querySelector('#demo-comment .wk-markdown-editor-preview > .wk-markdown-source')?.textContent.length,
+        whiteSpace: getComputedStyle(document.querySelector('#demo-comment .wk-markdown-editor-preview > *')).whiteSpace,
+        modes: window.kitEvents.filter(e => e.type === 'wk-mode').map(e => e.detail.mode),
+      }));
+      assert.deepEqual(look, { source: text.length, whiteSpace: 'pre-wrap', modes: ['preview'] }, label);
+      assert.ok(took < 3000, `${label}: ${took} ms`);
+    }
+    // Typing the text back to shallow Markdown turns the Write tab's highlighting on again.
+    await page.evaluate(() => { const el = document.getElementById('demo-comment'); el.mode = 'write'; el.value = `${'> '.repeat(40)}x`; });
+    assert.equal(await page.evaluate(() => document.querySelectorAll('#demo-comment .cm-line span').length), 0);
+    await page.click('#demo-comment .cm-content');
+    await page.keyboard.press(`${mod}+a`);
+    await page.keyboard.type('# Title');
+    await until(page, () => document.querySelectorAll('#demo-comment .cm-line span').length > 0);
+    assert.deepEqual(problems, []);
+    // wk-mode fires even when drawing the preview fails (here, a failing DOM call).
+    await page.evaluate(() => {
+      window.kitEvents = [];
+      const preview = document.querySelector('#demo-comment .wk-markdown-editor-preview');
+      preview.replaceChildren = () => { throw new Error('drawing failed'); };
+    });
+    await page.click('#demo-comment [role=tab]:text-is("Preview")');
+    assert.deepEqual(await page.evaluate(() => window.kitEvents.filter(e => e.type === 'wk-mode').map(e => e.detail.mode)), ['preview']);
+    assert.ok(problems.length === 1 && problems[0].includes('drawing failed'), problems.join('\n'));
+    await page.close();
+  });
+
+  await check('markdown: Escape and the cancel action cancel (wk-cancel, then oncancel), except in find, on a selection, or while composing', async () => {
+    const { page, problems } = await open(MD);
+    const cancels = () => page.evaluate(() => window.kitEvents.filter(e => e.type === 'wk-cancel' && e.target === 'demo-comment').length);
+    await mdSet(page, 'draft');
+    await page.evaluate(() => { window.kitEvents = []; });
+    await page.keyboard.press('Escape');
+    assert.equal(await cancels(), 1);
+    assert.equal(await mdValue(page), '', 'oncancel did not run');
+    // With a selection, the first Escape collapses it.
+    await mdSet(page, 'draft', 3);
+    await page.keyboard.press('Escape');
+    assert.equal(await cancels(), 1);
+    await page.keyboard.press('Escape');
+    assert.equal(await cancels(), 2);
+    // In the find panel, Escape closes it; a second Escape in the text cancels.
+    await mdSet(page, 'draft');
+    await page.keyboard.press(`${mod}+f`);
+    await until(page, () => document.activeElement?.matches('#demo-comment [name=search]'));
+    await page.keyboard.press('Escape');
+    await until(page, () => !document.querySelector('#demo-comment .cm-panel'));
+    assert.equal(await cancels(), 2);
+    assert.equal(await mdValue(page), 'draft');
+    // Not while an input method is composing.
+    const composing = await page.evaluate(() => {
+      const c = document.querySelector('#demo-comment .cm-content');
+      const e = new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true });
+      c.dispatchEvent(e);
+      return e.defaultPrevented;
+    });
+    assert.equal(composing, false);
+    assert.equal(await cancels(), 2);
+    // From the tabs too; and the Cancel action.
+    await page.focus('#demo-comment [role=tab]:text-is("Write")');
+    await page.keyboard.press('Escape');
+    assert.equal(await cancels(), 3);
+    await page.click('#demo-comment button:text-is("Cancel")');
+    assert.equal(await cancels(), 4);
+    // Without oncancel, Escape is left alone (a dialog around the editor can use it).
+    const free = await page.evaluate(async () => {
+      const { wkMarkdownEditor } = await import('/editor/dist/markdown.js');
+      const el = wkMarkdownEditor({ label: 'Free' });
+      document.getElementById('demo').append(el);
+      let cancelled = 0;
+      el.addEventListener('wk-cancel', () => cancelled++);
+      const e = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      el.querySelector('.cm-content').dispatchEvent(e);
+      return { prevented: e.defaultPrevented, cancelled };
+    });
+    assert.deepEqual(free, { prevented: false, cancelled: 0 });
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('markdown: disabling keeps focus in the editor (from an action or the toolbar); a cancel action stays usable', async () => {
+    const { page, problems } = await open(MD);
+    for (const target of ['#demo-comment [data-submit]', '#demo-comment [data-tool=bold]']) {
+      await page.evaluate(() => { const el = document.getElementById('demo-comment'); el.disabled = false; el.mode = 'write'; });
+      await page.focus(target);
+      await page.evaluate(() => { document.getElementById('demo-comment').disabled = true; });
+      assert.equal(await page.evaluate(() => document.getElementById('demo-comment').contains(document.activeElement)), true, `${target}: focus went to ${await page.evaluate(() => document.activeElement.tagName)}`);
+    }
+    assert.equal(await page.evaluate(() => [...document.querySelectorAll('#demo-comment button')].find(b => b.textContent === 'Cancel').disabled), false);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('markdown: renderMarkdownElement returns a styled .wk-markdown element', async () => {
+    const { page, problems } = await open(MD);
+    const look = await page.evaluate(async () => {
+      const { renderMarkdownElement, MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH } = await import('/editor/dist/markdown.js');
+      const el = renderMarkdownElement('**hi** `x`');
+      document.getElementById('demo').append(el);
+      return { tag: el.tagName, cls: el.className, html: el.innerHTML, colour: getComputedStyle(el).color, text: window.t.colour('var(--wk-color-text)'), limits: [MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH] };
+    });
+    assert.deepEqual(look, { tag: 'DIV', cls: 'wk-markdown', html: '<p><strong>hi</strong> <code>x</code></p>', colour: look.text, text: look.text, limits: [100000, 32] });
     assert.deepEqual(problems, []);
     await page.close();
   });

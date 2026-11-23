@@ -31,7 +31,7 @@ class Text {
 }
 // Imported before the fake document exists, so CodeMirror loads as it does
 // in node; the renderer reads the global document when it builds.
-const { renderMarkdown, safeUrl, decodeEntities } = await import('../src/markdown/render.js');
+const { renderMarkdown, renderMarkdownElement, safeUrl, decodeEntities, nestingDepth, MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH } = await import('../src/markdown/render.js');
 globalThis.document = {
   createElement: tag => new Node(tag),
   createTextNode: t => new Text(t),
@@ -43,6 +43,7 @@ const ALLOWED = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em'
   'table', 'thead', 'tbody', 'tr', 'th', 'td', 'a', 'br', 'hr', 'img']);
 const ATTRS = new Set(['class', 'href', 'rel', 'title', 'start', 'type', 'disabled', 'checked', 'aria-label', 'data-align', 'scope', 'data-language',
   'src', 'alt', 'loading', 'decoding', 'referrerpolicy']);
+const SOURCE = '<p class="wk-markdown-source">';
 // Every element and attribute is on the allow-list; no URL attribute holds anything but http(s) or mailto.
 function assertSafe(fragment, label) {
   for (const n of fragment.all(() => true)) {
@@ -138,6 +139,25 @@ test('images: none load by default (a link instead); https images load from allo
   assert.deepEqual(imgs.map(i => i.getAttribute('src')), ['https://images.example.com/c.png']);
   assert.equal(imgs[0].getAttribute('alt'), 'a chart');
   assert.equal(imgs[0].getAttribute('referrerpolicy'), 'no-referrer');
+  const titled = render('![t](https://images.example.com/t.png "A title")', { imageHosts: ['images.example.com'] }).all(n => n.tag === 'img')[0];
+  assert.equal(titled.getAttribute('title'), 'A title');
+});
+
+test('image hosts match exactly: no subdomains, userinfo tricks, suffixes, trailing dots or other ports', () => {
+  const loads = (href, hosts = ['good.example']) => render(`![x](${href})`, { imageHosts: hosts }).all(n => n.tag === 'img').map(i => i.getAttribute('src'));
+  for (const href of ['https://evil.good.example/a.png', 'https://good.example@evil.example/a.png', 'https://good.example.evil.example/a.png',
+    'https://good.example./a.png', 'https://good.example:8443/a.png', 'https://evilgood.example/a.png', 'http://good.example/a.png']) {
+    assert.deepEqual(loads(href), [], `${href} loaded`);
+  }
+  assert.deepEqual(loads('https://good.example/a.png'), ['https://good.example/a.png']);
+  // https's default port is the host itself.
+  assert.deepEqual(loads('https://good.example:443/a.png'), ['https://good.example/a.png']);
+  // A port must be allowed by name, and then only that port.
+  assert.deepEqual(loads('https://good.example:8443/a.png', ['good.example:8443']), ['https://good.example:8443/a.png']);
+  assert.deepEqual(loads('https://good.example:9000/a.png', ['good.example:8443']), []);
+  assert.deepEqual(loads('https://good.example/a.png', ['good.example:8443']), []);
+  // Entries that are not a bare host are ignored, not matched loosely.
+  assert.deepEqual(loads('https://good.example/a.png', ['https://good.example', 'good.example/x', 'x@good.example']), []);
 });
 
 test('CommonMark: headings, emphasis, code, quotes, lists, rules, breaks, escapes and entities', () => {
@@ -170,7 +190,61 @@ test('empty and odd input', () => {
   assert.equal(html('   \n\n'), '');
   // Reference links resolve; the definition renders nothing.
   assert.equal(html('[a][r]\n\n[r]: https://example.com'), '<p><a class="wk-link" href="https://example.com/" rel="noopener noreferrer">a</a></p>');
-  // Deep nesting does not throw.
-  assert.doesNotThrow(() => render('>'.repeat(500) + ' x'));
-  assert.doesNotThrow(() => render('*'.repeat(5000)));
+});
+
+// Runs fn, failing if it throws or takes longer than ms.
+function timed(ms, label, fn) {
+  const start = performance.now();
+  let out;
+  assert.doesNotThrow(() => { out = fn(); }, label);
+  const took = performance.now() - start;
+  assert.ok(took < ms, `${label}: ${Math.round(took)} ms (budget ${ms} ms)`);
+  return out;
+}
+
+test('hostile input does not throw: text that overflows the parser renders as its source, in time', () => {
+  for (const [label, text] of [
+    ['2,000 nested quotes', '>'.repeat(2000) + ' x'],
+    ['10,000 emphasis markers', '*'.repeat(5000) + 'a' + '*'.repeat(5000)],
+    ['5,000 quoted list items', '> - '.repeat(5000)],
+  ]) {
+    const f = timed(2000, label, () => render(text));
+    assert.equal(f.html, `${SOURCE}${new Text(text).html}</p>`, label);
+    assertSafe(f, label);
+  }
+});
+
+test('nesting deeper than MAX_MARKDOWN_DEPTH renders as its source at once; shallower nesting renders', () => {
+  const list = depth => Array.from({ length: depth }, (_, i) => `${'  '.repeat(i)}- level ${i + 1}`).join('\n');
+  // 1000 levels took marked about 8 s; the depth check refuses it first.
+  const deep = timed(500, '1000-level list', () => render(list(1000)));
+  assert.ok(deep.html.startsWith(SOURCE));
+  assert.equal(deep.textContent, list(1000));
+  const quotes = timed(500, '40 quotes', () => render(`${'> '.repeat(MAX_MARKDOWN_DEPTH + 8)}x`));
+  assert.ok(quotes.html.startsWith(SOURCE));
+  // At the limit it is still Markdown.
+  const ok = timed(2000, `${MAX_MARKDOWN_DEPTH - 1}-level list`, () => render(list(MAX_MARKDOWN_DEPTH - 1)));
+  assert.equal(ok.all(n => n.tag === 'ul').length, MAX_MARKDOWN_DEPTH - 1);
+  assert.equal(nestingDepth(list(10)), 10);
+  assert.equal(nestingDepth('> > - x'), 3);
+  assert.equal(nestingDepth('plain\n\n    indented code\n**not a list**'), 0);
+  // Fenced code does not count, however it is indented.
+  const fenced = '```yaml\n' + list(100).replace(/- /g, '- ') + '\n```\n\nafter';
+  assert.equal(nestingDepth(fenced), 0);
+  assert.equal(render(fenced).all(n => n.tag === 'pre').length, 1);
+});
+
+test('text longer than MAX_MARKDOWN_LENGTH renders as its source', () => {
+  const long = `**bold** ${'x'.repeat(MAX_MARKDOWN_LENGTH)}`;
+  const f = render(long);
+  assert.ok(f.html.startsWith(SOURCE));
+  assert.equal(f.all(n => n.tag === 'strong').length, 0);
+  assert.equal(render('**bold**').all(n => n.tag === 'strong').length, 1);
+});
+
+test('renderMarkdownElement wraps the output in a .wk-markdown element', () => {
+  const el = renderMarkdownElement('# Hi\n\n[a](https://example.com/)', { highlight: false });
+  assert.equal(el.tag, 'div');
+  assert.equal(el.getAttribute('class'), 'wk-markdown');
+  assert.equal(el.html, '<div class="wk-markdown"><h1>Hi</h1><p><a class="wk-link" href="https://example.com/" rel="noopener noreferrer">a</a></p></div>');
 });

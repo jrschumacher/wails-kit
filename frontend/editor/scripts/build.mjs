@@ -12,8 +12,9 @@
 //   dist/THIRD-PARTY-LICENSES.txt  the licence of every bundled package,
 //                                  read from node_modules, and the entries
 //                                  that load it
-// Usage: node scripts/build.mjs [outDir]  (default: dist). It removes stale
-// dist/chunk-*.js files.
+// Usage: node scripts/build.mjs [outDir]  (default: dist). It removes the
+// .js and .d.ts files in outDir that it did not make (stale chunks, removed
+// entries).
 // test/build.test.mjs builds in memory and checks that the committed dist/
 // matches.
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, unlinkSync } from 'node:fs';
@@ -143,7 +144,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const out = path.resolve(root, process.argv[2] || 'dist');
   mkdirSync(out, { recursive: true });
   const { files } = await build();
-  for (const old of readdirSync(out)) if (CHUNK.test(old) && !(old in files)) unlinkSync(path.join(out, old));
+  // dist/ is the build's own: a module or types file it did not make this
+  // time (an old chunk, a removed entry) goes.
+  for (const old of readdirSync(out)) if (/\.(js|d\.ts)$/.test(old) && !(old in files)) unlinkSync(path.join(out, old));
   for (const [name, text] of Object.entries(files)) writeFileSync(path.join(out, name), text);
   console.log(`built ${Object.keys(files).map(f => `${path.relative(process.cwd(), out) || '.'}/${f}`).join(', ')}`);
 }

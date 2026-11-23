@@ -61,6 +61,8 @@ export const previewStyles = {
   '.wk-markdown [data-align="center"]': { textAlign: 'center' },
   '.wk-markdown [data-align="right"]': { textAlign: 'right' },
   '.wk-markdown img': { maxWidth: '100%' },
+  // Text past renderMarkdown's limits, shown as written.
+  '.wk-markdown .wk-markdown-source': { whiteSpace: 'pre-wrap' },
   '.wk-markdown a.wk-link': { textDecoration: 'underline' },
   // Forced colours drop backgrounds: inline code keeps an edge instead.
   // Borders, text and links take system colours by themselves.

@@ -111,3 +111,12 @@ test('dependencies are pinned exactly and locked', () => {
     assert.equal(lock.packages[`node_modules/${name}`]?.version, version, `${name} is not locked at ${version}`);
   }
 });
+
+test('the build removes .js and .d.ts files it did not make (an old chunk, a removed entry), and nothing else', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'wk-editor-out-'));
+  try {
+    for (const stale of ['chunk-OLD00000.js', 'removed.js', 'removed.d.ts', 'keep.txt']) writeFileSync(path.join(dir, stale), 'stale');
+    execFileSync(process.execPath, [path.join(root, 'scripts', 'build.mjs'), dir], { cwd: root });
+    assert.deepEqual(readdirSync(dir).sort(), [...Object.keys(built.files), 'keep.txt'].sort());
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

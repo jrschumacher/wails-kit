@@ -62,10 +62,10 @@ Minified, then gzipped, as built from this tree:
 |---|---|---|---|
 | `chunk-*.js` (CodeMirror, Lezer, the theme, the nine languages) | 601 KiB | 208 KiB | both entries |
 | `code.js` | under 1 KiB | under 1 KiB | |
-| `markdown.js` (the editor, the renderer, marked) | 67 KiB | 21 KiB | |
+| `markdown.js` (the editor, the renderer, marked) | 69 KiB | 22 KiB | |
 
 So the code editor costs about 601 KiB (208 KiB gzipped), the Markdown editor
-about 668 KiB (229 KiB), and both together the same 668 KiB: the second editor
+about 670 KiB (230 KiB), and both together the same 670 KiB: the second editor
 adds only its own entry. These are loaded from the app's own files, never the
 network.
 
@@ -247,9 +247,10 @@ const box = wkMarkdownEditor({
   maxLength: 65536,                  // a live count; a longer text does not submit
   onlink: url => Browser.OpenURL(url),   // preview links: open them outside the webview
   actions: [
-    { label: 'Cancel', onclick: editor => editor.remove() },
+    { label: 'Cancel', cancel: true },
     { label: 'Comment', primary: true, submit: true },
   ],
+  oncancel: editor => editor.destroy(),   // Cancel, or Escape
   onsubmit: async value => { await Comments.Post(value); box.value = ''; },
 });
 document.querySelector('#reply').append(box);
@@ -281,13 +282,14 @@ It returns a `<div class="wk-markdown-editor">`:
 | `placeholder` | text shown while it is empty | |
 | `mode` | the tab it opens on: `'write'` or `'preview'` | `'write'` |
 | `toolbar` | the formatting toolbar; the shortcuts work without it | `true` |
-| `minHeight`, `maxHeight` | CSS lengths: the text grows between them, then scrolls | `100px`, `360px` |
+| `minHeight`, `maxHeight` | CSS lengths, or numbers of pixels: the text grows between them, then scrolls | `100px`, `360px` |
 | `maxLength` | shows `n / max` under the text; past it, the count turns attention-coloured and bold (underlined in forced colours), and submitting says how much to cut | none |
 | `required` | an empty (or blank) text does not submit | `true` |
-| `disabled` | the text is read-only and the toolbar and actions are disabled; the tabs and the preview still work | `false` |
-| `actions` | the buttons under it, in order: `{ label, primary?, submit?, onclick?(editor) }`. A `submit` action submits; the others call `onclick` | none |
+| `disabled` | the text is read-only and the toolbar and actions are disabled (a `cancel` action stays usable); the tabs and the preview still work. Disabling while focus is on a toolbar button or an action moves focus to the editor element | `false` |
+| `actions` | the buttons under it, in order: `{ label, primary?, submit?, cancel?, onclick?(editor) }`. A `submit` action submits, a `cancel` action cancels; the others call `onclick` | none |
 | `onchange(value)` | after each edit, not when the app sets `value` | |
 | `onsubmit(value)` | on submit. Return a promise to keep the submit actions busy until it settles (below) | |
+| `oncancel(editor)` | on cancel: a `cancel` action, `cancel()`, or Escape (below). Without it, Escape is left to the page (a dialog around the editor) | |
 | `onmode(mode)` | when the person switches tabs | |
 | `onlink(url)` | a click on a preview link (see `renderMarkdown`) | |
 | `imageHosts` | as `renderMarkdown`'s | none |
@@ -297,8 +299,8 @@ It returns a `<div class="wk-markdown-editor">`:
 history, clears an error and fires nothing), `mode` (`'write'` or
 `'preview'`; setting it fires nothing), `disabled`, `focus()` (shows Write and
 focuses the text), `submit()` (as the submit action; returns whether it
-submitted) and `destroy()` (the element is left empty; then `value`,
-`focus()` and `submit()` do nothing).
+submitted), `cancel()` and `destroy()` (the element is left empty; then
+`value`, `focus()`, `submit()` and `cancel()` do nothing).
 
 **Events** (all bubble from the element; in `markdown.d.ts` the returned
 `MarkdownEditorElement` types them):
@@ -308,6 +310,7 @@ submitted) and `destroy()` (the element is left empty; then `value`,
 | `wk-change` | `{ value }` | after each edit, before `onchange` |
 | `wk-mode` | `{ mode }` | the person switched tabs, before `onmode` (the tabs' own `wk-change` stops at the editor) |
 | `wk-submit` | `{ value }` | before `onsubmit`; cancelable: `preventDefault()` stops the submit |
+| `wk-cancel` | `null` | on cancel, before `oncancel` |
 
 ### Keyboard
 
@@ -318,6 +321,7 @@ submitted) and `destroy()` (the element is left empty; then `value`,
 | **Mod-K** | link: `[text](url)` with `url` selected to type over; a selected URL becomes the target |
 | toolbar only | bulleted list (`- `) and quote (`> `) on each selected line; again to remove |
 | **Mod-Enter** | submit |
+| **Escape** | cancel, when `oncancel` is set. Not while an input method is composing or a find panel is open (Escape closes the panel first), and not when the same press collapses a selection; from the text, the tabs, the preview, the toolbar or the actions |
 
 Mod is Cmd on macOS, Ctrl elsewhere. The toolbar's buttons carry the keys in
 `aria-keyshortcuts` and their `title`. The code editor's keys (find, undo) work
@@ -328,14 +332,17 @@ too.
 Submitting (Mod-Enter, a `submit` action or `submit()`) checks the text
 first. An empty text (with `required`) says "Write something first."; one past
 `maxLength` says "Shorten this by 3 characters.". The message sits under the
-text (`aria-describedby`, `aria-invalid`), focus goes to the text (on Write),
-and it clears as the person types it right. The submit button stays enabled,
+text (`aria-describedby`, `aria-invalid`) in a polite live region
+(`role="status"`, in the page from the start and empty until needed), so it is
+announced even when focus is already in the text (Mod-Enter). Focus goes to
+the text (on Write), and the message clears as the person types it right. The submit button stays enabled,
 as the [behaviour guidelines](../ui/BEHAVIOUR.md#forms-and-validation) ask.
 
 Then `wk-submit` fires, then `onsubmit(value)`. When `onsubmit` returns a
-promise, the editor is `aria-busy` and the submit actions get
-`aria-disabled="true"` and `data-busy` (they keep focus and their name) until
-it settles, and another submit does nothing. The editor does not clear the
+promise, the submit actions get `aria-disabled="true"` and `data-busy` (they
+keep focus and their name; the busy state is on the control, as
+[BEHAVIOUR.md](../ui/BEHAVIOUR.md#accessibility) says, not `aria-busy` on the
+editor) until it settles, and another submit does nothing. The editor does not clear the
 text or report a failure itself: on success the app sets `value = ''` (or
 removes the editor), and on failure it shows the error.
 
@@ -343,8 +350,10 @@ removes the editor), and on failure it shows the error.
 
 The editor is a self-contained element with no page-level state, so a diff
 view can insert one under a line and remove it again: create it with
-`actions` (Cancel, Comment), call `focus()` once it is in the document, post
-in `onsubmit`, and `destroy()` it when the thread closes.
+`actions` (a `cancel` action and a `submit` one) and `oncancel`, call
+`focus()` once it is in the document, post in `onsubmit`, and `destroy()` it
+on cancel or when the thread closes. A posted comment's body is
+`renderMarkdownElement(body, { onlink })`.
 
 ### Classes
 
@@ -359,6 +368,7 @@ Proposals for the design system (it has no Markdown card yet):
 | `wk-markdown-editor-foot`, `-status`, `-count` (`data-over`), `-error`, `-actions` | the footer |
 | `wk-markdown` | rendered Markdown |
 | `wk-markdown-table`, `wk-markdown-task` | a table's scroll wrapper; a task list item |
+| `wk-markdown-source` | text past the renderer's limits, shown as written |
 
 It also uses the kit's `wk-tablist`, `wk-button` (`--quiet`, `--icon`,
 `--primary`), `wk-code`, `wk-link`, `wk-table` and `wk-checkbox`. The styles
@@ -377,6 +387,9 @@ blocks, `wk-link` for links and `wk-table` for tables.
 const comment = document.createElement('div');
 comment.className = 'wk-markdown';
 comment.append(renderMarkdown(body, { onlink: url => Browser.OpenURL(url) }));
+
+// The same, in one call: a <div class="wk-markdown"> holding the output.
+const body = renderMarkdownElement(text, { onlink: url => Browser.OpenURL(url) });
 ```
 
 It reads CommonMark with GitHub's tables, task lists (shown as disabled
@@ -411,6 +424,17 @@ parsing HTML, so the text can come from anyone (a pull request, a review):
 Named character references cover the common ones (`&amp;`, `&copy;`,
 `&mdash;`, …) and every numeric one; an unknown name shows as written.
 
+**Limits.** `renderMarkdown` never throws. marked's parser recurses for
+each nested quote, list and emphasis run, so a few kilobytes of hostile text
+can overflow the stack, and deep lists take time quadratic in their depth.
+Text longer than `MAX_MARKDOWN_LENGTH` (100,000 characters), nesting quotes
+and lists deeper than `MAX_MARKDOWN_DEPTH` (32 levels, counted per line
+outside fenced code, from the quote and list markers it starts with and its
+indentation), or that the parser fails on, renders as its source: one
+`<p class="wk-markdown-source">` that keeps its line breaks. Both limits are
+exported. The editor's Write tab drops Markdown highlighting while the text
+nests past the same depth, since CodeMirror's highlighter recurses too.
+
 ## Layout
 
 | Path | |
@@ -432,7 +456,7 @@ esbuild puts the code entries share into `dist/chunk-*.js`.
 
 ```sh
 npm ci
-npm run build          # after any change in src/ or a dependency update (removes stale chunks)
+npm run build          # after any change in src/ or a dependency update (removes .js and .d.ts files it did not make)
 npm test               # static checks and the build check: node --test
 npm run test:browser   # the editor in Chrome
 ```
