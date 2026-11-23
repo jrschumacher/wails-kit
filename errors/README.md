@@ -53,8 +53,8 @@ Apps register their own codes and messages:
 
 ```go
 errors.RegisterMessages(map[errors.Code]string{
-    "jira_unreachable": "Cannot reach Jira. Check your network connection.",
-    "sync_conflict":    "A sync conflict occurred. Please resolve it manually.",
+    "jira_unreachable": "Couldn't reach Jira",
+    "sync_conflict":    "These changes conflict with the server's",
 })
 
 err := errors.New("jira_unreachable", "connection refused to jira.example.com", netErr)

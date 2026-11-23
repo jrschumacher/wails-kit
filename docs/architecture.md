@@ -136,10 +136,12 @@ const ErrMyOperation errors.Code = "my_operation"
 
 func init() {
     errors.RegisterMessages(map[errors.Code]string{
-        ErrMyOperation: "Something went wrong. Please try again.",
+        ErrMyOperation: "Couldn't save the report",
     })
 }
 ```
+
+User-facing messages follow the voice in `frontend/ui/BEHAVIOUR.md` ("Writing the words"): name what happened in the person's words, as a fragment with no full stop. Never "Something went wrong" or "Please try again"; what happens next (Retry, "Next try in 8 s") is the UI's to say.
 
 ### Optional dependencies
 
