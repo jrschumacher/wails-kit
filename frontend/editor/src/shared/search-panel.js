@@ -48,7 +48,7 @@ class KitSearchPanel {
       input.checked = checked;
       return [input, el('label', { class: 'wk-check' }, [input, phrase(label)])];
     };
-    const button = (label, run) => el('button', { class: 'wk-button wk-button--small', type: 'button', onclick: () => run(view) }, [phrase(label)]);
+    const button = (label, run, name) => el('button', { class: 'wk-button wk-button--small', type: 'button', 'aria-label': name ? phrase(name) : null, onclick: () => run(view) }, [phrase(label)]);
     this.searchField = field('search', 'Find', query.search, true);
     this.replaceField = field('replace', 'Replace', query.replace, false);
     let caseLabel, reLabel, wordLabel;
@@ -57,10 +57,10 @@ class KitSearchPanel {
     [this.wordField, wordLabel] = check('word', 'By word', query.wholeWord);
     const close = el('button', {
       class: 'wk-button wk-button--small wk-button--quiet wk-button--icon wk-code-search-close', type: 'button',
-      'aria-label': phrase('Close'), onclick: () => closeSearchPanel(view),
+      'aria-label': phrase('Close find'), onclick: () => closeSearchPanel(view),
     }, [closeIcon()]);
     const find = el('div', { class: 'wk-code-search-row' }, [
-      this.searchField, button('Next', findNext), button('Previous', findPrevious), button('All', selectMatches),
+      this.searchField, button('Next', findNext), button('Previous', findPrevious), button('All', selectMatches, 'Select all matches'),
       caseLabel, reLabel, wordLabel, close,
     ]);
     const rows = [find];

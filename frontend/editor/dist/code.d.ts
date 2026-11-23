@@ -16,7 +16,7 @@ export interface CodeEditorSpec {
   id?: string;
   value?: string;
   /** A bundled language name or alias (js, ts, yml, md, sh, …), a stream parser, or none for plain text. */
-  language?: BundledLanguage | string | StreamParser | null;
+  language?: BundledLanguage | (string & {}) | StreamParser | null;
   readOnly?: boolean;
   /** Line numbers in a gutter. Default true. */
   lineNumbers?: boolean;
@@ -32,14 +32,22 @@ export interface CodeEditorSpec {
 }
 
 export interface CodeEditorElement extends HTMLDivElement {
-  /** The text. Setting it replaces the document and its undo history. */
+  /** The text. Setting it replaces the document and its undo history; after destroy() it does nothing. */
   value: string;
+  /** Focuses the text; after destroy() it does nothing. */
   focus(): void;
   /** Tears the editor down; the element is left empty. */
   destroy(): void;
 }
 
-export interface CodeEditorChangeEvent extends CustomEvent<{ value: string }> { type: 'wk-change' }
+/** The bubbling event after each edit. */
+export type CodeEditorChangeEvent = CustomEvent<{ value: string }>;
+
+declare global {
+  interface HTMLElementEventMap {
+    'wk-change': CustomEvent<{ value: string }>;
+  }
+}
 
 export function wkCodeEditor(spec: CodeEditorSpec): CodeEditorElement;
 
@@ -53,7 +61,7 @@ export type Highlight = (file: HighlightFile | null | undefined, line: Highlight
  * The diff view's highlight hook, in the editor's syntax colours. With no
  * language it picks one per file from the path's extension.
  */
-export function highlighter(language?: BundledLanguage | string): Highlight;
+export function highlighter(language?: BundledLanguage | (string & {})): Highlight;
 
 /** The bundled language names. */
 export const languages: readonly BundledLanguage[];

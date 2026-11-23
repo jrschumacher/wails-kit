@@ -1,0 +1,16 @@
+# Dependabot version updates. frontend/editor bundles its libraries into a
+# committed dist/: after an update, run npm run build there and commit dist/
+# (the build check fails until then).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /frontend/editor
+    schedule:
+      interval: weekly
+    groups:
+      # CodeMirror and Lezer packages depend on each other's versions: one PR.
+      codemirror:
+        patterns:
+          - "@codemirror/*"
+          - "@lezer/*"
+          - "style-mod"

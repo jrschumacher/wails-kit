@@ -217,7 +217,7 @@ try {
     await page.click('#scratch .cm-content');
     await page.keyboard.press('End');
     await page.keyboard.type('bc');
-    assert.deepEqual(await page.evaluate(() => window.calls), [['onchange', 'ab'], ['wk-change', 'ab'], ['onchange', 'abc'], ['wk-change', 'abc']]);
+    assert.deepEqual(await page.evaluate(() => window.calls), [['wk-change', 'ab'], ['onchange', 'ab'], ['wk-change', 'abc'], ['onchange', 'abc']]);
     // The demo's document-level listener sees the event bubble.
     assert.deepEqual(await page.evaluate(() => window.kitEvents.at(-1)), { type: 'wk-change', target: 'scratch', value: 'abc' });
     await page.evaluate(() => { window.calls = []; document.getElementById('scratch').value = 'new\ntext'; });
@@ -228,6 +228,71 @@ try {
     await page.click('#scratch .cm-content');
     await page.keyboard.press(`${mod}+z`);
     assert.equal(await value(page, 'scratch'), 'new\ntext');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('a throwing onchange does not swallow wk-change, which fires first', async () => {
+    const { page, problems } = await open();
+    const order = await page.evaluate(async () => {
+      const { wkCodeEditor } = await import('/editor/dist/code.js');
+      const order = [];
+      const el = wkCodeEditor({ label: 'Throws', value: 'a', onchange: () => { order.push('onchange'); throw new Error('app bug'); } });
+      el.addEventListener('wk-change', () => order.push('wk-change'));
+      document.getElementById('demo').append(el);
+      window.order = order;
+      return el.isConnected;
+    });
+    assert.equal(order, true);
+    await page.click('.wk-code-editor >> nth=-1');
+    await page.keyboard.type('b');
+    assert.deepEqual(await page.evaluate(() => window.order), ['wk-change', 'onchange']);
+    // CodeMirror catches the callback's error and logs it; nothing else goes wrong.
+    assert.ok(problems.length > 0 && problems.every(m => m.includes('app bug')), problems.join('\n'));
+    await page.close();
+  });
+
+  await check('line numbers line up: each gutter row is as tall as its line, for editors scrolled into view', async () => {
+    for (const scheme of ['light', 'dark']) {
+      const { page, problems } = await open('/editor/demo/index.html', { colorScheme: scheme });
+      const ids = await page.evaluate(() => [...document.querySelectorAll('.wk-code-editor')].filter(e => e.querySelector('.cm-lineNumbers')).map(e => e.id));
+      assert.ok(ids.length >= 10);
+      for (const id of ids) {
+        await page.locator(`#${id}`).scrollIntoViewIfNeeded();
+        // An editor measures itself once it is in view (CodeMirror's design); wait for that.
+        await until(page, i => {
+          const el = document.getElementById(i);
+          // The gutter's first row is a hidden spacer that sizes its width.
+          const rows = [...el.querySelectorAll('.cm-lineNumbers .cm-gutterElement')].filter(g => getComputedStyle(g).visibility !== 'hidden');
+          const lines = [...el.querySelectorAll('.cm-line')];
+          return rows.length === lines.length && rows.every((g, k) => Math.abs(g.getBoundingClientRect().height - lines[k].getBoundingClientRect().height) < 0.5);
+        }, id).catch(async () => {
+          const got = await page.evaluate(i => {
+            const el = document.getElementById(i);
+            return { rows: [...el.querySelectorAll('.cm-lineNumbers .cm-gutterElement')].filter(g => getComputedStyle(g).visibility !== 'hidden').map(g => g.getBoundingClientRect().height), lines: [...el.querySelectorAll('.cm-line')].map(l => l.getBoundingClientRect().height) };
+          }, id);
+          assert.fail(`${scheme} #${id}: gutter rows ${JSON.stringify(got.rows)} vs lines ${JSON.stringify(got.lines)}`);
+        });
+      }
+      assert.deepEqual(problems, []);
+      await page.close();
+    }
+  });
+
+  await check('the current line number stands out only while the editor has focus', async () => {
+    const { page, problems } = await open();
+    const look = () => page.evaluate(() => {
+      const g = document.querySelector('#demo-editor .cm-activeLineGutter');
+      const other = document.querySelector('#demo-editor .cm-lineNumbers .cm-gutterElement:not(.cm-activeLineGutter):nth-child(3)');
+      return { active: getComputedStyle(g).color, other: getComputedStyle(other).color, weight: getComputedStyle(g).fontWeight, otherWeight: getComputedStyle(other).fontWeight, text: window.t.colour('var(--wk-color-text)') };
+    });
+    let l = await look();
+    assert.equal(l.active, l.other, 'the active line number stands out without focus');
+    assert.equal(l.weight, l.otherWeight);
+    await page.click('#demo-editor .cm-content');
+    l = await look();
+    assert.equal(l.active, l.text);
+    assert.equal(l.weight, l.otherWeight, 'the active line number is bold');
     assert.deepEqual(problems, []);
     await page.close();
   });
@@ -314,7 +379,8 @@ try {
         checks: [...p.querySelectorAll('label.wk-check > input.wk-checkbox')].length,
       };
     });
-    assert.deepEqual(panel, { role: 'search', label: 'Find', buttons: ['kit:Next', 'kit:Previous', 'kit:All', 'kit:Close', 'kit:Replace', 'kit:Replace all'], checks: 3 });
+    assert.deepEqual(panel, { role: 'search', label: 'Find', buttons: ['kit:Next', 'kit:Previous', 'kit:Select all matches', 'kit:Close find', 'kit:Replace', 'kit:Replace all'], checks: 3 });
+    assert.equal(await page.textContent('#demo-editor .wk-code-search [aria-label="Select all matches"]'), 'All');
     await page.keyboard.type('handler');
     await until(page, () => document.querySelectorAll('#demo-editor .cm-searchMatch').length === 3);
     await page.keyboard.press('Enter');
@@ -326,6 +392,15 @@ try {
     await page.keyboard.press('Escape');
     await until(page, () => !document.querySelector('#demo-editor .wk-code-search'));
     assert.equal(await page.evaluate(() => document.activeElement.classList.contains('cm-content')), true);
+    // Setting value while the panel has focus closes it and leaves focus in the text, not on <body>.
+    await page.keyboard.press(`${mod}+f`);
+    await until(page, () => document.activeElement?.matches('#demo-editor [name=search]'));
+    await page.evaluate(() => { document.getElementById('demo-editor').value = 'loaded'; });
+    assert.equal(await page.evaluate(() => document.activeElement.matches('#demo-editor .cm-content')), true);
+    // Not when focus was elsewhere.
+    await page.focus('#demo-theme input');
+    await page.evaluate(() => { document.getElementById('demo-editor').value = 'loaded again'; });
+    assert.equal(await page.evaluate(() => document.activeElement.matches('#demo-theme input')), true);
     assert.deepEqual(problems, []);
     await page.close();
   });
@@ -430,9 +505,12 @@ try {
     const after = await page.evaluate(() => {
       const el = document.getElementById('scratch');
       el.destroy(); el.destroy();
-      return { children: el.childElementCount, editors: document.querySelectorAll('#scratch .cm-editor').length };
+      // After destroy, setting value and focus() do nothing (and do not throw).
+      el.value = 'later';
+      el.focus();
+      return { children: el.childElementCount, editors: document.querySelectorAll('#scratch .cm-editor').length, value: el.value, focus: document.activeElement === document.body };
     });
-    assert.deepEqual(after, { children: 0, editors: 0 });
+    assert.deepEqual(after, { children: 0, editors: 0, value: 'x', focus: true });
     assert.deepEqual(problems, []);
     await page.close();
   });

@@ -18,12 +18,24 @@ import { languageExtension, languageForPath, languageName, resolve, languages } 
 
 export { languages, languageForPath, languageName };
 
+// CodeMirror's styles reach the page as a stylesheet adopted by the
+// document (see scripts/build.mjs). Without adoptedStyleSheets (WebKit before
+// Safari 16.4) they fall back to a <style> element, which a strict CSP
+// blocks, and the editor renders broken: say so once.
+let warned = false;
+function warnWithoutAdoptedSheets() {
+  if (warned || typeof document === 'undefined' || 'adoptedStyleSheets' in document) return;
+  warned = true;
+  console.warn('@wails-kit/editor: this browser has no document.adoptedStyleSheets, so the editor\'s styles need a CSP that allows inline styles. It needs WebView2, Safari 16.4+ (macOS 13.3) or WebKitGTK 2.40+.');
+}
+
 const forcedColors = () => typeof matchMedia === 'function' && matchMedia('(forced-colors: active)').matches;
 
 /**
  * Builds a code editor. Returns a <div class="wk-code-editor"> holding it,
  * with `value` (get and set), `focus()` and `destroy()`; it fires a bubbling
- * `wk-change` event ({ detail: { value } }) on each edit.
+ * `wk-change` event ({ detail: { value } }) on each edit. After destroy(),
+ * setting `value` and focus() do nothing.
  */
 export function wkCodeEditor(spec = {}) {
   const label = typeof spec.label === 'string' ? spec.label.trim() : '';
@@ -32,6 +44,7 @@ export function wkCodeEditor(spec = {}) {
   const language = languageExtension(spec.language);
   const usesTabs = typeof spec.language === 'string' && languageName(spec.language) === 'go';
   const readOnly = !!spec.readOnly;
+  warnWithoutAdoptedSheets();
 
   const el = document.createElement('div');
   el.className = 'wk-code-editor';
@@ -68,8 +81,9 @@ export function wkCodeEditor(spec = {}) {
       // Setting value replaces the state (setState), which reports no update.
       if (!update.docChanged) return;
       const value = update.state.doc.toString();
-      spec.onchange?.(value);
+      // The event first, so a throwing callback cannot swallow it.
       el.dispatchEvent(new CustomEvent('wk-change', { bubbles: true, detail: { value } }));
+      spec.onchange?.(value);
     }),
   ];
 
@@ -85,15 +99,19 @@ export function wkCodeEditor(spec = {}) {
       get: () => view.state.doc.toString(),
       set: next => {
         next = String(next ?? '');
-        if (next === view.state.doc.toString()) return;
+        if (destroyed || next === view.state.doc.toString()) return;
         // New content: replace the document, keep the cursor in range, and
-        // start the undo history afresh (Mod-Z does not undo a load).
+        // start the undo history afresh (Mod-Z does not undo a load). The new
+        // state closes an open find panel; focus that was in the editor (the
+        // panel included) goes back to the text, not to <body>.
+        const hadFocus = el.contains(document.activeElement);
         const head = Math.min(view.state.selection.main.head, next.length);
         view.setState(EditorState.create({ doc: next, selection: { anchor: head }, extensions: extensions() }));
+        if (hadFocus) view.focus();
       },
       enumerable: true,
     },
-    focus: { value: () => view.focus() },
+    focus: { value: () => { if (!destroyed) view.focus(); } },
     destroy: {
       value: () => {
         if (destroyed) return;

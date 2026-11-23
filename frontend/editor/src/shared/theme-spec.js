@@ -53,7 +53,9 @@ export const editorTheme = {
     borderRight: 'var(--wk-hairline-width) solid var(--wk-color-hairline)',
   },
   '&.cm-editor .cm-lineNumbers .cm-gutterElement': { padding: '0 var(--wk-space-2) 0 var(--wk-space-3)', minWidth: '2ch' },
-  '&.cm-editor .cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--wk-color-text)' },
+  // The current line's number stands out only while the editor has focus.
+  '&.cm-editor .cm-activeLineGutter': { backgroundColor: 'transparent', color: 'inherit', fontWeight: 'inherit' },
+  '&.cm-editor.cm-focused .cm-activeLineGutter': { color: 'var(--wk-color-text)' },
   '&.cm-editor .cm-placeholder': { color: 'var(--wk-color-text-secondary)' },
   '&.cm-editor.cm-focused .cm-matchingBracket': {
     backgroundColor: 'var(--wk-color-fill-strong)',

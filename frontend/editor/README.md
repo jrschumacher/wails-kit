@@ -58,13 +58,31 @@ const editor = wkCodeEditor({ label: 'Config', language: 'yaml', value: text, on
 document.querySelector('#config').append(editor);
 ```
 
-**Content Security Policy.** The editor works under the kit pages' policy,
-`default-src 'self'` with no `'unsafe-inline'` styles. CodeMirror styles
-itself at run time; the build makes it do that with a constructable stylesheet
-adopted by the document (not a `<style>` element, which such a policy blocks).
-That needs WebView2 or Chrome 73+, or WebKit from Safari 16.4 (macOS 13.3).
-On older WebKit, CodeMirror falls back to a `<style>` element, which a policy
-without `'unsafe-inline'` blocks.
+### Browser floor
+
+**`@wails-kit/editor` needs macOS 13.3 or later (Safari 16.4+), WebKitGTK
+2.40+ on Linux, or WebView2 on Windows.** That is above `@wails-kit/ui`'s
+macOS 13 floor.
+
+The reason is the Content Security Policy. The editor works under the kit
+pages' policy, `default-src 'self'` with no `'unsafe-inline'` styles.
+CodeMirror styles itself at run time, and the build makes it do that with a
+constructable stylesheet adopted by the document (`document.adoptedStyleSheets`)
+instead of a `<style>` element, which such a policy blocks. On an older WebKit
+without adopted stylesheets, CodeMirror falls back to a `<style>` element;
+under a strict CSP that is blocked, CodeMirror's structural CSS is missing and
+the editor breaks. `wkCodeEditor` logs a one-time `console.warn` when
+`document.adoptedStyleSheets` is unavailable.
+
+### Overriding CodeMirror's styles
+
+CodeMirror's styles arrive as an adopted stylesheet, which comes after the
+page's own stylesheets in the cascade. An app rule for a `.cm-*` class
+therefore loses to CodeMirror's rule of the same specificity: give it more
+specificity than CodeMirror's own (it scopes its rules with generated classes,
+such as `.ͼ1.cm-editor .cm-gutters`; for example, prefix yours with
+`.wk-code-editor .cm-editor`), or, better, change the look through the
+`--wk-*` tokens the theme reads.
 
 ## Code editor: `wkCodeEditor(spec)`
 
@@ -84,7 +102,11 @@ editor.destroy();              // tears it down; the element is left empty
 
 It returns a `<div class="wk-code-editor">` holding the editor. The editor
 fills the element's height when the app sets one (`height` in its CSS), and
-otherwise grows with its text.
+otherwise grows with its text. An editor measures its line heights when it
+first comes into view (CodeMirror's design), so one built off-screen settles
+its layout when it is scrolled to. After `destroy()`, setting `value` and
+`focus()` do nothing. Setting `value` while focus is in the editor (its find
+panel included) leaves focus in the text.
 
 | Option | | Default |
 |---|---|---|
@@ -100,7 +122,9 @@ otherwise grows with its text.
 | `onchange(value)` | called after each edit, not when the app sets `value` | |
 | `id` | the element's id | |
 
-**Event** `wk-change` (bubbles) after each edit: `detail` is `{ value }`.
+**Event** `wk-change` (bubbles) after each edit: `detail` is `{ value }`. It
+fires before `onchange` is called. `code.d.ts` adds it to
+`HTMLElementEventMap`, so `addEventListener('wk-change', …)` is typed.
 
 ### Languages
 
@@ -203,7 +227,8 @@ npm run test:browser   # the editor in Chrome
 ```
 
 Dependencies are build-time only (`devDependencies`), pinned exactly and
-locked; Dependabot proposes updates. After an update, rebuild and commit
+locked. Dependabot (`.github/dependabot.yml`) proposes updates weekly, with
+CodeMirror and Lezer grouped into one pull request. After an update, rebuild and commit
 `dist/`, including the regenerated `THIRD-PARTY-LICENSES.txt`.
 
 `npm test` checks that `dist/` matches a fresh build, that each module imports
