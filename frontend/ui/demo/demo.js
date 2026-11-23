@@ -164,7 +164,7 @@ ${section('choices', 'Checkbox, radio button, switch, select, filters, segmented
   </div>
 </div>`)}
 
-${section('chips', 'Chips and pills', `
+${section('chips', 'Chips', `
 <div class="demo-row">
   <span class="wk-chip">Label</span>
   <button class="wk-chip" type="button">Button chip</button>
@@ -174,8 +174,8 @@ ${section('chips', 'Chips and pills', `
   <span class="wk-chip"><span class="wk-dot" data-size="sm" data-tone="working" aria-hidden="true"></span>export · running</span>
   <span class="wk-chip"><span class="wk-dot" data-size="sm" aria-hidden="true"></span>check · 3 findings</span>
   <span class="wk-chip wk-chip--muted">No runs yet</span>
-  <span class="wk-chip wk-chip--lock">${icons.eye}View only</span>
-  <span class="wk-chip wk-chip--lock" data-level="manage">${icons.lock}Can manage</span>
+  <span class="wk-chip wk-chip--access">${icons.eye}View only</span>
+  <span class="wk-chip wk-chip--access" data-level="manage">${icons.lock}Can manage</span>
 </div>`, 'A count chip\'s number uses wk-color-text-secondary-on-selected, which reaches 4.5:1 on its tint and on a selected row. A chip may lead with a small status dot, then the item and its state in words; a muted (dashed) chip says something is absent.')}
 
 ${section('table', 'Table', `
@@ -365,9 +365,9 @@ ${section('section-headings', 'Section heading', `
 
 ${section('code', 'Code block', `
 <div class="demo-grid">
-  <div class="wk-codeblock"><code>join:v1:AAAA-BBBB-CCCC-DDDD-EEEE-FFFF</code><button class="wk-copy" type="button" aria-label="Copy the code" title="Copy">${icons.copy}</button></div>
-  <div class="wk-codeblock wk-codeblock--scroll"><pre tabindex="0" role="region" aria-label="Log">${Array.from({ length: 14 }, (_, i) => `12:${String(i).padStart(2, '0')}:07 step ${i + 1} finished`).join('\n')}</pre></div>
-</div>`, 'One value with the copy button; lines in a pre (wk-codeblock--scroll stops at 200 px; a pre that scrolls takes focus, with a role and a name, so the keyboard can scroll it).')}
+  <div class="wk-code"><code>join:v1:AAAA-BBBB-CCCC-DDDD-EEEE-FFFF</code><button class="wk-copy" type="button" aria-label="Copy the code" title="Copy">${icons.copy}</button></div>
+  <div class="wk-code wk-code--scroll"><pre tabindex="0" role="region" aria-label="Log">${Array.from({ length: 14 }, (_, i) => `12:${String(i).padStart(2, '0')}:07 step ${i + 1} finished`).join('\n')}</pre></div>
+</div>`, 'One value with the copy button; lines in a pre (wk-code--scroll stops at 200 px; a pre that scrolls takes focus, with a role and a name, so the keyboard can scroll it).')}
 
 ${section('range', 'Range', `
 <div class="demo-ranges" id="demo-ranges">

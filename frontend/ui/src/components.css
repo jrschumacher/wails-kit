@@ -193,7 +193,7 @@ textarea.wk-field { min-height: 64px; padding: 6px 8px; resize: vertical; }
 .wk-segmented input:disabled { cursor: default; }
 .wk-segmented input:disabled + span { color: var(--wk-color-text-secondary); opacity: .6; }
 
-/* ---- Chip and pill ----------------------------------------------------- */
+/* ---- Chip -------------------------------------------------------------- */
 .wk-chip {
   display: inline-flex; align-items: center; gap: 4px;
   min-height: 20px; padding: 0 8px;
@@ -212,10 +212,11 @@ button.wk-chip:disabled { opacity: .45; cursor: default; }
 .wk-chip > .wk-dot { margin-left: -3px; }
 /* Muted: a dashed chip that says something is absent ("No runs yet"). */
 .wk-chip--muted { border-style: dashed; font-weight: var(--wk-font-weight-medium); }
-/* Lock: what the person may do here ("View only", "Can manage"), its glyph
-   first. data-level="manage" reads in the text colour. */
-.wk-chip--lock > svg { width: var(--wk-font-size-xs); height: var(--wk-font-size-xs); flex: none; }
-.wk-chip--lock[data-level="manage"] { color: var(--wk-color-text); }
+/* Access: what the person may do here ("View only", "Can manage"), its
+   glyph first, sized to the text. data-level="manage" reads in the text
+   colour. */
+.wk-chip--access > svg { width: var(--wk-font-size-xs); height: var(--wk-font-size-xs); flex: none; }
+.wk-chip--access[data-level="manage"] { color: var(--wk-color-text); }
 
 /* ---- Table: row hairlines, no stripes ---------------------------------- */
 .wk-table { width: 100%; border-collapse: collapse; font-size: var(--wk-font-size-base); }
@@ -563,13 +564,13 @@ wk-dialog { display: contents; }
 /* ---- Code block: monospace text to copy or read exactly ---------------- */
 /* A <code> (one value) or a <pre> (lines), then optionally a wk-copy.
    --scroll stops a long <pre> at 200 px. */
-.wk-codeblock { display: flex; align-items: flex-start; gap: var(--wk-space-2); min-width: 0; padding: var(--wk-space-2) 10px; border: var(--wk-hairline-width) solid var(--wk-color-control-border); border-radius: var(--wk-radius-control); background: var(--wk-color-fill); }
-.wk-codeblock > pre, .wk-codeblock > code { flex: 1; min-width: 0; margin: 0; font-family: var(--wk-font-family-mono); font-size: var(--wk-font-size-sm); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-.wk-codeblock > code { word-break: break-all; }
-.wk-codeblock--scroll > pre { max-height: 200px; overflow-y: auto; }
+.wk-code { display: flex; align-items: flex-start; gap: var(--wk-space-2); min-width: 0; padding: var(--wk-space-2) 10px; border: var(--wk-hairline-width) solid var(--wk-color-control-border); border-radius: var(--wk-radius-control); background: var(--wk-color-fill); }
+.wk-code > pre, .wk-code > code { flex: 1; min-width: 0; margin: 0; font-family: var(--wk-font-family-mono); font-size: var(--wk-font-size-sm); line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.wk-code > code { word-break: break-all; }
+.wk-code--scroll > pre { max-height: 200px; overflow-y: auto; }
 /* A <pre> that scrolls takes focus (tabindex="0", role="region" and a name) so the keyboard can scroll it; its ring sits inside. */
-.wk-codeblock > pre:focus-visible, .wk-errorbox > pre:focus-visible { outline-offset: calc(-1 * var(--wk-focus-width)); }
-.wk-codeblock > .wk-button { margin: -4px -6px -4px 0; }
+.wk-code > pre:focus-visible, .wk-errorbox > pre:focus-visible { outline-offset: calc(-1 * var(--wk-focus-width)); }
+.wk-code > .wk-button { margin: -4px -6px -4px 0; }
 
 /* ---- Notice: a strip that names one problem or pending thing ----------- */
 /* An optional glyph, wk-notice-body (a bold first sentence, then a <p>) and
