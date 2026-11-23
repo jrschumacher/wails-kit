@@ -21,7 +21,8 @@
     "./themes/example.css": "./theme/example.css",
     "./dist/wails-kit-ui.css": "./dist/wails-kit-ui.css",
     "./dist/wails-kit-ui.js": "./dist/wails-kit-ui.js",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./fonts/*": "./fonts/*"
   },
   "sideEffects": [
     "./src/index.js",
@@ -34,6 +35,7 @@
     "src",
     "theme",
     "dist",
+    "fonts",
     "README.md"
   ],
   "scripts": {

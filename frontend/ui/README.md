@@ -35,14 +35,16 @@ Run this from the app's frontend directory, replacing the tag placeholder:
 tag='REPLACE_WITH_RELEASE_TAG'
 checkout=$(mktemp -d)
 git clone --depth 1 --branch "$tag" https://github.com/jrschumacher/wails-kit.git "$checkout"
-mkdir -p vendor/wails-kit-ui
+mkdir -p vendor/wails-kit-ui/fonts
 cp "$checkout/frontend/ui/dist/wails-kit-ui.css" vendor/wails-kit-ui/
 cp "$checkout/frontend/ui/dist/wails-kit-ui.js" vendor/wails-kit-ui/
+# Inter and its licence: the stylesheet loads them from fonts/ beside it.
+cp "$checkout/frontend/ui/dist/fonts/"* vendor/wails-kit-ui/fonts/
 # Optional TypeScript declarations, named to match the vendored JS module.
 cp "$checkout/frontend/ui/src/index.d.ts" vendor/wails-kit-ui/wails-kit-ui.d.ts
 printf 'Source: https://github.com/jrschumacher/wails-kit\nTag: %s\nCommit: %s\n' \
   "$tag" "$(git -C "$checkout" rev-parse HEAD)" > vendor/wails-kit-ui/SOURCES.md
-(cd vendor/wails-kit-ui && shasum -a 256 wails-kit-ui.css wails-kit-ui.js wails-kit-ui.d.ts > SHA256SUMS)
+(cd vendor/wails-kit-ui && shasum -a 256 wails-kit-ui.css wails-kit-ui.js wails-kit-ui.d.ts fonts/* > SHA256SUMS)
 ```
 
 Commit the vendored files, `SOURCES.md` and `SHA256SUMS` with the app. To update,
@@ -82,8 +84,31 @@ import { wkChart } from './vendor/wails-kit-ui/wails-kit-ui.js';
 
 `dist/wails-kit-ui.js` exports exactly what the package entry exports, and
 `dist/wails-kit-ui.css` is `src/ui.css` with its imports inlined. Neither loads
-anything else. The first line of each file names the package version; the tag,
+anything else, except the stylesheet's two font files from `fonts/` beside it. The first line of each file names the package version; the tag,
 commit and checksums recorded above identify the exact vendored release.
+
+## Font
+
+The kit sets everything in [Inter](https://rsms.me/inter/), and the package
+includes it: two variable woff2 files (weights 100 to 900), one for Latin
+(`Inter-latin.woff2`, 47 KB) and one for the rest of the Latin script
+(`Inter-latin-ext.woff2`, 83 KB). Each has an `@font-face` with a
+`unicode-range`, so a file loads only when the page shows one of its
+characters, and `font-display: swap`. Nothing comes from the network: desktop
+apps can't rely on a font CDN at run time. The faces are in `src/base.css`,
+pointing at the package's `fonts/` folder; `dist/wails-kit-ui.css` points at
+its own copy in `dist/fonts/`. A bundler copies whichever the stylesheet you
+import names. `--wk-font-features` turns on Inter's `cv11` (single-storey a)
+and `ss03` (open digits), and the base rule applies it.
+
+Inter is © The Inter Project Authors, under the SIL Open Font License 1.1
+(`fonts/OFL-Inter.txt`, also in `dist/fonts/`). The licence lets an app bundle
+and ship the font; keep the licence file with it.
+
+To opt out, set `--wk-font-family` in the app's theme to a stack without Inter.
+An `@font-face` that no element uses downloads nothing, so the files then never
+load. When vendoring, you can also leave out `fonts/`. The kit is designed and
+tested in Inter, so expect small differences in widths.
 
 ## Light and dark
 
@@ -239,7 +264,8 @@ renderers: `settingsModel(schema, values, errors)`, `conditionMet`,
 | `src/index.js` | the module entry: `kit.js` (custom elements), `chart.js`, `settings-model.js`, `settings.js` |
 | `src/index.d.ts` | TypeScript types |
 | `theme/theme.css`, `theme/example.css` | the theme file and an example theme |
-| `dist/wails-kit-ui.css`, `dist/wails-kit-ui.js` | the prebuilt files, committed and checked against `src/` |
+| `fonts/` | Inter (two variable woff2 files) and its licence, SIL OFL 1.1 |
+| `dist/wails-kit-ui.css`, `dist/wails-kit-ui.js`, `dist/fonts/` | the prebuilt files and a copy of the fonts, committed and checked against `src/` and `fonts/` |
 | `demo/` | review pages: `index.html`, `themed.html`, `dist.html`, `settings.html` |
 | `scripts/build.mjs` | builds `dist/` with no dependencies |
 | `test/` | the checks |

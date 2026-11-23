@@ -37,8 +37,8 @@
   --wk-color-destructive-text: #a3301f;
   --wk-color-chart-1: #3d4452;
   --wk-color-chart-3: #3f73c4;
-  --wk-font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  --wk-font-features: normal;
+  --wk-font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --wk-font-features: "cv11", "ss03";
   --wk-radius-control: 5px;
   --wk-radius-group: 7px;
 }

@@ -100,7 +100,7 @@ try {
         const { page, problems } = await open(url, { colorScheme: scheme });
         const font = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
         if (url === '/demo/themed.html') assert.match(font, /^"?Avenir Next"?,/);
-        else assert.match(font, /^system-ui,/);
+        else assert.match(font, /^Inter,/);
         const bg = await page.evaluate(() => getComputedStyle(document.querySelector('.wk-root')).backgroundColor);
         assert.equal(bg, scheme === 'light' ? 'rgb(252, 252, 251)' : 'rgb(24, 26, 31)');
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -1017,6 +1017,40 @@ try {
     assert.deepEqual(one, { top: 'solid', atStart: true, atEnd: false, count: 1 });
     assert.deepEqual(problems, []);
     await page.close();
+  });
+
+  await check('Inter: a wk-root page with no network loads the bundled Inter, from src/ and from dist/, with cv11 and ss03 on; latin-ext loads only when used', async () => {
+    for (const url of ['/demo/index.html', '/demo/dist.html']) {
+      const { page, problems } = await open(url);
+      const fonts = await page.evaluate(async () => {
+        await document.fonts.ready;
+        const loaded = () => [...document.fonts].filter(f => f.family.replace(/"/g, '') === 'Inter' && f.status === 'loaded').length;
+        const before = loaded();
+        const files = () => performance.getEntriesByType('resource').map(e => new URL(e.name).pathname).filter(n => n.endsWith('.woff2')).sort();
+        const fetchedBefore = files();
+        const check = document.fonts.check('13px Inter');
+        const root = getComputedStyle(document.querySelector('.wk-root'));
+        const p = document.createElement('p');
+        p.textContent = 'Łódź, Kraków, Þórsmörk';
+        document.body.append(p);
+        await document.fonts.load('13px Inter', p.textContent);
+        const after = loaded();
+        p.remove();
+        return { check, before, after, fetchedBefore, fetchedAfter: files(), features: root.fontFeatureSettings, family: root.fontFamily };
+      });
+      assert.equal(fonts.check, true, `${url}: document.fonts.check('13px Inter')`);
+      assert.equal(fonts.before, 1, `${url}: only the latin file loads for latin text`);
+      assert.equal(fonts.after, 2, `${url}: the latin-ext file loads for "Łódź"`);
+      // The package's own files, not a font installed on the machine.
+      const dir = url.includes('dist') ? '/dist/fonts/' : '/fonts/';
+      assert.deepEqual(fonts.fetchedBefore, [`${dir}Inter-latin.woff2`]);
+      assert.deepEqual(fonts.fetchedAfter, [`${dir}Inter-latin-ext.woff2`, `${dir}Inter-latin.woff2`]);
+      assert.equal(fonts.features, '"cv11", "ss03"');
+      assert.match(fonts.family, /^Inter,/);
+      // problems include any request that left the local server.
+      assert.deepEqual(problems, [], url);
+      await page.close();
+    }
   });
 
   // ---- The prebuilt module and the settings window ----

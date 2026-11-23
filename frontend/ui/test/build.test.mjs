@@ -2,12 +2,12 @@
 // exports exactly what src/index.js exports.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, rmSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { buildCss, buildJs } from '../scripts/build.mjs';
+import { buildCss, buildJs, fontFiles } from '../scripts/build.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const read = p => readFileSync(path.join(root, p), 'utf8');
@@ -15,6 +15,8 @@ const read = p => readFileSync(path.join(root, p), 'utf8');
 test('the committed dist/ matches a fresh build (run npm run build)', () => {
   assert.equal(read('dist/wails-kit-ui.css'), buildCss(), 'dist/wails-kit-ui.css is stale');
   assert.equal(read('dist/wails-kit-ui.js'), buildJs(), 'dist/wails-kit-ui.js is stale');
+  assert.deepEqual(readdirSync(path.join(root, 'dist', 'fonts')).sort(), fontFiles(), 'dist/fonts/ holds the files in fonts/');
+  for (const file of fontFiles()) assert.ok(readFileSync(path.join(root, 'dist', 'fonts', file)).equals(readFileSync(path.join(root, 'fonts', file))), `dist/fonts/${file} is stale`);
 });
 
 test('the built module parses, imports nothing, and exports what src/index.js exports', () => {
