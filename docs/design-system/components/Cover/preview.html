@@ -1,0 +1,73 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Muster</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--wk-color-bg); color: var(--wk-color-text); font-family: var(--wk-font-family); overflow: hidden; }
+  .cover { position: relative; width: 960px; height: 288px; overflow: hidden; }
+  .art { position: absolute; top: 0; left: 480px; width: 480px; height: 288px; overflow: hidden; }
+  .art svg { display: block; width: 480px; height: 288px; }
+  .acc { fill: var(--wk-color-accent); }
+  .ink { fill: var(--wk-color-text); }
+  .gold { fill: var(--wk-color-working); }
+  .red { fill: var(--wk-color-attention); }
+  .tint { fill: var(--wk-color-hairline-strong); }
+  .blk { rx: var(--wk-radius-group); }
+  .cut { fill: var(--wk-color-bg); }
+  .ring { fill: none; stroke: var(--wk-color-bg); stroke-width: 3; }
+  .dash { stroke-dasharray: 4 3.5; }
+  .pip { rx: var(--wk-radius-small); }
+  .pip-free { fill: none; stroke: var(--wk-color-bg); stroke-width: 3; }
+  .words { position: absolute; left: var(--wk-space-6); bottom: var(--wk-space-6); max-width: 440px; }
+  .name { margin: 0; font-size: 120px; line-height: .92; font-weight: 650; letter-spacing: -.03em; color: var(--wk-color-text); }
+  .tag { margin: var(--wk-space-2) 0 0 6px; font-size: var(--wk-font-size-base); line-height: 20px; color: var(--wk-color-text-secondary); }
+</style>
+</head>
+<body>
+<div class="cover">
+  <div class="art" aria-hidden="true">
+    <svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      wk-color-accent 160x232 slab bled off the top (the one accent, largest) · wk-color-text 288x160 bled off the right (the ink of every state) · wk-color-hairline-strong 128x56 and 144x56 bled off the top (relief) · wk-color-working 64x48 and wk-color-attention 32x32 small, because they only ever mean a state; about 40% of 960x288
+  arrangement one tall accent slab with satellites; the ink block and the slab share the bottom line wk-space-6 above the edge, wk-space-4 gutters
+  pattern     the system's own status language as a modular row: the six StatusDot shapes (filled, ringed, half, hollow, dashed, bar) cut into the ink block, and a 3x4 grid of slot Pips (busy filled, free outlined) cut into the accent slab, from "state never rides on colour alone; shapes carry it"
+  scales      sides in wk-space multiples (16, 24, 32); gutters wk-space-4; pip pitch wk-space-5, pip side wk-space-4; dot diameter wk-space-5 at a wk-space-6 pitch; corners wk-radius-group for blocks, wk-radius-small for pips
+-->
+      <rect class="acc blk" x="32" y="-8" width="160" height="232" rx="8"/>
+      <rect class="tint blk" x="208" y="-8" width="128" height="56" rx="8"/>
+      <rect class="ink blk" x="208" y="64" width="288" height="160" rx="8"/>
+      <rect class="gold blk" x="32" y="240" width="64" height="48" rx="8"/>
+      <rect class="red blk" x="112" y="240" width="32" height="32" rx="8"/>
+      <rect class="tint blk" x="352" y="-8" width="144" height="56" rx="8"/>
+      <!-- slot pips on the accent slab: 3 columns x 4 rows, 24px pitch -->
+      <rect class="cut pip" x="64" y="104" width="16" height="16" rx="3"/>
+      <rect class="cut pip" x="88" y="104" width="16" height="16" rx="3"/>
+      <rect class="pip pip-free" x="113.5" y="105.5" width="13" height="13" rx="3"/>
+      <rect class="cut pip" x="64" y="128" width="16" height="16" rx="3"/>
+      <rect class="pip pip-free" x="89.5" y="129.5" width="13" height="13" rx="3"/>
+      <rect class="pip pip-free" x="113.5" y="129.5" width="13" height="13" rx="3"/>
+      <rect class="cut pip" x="64" y="152" width="16" height="16" rx="3"/>
+      <rect class="cut pip" x="88" y="152" width="16" height="16" rx="3"/>
+      <rect class="cut pip" x="112" y="152" width="16" height="16" rx="3"/>
+      <rect class="pip pip-free" x="65.5" y="177.5" width="13" height="13" rx="3"/>
+      <rect class="pip pip-free" x="89.5" y="177.5" width="13" height="13" rx="3"/>
+      <rect class="cut pip" x="112" y="176" width="16" height="16" rx="3"/>
+      <!-- status-dot shapes on the ink block: one row, 32px pitch, 24px dots -->
+      <circle class="cut" cx="252" cy="144" r="12"/>
+      <circle class="ring" cx="284" cy="144" r="10.5"/><circle class="cut" cx="284" cy="144" r="4.5"/>
+      <circle class="ring" cx="316" cy="144" r="10.5"/><path class="cut" d="M316 132 A12 12 0 0 0 316 156 Z"/>
+      <circle class="ring" cx="348" cy="144" r="10.5"/>
+      <circle class="ring dash" cx="380" cy="144" r="10.5"/>
+      <circle class="ring" cx="412" cy="144" r="10.5"/><rect class="cut" x="403" y="140.5" width="18" height="7"/>
+    </svg>
+  </div>
+  <div class="words">
+    <h1 class="name">Muster</h1>
+    <p class="tag">Every computer counts.</p>
+  </div>
+</div>
+</body>
+</html>

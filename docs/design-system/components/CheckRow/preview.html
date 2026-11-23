@@ -1,0 +1,35 @@
+<!-- @dsCard group="Forms" height=380 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>CheckRow</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--wk-space-4); align-items: start; padding: var(--wk-space-4); }
+  .spec > div { display: flex; flex-direction: column; gap: var(--wk-space-3); min-width: 0; }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec">
+  <div class="wk-panel wk-panel--rows">
+    <div class="wk-settings-row"><label class="wk-check wk-check--row"><span>Only when plugged in</span><input class="wk-switch" type="checkbox" role="switch" checked></label></div>
+    <div class="wk-settings-row"><label class="wk-check wk-check--row"><span>Not during calls or video</span><input class="wk-switch" type="checkbox" role="switch"></label></div>
+    <div class="wk-settings-row"><label class="wk-check wk-check--row"><span class="wk-settings-label">Jobs at once<small class="wk-settings-help">HQ may allow fewer.</small></span><span class="wk-stepper"><input class="wk-field" type="text" inputmode="numeric" value="2"><span class="wk-stepper-arrows"><button type="button" aria-label="More"></button><button type="button" aria-label="Fewer"></button></span></span></label></div>
+    <div class="wk-settings-row"><label class="wk-check wk-check--row"><span class="wk-settings-label">Public repositories</span><select class="wk-select"><option>Follow HQ's default</option><option>Accept</option><option>Refuse</option></select></label><small class="wk-settings-help">Use a dedicated Linux agent for public repositories. Docker Desktop can't keep jobs off your home network.</small></div>
+  </div>
+  <div>
+    <div class="wk-panel">
+      <div class="wk-panel-row"><span>HQ access for <b>hq.schumacher.home</b></span><span class="wk-chip">Can manage</span></div>
+      <label class="wk-check wk-check--top"><input class="wk-checkbox" type="checkbox" checked disabled><span>See machines, jobs, history and repos</span></label>
+      <label class="wk-check wk-check--top"><input class="wk-checkbox" type="checkbox" checked disabled><span>Manage: invite, stop jobs, take machines off duty, revoke</span></label>
+    </div>
+    <label class="wk-check wk-check--top"><input class="wk-checkbox" type="checkbox"><span class="wk-check-text"><span>Allow public repositories on it</span><span class="wk-settings-help">Only if its owner also allows them. Use only for a dedicated Linux machine.</span></span></label>
+    <fieldset class="wk-panel" style="margin:0"><legend class="wk-label" style="padding:0">Lend this machine</legend>
+      <label class="wk-check"><input class="wk-radio" type="radio" name="mode" checked> When I'm away</label>
+      <label class="wk-check"><input class="wk-radio" type="radio" name="mode"> Always, even while I'm using it</label>
+    </fieldset>
+  </div>
+</div>
+</body>
+</html>

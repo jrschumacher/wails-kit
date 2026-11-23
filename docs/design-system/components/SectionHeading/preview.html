@@ -1,0 +1,34 @@
+<!-- @dsCard group="Containers" height=200 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SectionHeading</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--wk-space-5) var(--wk-space-5); padding: var(--wk-space-4); }
+  .spec > div { display: flex; flex-direction: column; gap: var(--wk-space-2); min-width: 0; }
+  .spec p { margin: 0; }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec">
+  <div>
+    <h3 class="wk-section-heading">Running and waiting</h3>
+    <p class="wk-secondary">A heading on its own.</p>
+  </div>
+  <div>
+    <h3 class="wk-section-heading">Machines <a class="wk-link" href="#machines">All machines</a></h3>
+    <p class="wk-secondary">With a link at the end.</p>
+  </div>
+  <div>
+    <h3 class="wk-section-heading">How this Mac helped <span class="wk-section-heading-aside">since it joined, 14 Mar</span></h3>
+    <p class="wk-secondary">With an aside that says what it counts.</p>
+  </div>
+  <div>
+    <h3 class="wk-section-heading wk-section-heading--rule">Work <span class="wk-section-heading-aside">last 14 days</span></h3>
+    <p class="wk-figure">129<span class="wk-secondary" style="font-size:var(--wk-font-size-md);font-weight:var(--wk-font-weight-regular)"> jobs · </span>11 h 24 m</p>
+  </div>
+</div>
+</body>
+</html>
