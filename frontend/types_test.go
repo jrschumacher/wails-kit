@@ -34,13 +34,14 @@ func TestSettingsTypeParity(t *testing.T) {
 
 	// Check struct fields via JSON tags
 	structs := map[string]reflect.Type{
-		"SelectOption":  reflect.TypeOf(settings.SelectOption{}),
+		"SelectOption":   reflect.TypeOf(settings.SelectOption{}),
 		"DynamicOptions": reflect.TypeOf(settings.DynamicOptions{}),
-		"Condition":     reflect.TypeOf(settings.Condition{}),
-		"Validation":    reflect.TypeOf(settings.Validation{}),
-		"Field":         reflect.TypeOf(settings.Field{}),
-		"Group":         reflect.TypeOf(settings.Group{}),
-		"Schema":        reflect.TypeOf(settings.Schema{}),
+		"Condition":      reflect.TypeOf(settings.Condition{}),
+		"Validation":     reflect.TypeOf(settings.Validation{}),
+		"Check":          reflect.TypeOf(settings.Check{}),
+		"Field":          reflect.TypeOf(settings.Field{}),
+		"Group":          reflect.TypeOf(settings.Group{}),
+		"Schema":         reflect.TypeOf(settings.Schema{}),
 	}
 
 	for name, typ := range structs {
@@ -56,11 +57,12 @@ func TestEventsTypeParity(t *testing.T) {
 
 	// Check event name constants
 	eventConstants := map[string]string{
-		"SettingsChanged":  events.SettingsChanged,
-		"UpdateAvailable":  updates.EventAvailable,
-		"UpdateDownloading": updates.EventDownloading,
-		"UpdateReady":      updates.EventReady,
-		"UpdateError":      updates.EventError,
+		"SettingsChanged":     events.SettingsChanged,
+		"SettingsCheckFailed": settings.EventCheckFailed,
+		"UpdateAvailable":     updates.EventAvailable,
+		"UpdateDownloading":   updates.EventDownloading,
+		"UpdateReady":         updates.EventReady,
+		"UpdateError":         updates.EventError,
 	}
 	for name, value := range eventConstants {
 		if !strings.Contains(ts, `"`+value+`"`) {
@@ -70,11 +72,12 @@ func TestEventsTypeParity(t *testing.T) {
 
 	// Check payload struct fields
 	payloads := map[string]reflect.Type{
-		"SettingsChangedPayload":  reflect.TypeOf(events.SettingsChangedPayload{}),
-		"UpdateAvailablePayload":  reflect.TypeOf(updates.AvailablePayload{}),
-		"UpdateDownloadingPayload": reflect.TypeOf(updates.DownloadingPayload{}),
-		"UpdateReadyPayload":      reflect.TypeOf(updates.ReadyPayload{}),
-		"UpdateErrorPayload":      reflect.TypeOf(updates.ErrorPayload{}),
+		"SettingsChangedPayload":     reflect.TypeOf(events.SettingsChangedPayload{}),
+		"SettingsCheckFailedPayload": reflect.TypeOf(settings.CheckFailedPayload{}),
+		"UpdateAvailablePayload":     reflect.TypeOf(updates.AvailablePayload{}),
+		"UpdateDownloadingPayload":   reflect.TypeOf(updates.DownloadingPayload{}),
+		"UpdateReadyPayload":         reflect.TypeOf(updates.ReadyPayload{}),
+		"UpdateErrorPayload":         reflect.TypeOf(updates.ErrorPayload{}),
 	}
 
 	for name, typ := range payloads {

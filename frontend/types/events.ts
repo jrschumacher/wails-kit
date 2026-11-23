@@ -10,6 +10,17 @@ export interface SettingsChangedPayload {
   keys: string[];
 }
 
+// Settings check events (settings/check.go)
+export const SettingsCheckFailed = "settings:check_failed" as const;
+
+export interface SettingsCheckFailedPayload {
+  key: string;
+  label: string;
+  message: string;
+  notice: string;
+  attention: boolean;
+}
+
 // Update events
 export const UpdateAvailable = "updates:available" as const;
 export const UpdateDownloading = "updates:downloading" as const;
@@ -41,6 +52,7 @@ export interface UpdateErrorPayload {
 // Event map for type-safe event subscription
 export interface EventMap {
   [SettingsChanged]: SettingsChangedPayload;
+  [SettingsCheckFailed]: SettingsCheckFailedPayload;
   [UpdateAvailable]: UpdateAvailablePayload;
   [UpdateDownloading]: UpdateDownloadingPayload;
   [UpdateReady]: UpdateReadyPayload;

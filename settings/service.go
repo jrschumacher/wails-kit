@@ -2,7 +2,9 @@ package settings
 
 import (
 	"sync"
+	"time"
 
+	"github.com/jrschumacher/wails-kit/events"
 	"github.com/jrschumacher/wails-kit/keyring"
 )
 
@@ -16,6 +18,12 @@ type Service struct {
 	secrets  keyring.Store
 	onChange []func(values map[string]any)
 	mu       sync.Mutex
+
+	emitter      *events.Emitter
+	checkTimeout time.Duration
+	checkMu      sync.Mutex
+	checkSeq     map[string]uint64
+	failures     map[string]ValidationError
 }
 
 type ServiceOption func(*Service)
@@ -77,7 +85,11 @@ func WithOnChange(fn func(values map[string]any)) ServiceOption {
 
 // NewService creates a new settings service.
 func NewService(opts ...ServiceOption) *Service {
-	s := &Service{}
+	s := &Service{
+		checkTimeout: DefaultCheckTimeout,
+		checkSeq:     make(map[string]uint64),
+		failures:     make(map[string]ValidationError),
+	}
 	for _, opt := range opts {
 		opt(s)
 	}

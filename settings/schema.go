@@ -1,5 +1,7 @@
 package settings
 
+import "context"
+
 type FieldType string
 
 const (
@@ -50,16 +52,35 @@ type Field struct {
 	DynamicOptions *DynamicOptions `json:"dynamicOptions,omitempty"`
 	Condition      *Condition      `json:"condition,omitempty"`
 	Validation     *Validation     `json:"validation,omitempty"`
+	Check          *Check          `json:"check,omitempty"`
 	Advanced       bool            `json:"advanced,omitempty"`
 }
 
+// Check marks a field whose value the back end checks before it applies (a
+// token, a path). The check itself is the group's CheckFuncs entry for the
+// field; Service.CheckValue runs it. Pending is the words shown beside the
+// field while the check runs, naming the work ("Checking token…"); the
+// settings window says "Checking…" without them.
+type Check struct {
+	Pending string `json:"pending,omitempty"`
+}
+
 type ComputeFunc func(values map[string]any) any
+
+// CheckFunc checks a field's value with the back end (a token against its
+// service, a path on disk). It returns nil when the value may apply. A
+// failure's message for the person is its *errors.UserError's user message
+// (errors.New with a code registered through errors.RegisterMessages); any
+// other error shows ErrCheckFailed's message. ctx ends at the check timeout
+// (WithCheckTimeout); it does not end when the window that asked closes.
+type CheckFunc func(ctx context.Context, value any, values map[string]any) error
 
 type Group struct {
 	Key          string                 `json:"key"`
 	Label        string                 `json:"label"`
 	Fields       []Field                `json:"fields"`
 	ComputeFuncs map[string]ComputeFunc `json:"-"`
+	CheckFuncs   map[string]CheckFunc   `json:"-"`
 }
 
 type Schema struct {

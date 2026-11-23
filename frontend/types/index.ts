@@ -4,6 +4,7 @@ export type {
   DynamicOptions,
   Condition,
   Validation,
+  Check,
   Field,
   Group,
   Schema,
@@ -11,6 +12,7 @@ export type {
 
 export {
   SettingsChanged,
+  SettingsCheckFailed,
   UpdateAvailable,
   UpdateDownloading,
   UpdateReady,
@@ -19,6 +21,7 @@ export {
 
 export type {
   SettingsChangedPayload,
+  SettingsCheckFailedPayload,
   UpdateAvailablePayload,
   UpdateDownloadingPayload,
   UpdateReadyPayload,

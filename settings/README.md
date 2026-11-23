@@ -168,6 +168,69 @@ settings.Group{
 }
 ```
 
+### Back-end checks
+
+Some values can only be checked by the back end: a token against its service, a path on disk. Give the field a `Check` (the words shown while it runs) and its group a `CheckFuncs` entry:
+
+```go
+settings.Group{
+    Key: "account",
+    Fields: []settings.Field{
+        {
+            Key:        "account.token",
+            Type:       settings.FieldPassword,
+            Label:      "API token",
+            Validation: &settings.Validation{Required: true},
+            Check:      &settings.Check{Pending: "Checking token…"},
+        },
+    },
+    CheckFuncs: map[string]settings.CheckFunc{
+        "account.token": func(ctx context.Context, value any, values map[string]any) error {
+            if err := client.Verify(ctx, value.(string)); err != nil {
+                return errors.New(ErrTokenRejected, "verify token", err) // its registered message shows under the field
+            }
+            return nil
+        },
+    },
+}
+```
+
+The settings window calls the `CheckValue(key, values)` binding for such a field instead of applying it: when the person leaves the field, and again 500 ms after they stop typing once it shows an error. `CheckValue`:
+
+- runs the field's own validation first, and returns its errors without calling the check;
+- runs the check under its own timeout (`WithCheckTimeout`, default 2 min), **not** the caller's context, so it carries on when Settings closes before it returns;
+- on a pass, saves `values` with `SetValues` and returns its reply; an empty value, and a password's `SecretMask`, pass without a check;
+- on a failure, saves nothing, records the failure (`CheckFailures()`), emits `settings:check_failed`, and returns a `ValidationError` with code `check`. The message is the error's `*errors.UserError` user message, else `ErrCheckFailed`'s; a raw error never reaches the person;
+- when a newer check for the same key has started, saves, records and emits nothing, and returns no errors.
+
+`CheckFailures()` returns the failures that haven't passed since, in schema order. When Settings opens, pass them in as its errors and open it on the first one (`<wk-settings>`'s `reveal(key)`).
+
+| Option | |
+|---|---|
+| `WithEmitter(*events.Emitter)` | emitter for `settings:check_failed` |
+| `WithCheckTimeout(d)` | how long a check may run (default `DefaultCheckTimeout`, 2 min) |
+
+**Event** `settings:check_failed` (`EventCheckFailed`), payload `CheckFailedPayload`:
+
+| Field | |
+|---|---|
+| `key`, `label` | the field |
+| `message` | its error, as Settings shows it |
+| `notice` | the main window's words: "Your API token wasn't saved." |
+| `attention` | true when the field is required: the app can't work without it, so the Notice takes the attention tone; neutral otherwise |
+
+The main window shows a Notice with `notice` and an "Open Settings" action when Settings isn't open; Settings opens on that field with its error.
+
+**Error codes**
+
+| Code | Message |
+|---|---|
+| `ErrCheckFailed` (`settings_check_failed`) | "Couldn't confirm this value. Check it and enter it again." (a check returned an error that isn't a `*errors.UserError`) |
+| `ErrCheckTimeout` (`settings_check_timeout`) | "The check took too long. Enter the value again to retry." |
+| `ErrUnknownSetting` (`settings_unknown_key`) | returned by `CheckValue` for a key the schema lacks |
+
+Validation codes: `CodeCheck` (`check`) joins `required`, `pattern`, `min_length`, `max_length`, `min`, `max`, `invalid_type` and `invalid_option`.
+
 ### Advanced fields
 
 Fields marked `Advanced: true` should be rendered behind a "Show advanced" toggle in the frontend.
@@ -181,11 +244,13 @@ Fields marked `Advanced: true` should be rendered behind a "Show advanced" toggl
 
 ## Frontend contract
 
-The frontend calls three Wails bindings:
+The frontend calls these Wails bindings:
 
 1. **`GetSchema()`** — returns JSON describing all fields, types, options, conditions
 2. **`GetValues()`** — returns current values with defaults and computed fields
 3. **`SetValues(values)`** — validates, saves, triggers `onChange` callbacks
+4. **`CheckValue(key, values)`** — for a field with a `Check`: checks it with the back end, then saves (see [Back-end checks](#back-end-checks))
+5. **`CheckFailures()`** — the back-end checks that failed, for Settings to show when it opens
 
 Render the schema with a generic loop:
 
