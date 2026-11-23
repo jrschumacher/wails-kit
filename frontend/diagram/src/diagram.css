@@ -1,0 +1,56 @@
+/* @wails-kit/diagram: the frame around a diagram. dist/diagram.js adopts
+   this sheet into the document (a constructable stylesheet, which a strict
+   CSP allows). It builds on @wails-kit/ui's stylesheet: the buttons, the
+   error box and the type are the kit's. Every colour comes from a token,
+   system colours only for forced colours; every selector starts with
+   .wk-diagram. */
+.wk-diagram { display: flex; flex-direction: column; gap: var(--wk-space-2); min-width: 0; height: 400px; font-family: var(--wk-font-family); color: var(--wk-color-text); }
+.wk-diagram-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wk-space-1); }
+.wk-diagram-toolbar-end { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wk-space-1); margin-left: auto; }
+.wk-diagram-note { color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+.wk-diagram-zoom { min-width: 4.5ch; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); font-variant-numeric: tabular-nums; text-align: right; }
+
+/* The viewport: the diagram pans and zooms inside it. */
+.wk-diagram-viewport {
+  position: relative; flex: 1 1 auto; min-height: 160px; overflow: hidden;
+  border: var(--wk-hairline-width) solid var(--wk-color-hairline-strong); border-radius: var(--wk-radius-group);
+  background: var(--wk-color-surface); cursor: grab; touch-action: none; user-select: none;
+}
+.wk-diagram-viewport[data-dragging] { cursor: grabbing; }
+.wk-diagram-viewport[data-state="error"], .wk-diagram-viewport[data-state="loading"] { cursor: default; }
+.wk-diagram-viewport:focus-visible { outline: var(--wk-focus-width) solid var(--wk-color-accent); outline-offset: calc(-1 * var(--wk-focus-width)); }
+.wk-diagram-canvas { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+.wk-diagram-canvas > svg { display: block; max-width: none; overflow: visible; }
+
+/* Working: after the quiet wait, a spinner in the middle of an empty
+   viewport, or in its corner over a diagram already shown. */
+.wk-diagram-status {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--wk-space-2);
+  color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); pointer-events: none;
+}
+.wk-diagram-status[hidden] { display: none; }
+.wk-diagram-status[data-over] { inset: var(--wk-space-2) var(--wk-space-2) auto auto; }
+.wk-diagram-spinner {
+  width: 16px; height: 16px; box-sizing: border-box; border-radius: 50%;
+  border: 2px solid var(--wk-color-hairline-strong); border-top-color: var(--wk-color-text-secondary);
+  animation: wk-diagram-spin .8s linear infinite;
+}
+@keyframes wk-diagram-spin { to { transform: rotate(360deg); } }
+/* A spinner keeps turning with reduced motion (a still one reads as frozen), more slowly. */
+@media (prefers-reduced-motion: reduce) { .wk-diagram-spinner { animation-duration: 1.6s; } }
+
+/* A failure: the kit's error box in place of the diagram. */
+.wk-diagram-error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: var(--wk-space-4); overflow: auto; cursor: auto; user-select: text; }
+.wk-diagram-error[hidden] { display: none; }
+
+/* The text alternative. */
+.wk-diagram-text > summary { color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); cursor: pointer; }
+.wk-diagram-text > pre { max-height: 160px; margin: var(--wk-space-1) 0 0; overflow: auto; padding: var(--wk-space-2) var(--wk-space-3); border: var(--wk-hairline-width) solid var(--wk-color-hairline); border-radius: var(--wk-radius-control); background: var(--wk-color-control); color: var(--wk-color-text); font-family: var(--wk-font-family-mono); font-size: var(--wk-font-size-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
+.wk-diagram-text > p { margin: var(--wk-space-1) 0 0; font-size: var(--wk-font-size-base); }
+
+@media (forced-colors: active) {
+  .wk-diagram-viewport { border-color: CanvasText; background: Canvas; }
+  .wk-diagram-viewport:focus-visible { outline-color: Highlight; }
+  .wk-diagram-canvas text, .wk-diagram-canvas tspan { fill: CanvasText !important; }
+  .wk-diagram-spinner { border-color: GrayText; border-top-color: CanvasText; }
+}
