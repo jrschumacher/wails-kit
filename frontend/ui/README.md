@@ -407,6 +407,7 @@ renderers: `settingsModel(schema, values, errors)`, `conditionMet`,
 | `theme/theme.css`, `theme/example.css` | the theme file and an example theme |
 | `theme/check.mjs` | the theme check, shipped: checks a theme against `THEMING.md` |
 | `THEMING.md` | the theme contract |
+| `BEHAVIOUR.md` | how components behave over time: the action lifecycle and its timings, feedback, undo and confirm, loading, retries, motion, accessibility and desktop behaviour |
 | `fonts/` | Inter (two variable woff2 files) and its licence, SIL OFL 1.1 |
 | `dist/wails-kit-ui.css`, `dist/wails-kit-ui.js`, `dist/fonts/` | the prebuilt files and a copy of the fonts, committed and checked against `src/` and `fonts/` |
 | `demo/` | review pages: `index.html`, `themed.html`, `dist.html`, `settings.html` |

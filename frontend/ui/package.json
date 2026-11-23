@@ -38,7 +38,8 @@
     "dist",
     "fonts",
     "README.md",
-    "THEMING.md"
+    "THEMING.md",
+    "BEHAVIOUR.md"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
