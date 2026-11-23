@@ -203,7 +203,7 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Component | Classes |
 |---|---|
 | Type scale | `wk-title`, `wk-title-2`, `wk-heading`, `wk-subheading`, `wk-body`, `wk-caption`, `wk-small`, `wk-secondary`, `wk-num`, `wk-mono`, `wk-figure` |
-| Button | `wk-button` with `--primary`, `--destructive`, `--quiet`, `--small`, `--icon`, `--locked` |
+| Button | `wk-button` with `--primary`, `--destructive`, `--quiet`, `--small`, `--icon`, `--locked`; busy with `aria-disabled="true"` and `data-busy` (see [Busy, spinner and progress](#busy-spinner-and-progress)) |
 | Link | `wk-link` (an `aria-expanded` link draws a disclosure chevron) |
 | Field | `wk-label`, `wk-field`, `wk-help`, `wk-error`; search field `wk-search` |
 | Checkbox, radio, switch | `wk-check`, `wk-checkbox`, `wk-radio`, `wk-switch` (`role="switch"`); `wk-check--row`, `wk-check--top` |
@@ -227,6 +227,7 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Range | `wk-range` on `<input type="range">`, drawn the same on WebKit and Chromium. The app sets `--wk-range-value` to the filled share (`el.style.setProperty('--wk-range-value', '60%')`, which a Content-Security-Policy allows where a `style` attribute is blocked) and updates it on `input`; show the value beside it in an `<output>`. |
 | Chart | `wk-chart`, built by `wkChart()` |
 | Diff | `wk-diff`, built by `wkDiff()` |
+| Spinner, progress bar | `wk-spinner`, `wk-progress`; see [Busy, spinner and progress](#busy-spinner-and-progress) |
 
 `demo/index.html` shows every component in each state it can show without a
 pointer, the tokens and every status dot. Serve the package folder (for
@@ -242,6 +243,8 @@ example `npx serve .`) and open `/demo/index.html`.
 | `<wk-tabs>` (`WkTabs`) | WAI-ARIA tabs with automatic activation; event `wk-change` |
 | `<wk-tooltip>` (`WkTooltip`) | WAI-ARIA tooltip on focus and after a hover delay (`delay="ms"`); event `wk-toggle` |
 | `syncSteppers(root?)` | redraws stepper arrows after the app sets a value itself |
+| `setProgress(bar, { done, total, unit?, text? }, { aria?, clock? })` | makes a `wk-progress` determinate and moves it, with its value attributes changing at most every 5 s; see [Busy, spinner and progress](#busy-spinner-and-progress) |
+| `timings`, `motion`, `reducedMotion()` | the action lifecycle's timings and the motion values, for scripts; see [Timings and motion](#timings-and-motion) |
 | `wkChart(spec)` | bars, stacked bars, or a line with a band, as plain SVG, with a legend, hover and keyboard readout, and a Chart/Table switch; colours from `--wk-color-chart-1` to `-5` (`tone` 1 to 5 or `"neutral"`) |
 | `niceTicks`, `labelStep`, `runs`, `roundedTop`, `roundedEnd`, `tableModel`, `readout` | the chart's layout rules, with no DOM |
 | `wkDiff(spec)` | a read-only diff of one or more files, unified or split, with collapsible files, word marks, keyboard navigation and "Show more" context; see [Diff](#diff) |
@@ -250,6 +253,123 @@ example `npx serve .`) and open `/demo/index.html`.
 Every element works when the app builds the DOM imperatively: it may be
 connected before its children exist, moved, or removed while open, and it
 removes everything it added to the document when it is disconnected.
+
+## Busy, spinner and progress
+
+[`BEHAVIOUR.md`](BEHAVIOUR.md) says when each of these shows; this is the
+markup.
+
+**Busy control.** While a control's action runs, give it
+`aria-disabled="true"` and `data-busy` at once, on the press; never
+`disabled`, which drops focus. It keeps its focus, its accessible name, its
+width and its pressed face (`--wk-color-fill-strong`), with the `progress`
+cursor, not the 45% disabled look. The kit drops a click, from the pointer
+or the keyboard, when the control pressed (the nearest `button`, `a[href]`,
+`input`, `select`, `summary`, or element with role `button`, `link`,
+`menuitem…`, `switch`, `checkbox`, `radio`, `tab` or `option`, to the click)
+itself has both `data-busy` and `aria-disabled="true"`, so a second press
+never reaches the app. Other controls inside a busy region (a Stop button in
+a busy row) still work, and `data-busy` without `aria-disabled` blocks
+nothing. The kit listens in the capture phase on `window`: the app's
+listeners on the document or below never see the dropped click, but a
+capture listener on `window` registered before the kit loaded still does. Styled for
+`wk-button` (every variant), `wk-filter`, `button.wk-chip`, `wk-copy` and
+`button.wk-link`. Remove both attributes when the work ends.
+
+**Spinner.** After the indicator delay (400 ms), a spinner takes the
+label's place in the button that started the work:
+
+```html
+<button class="wk-button" type="button" aria-disabled="true" data-busy>
+  <span class="wk-spinner" aria-hidden="true"></span>Export
+</button>
+```
+
+It sits over the label, which keeps its place (so the width holds) and stays
+in the accessible name; the label's text is painted transparent rather than
+hidden with `visibility: hidden`, which would drop it from the name. Icons in
+the button are hidden. 14 px, 12 px in a `wk-button--small`; drawn with a
+border in `currentColor`. On its own, name the work:
+`<span class="wk-spinner" role="progressbar" aria-label="Fetching runs">`. A
+spinner keeps turning under reduced motion.
+
+**Progress bar.** 4 px, a `--wk-color-working` fill on a
+`--wk-color-fill-strong` track, for panels, sheets and standalone regions; in
+a table or list row, progress is words beside the dot, with no bar. With no
+value attributes it is indeterminate: a sweep, or under reduced motion a slow
+fade in place.
+
+```html
+<div class="wk-progress" role="progressbar" aria-label="Copying files"></div>
+<span class="wk-caption">12 of 40 files</span>
+```
+
+```js
+import { setProgress } from '@wails-kit/ui';
+setProgress(bar, { done: 12, total: 40, unit: 'files' });
+// aria-valuemin="0" aria-valuemax="40" aria-valuenow="12" aria-valuetext="12 of 40 files"
+setProgress(bar, { done: 13, total: 40, unit: 'files' });         // within 5 s: the fill alone
+setProgress(bar, { done: 40, total: 40, unit: 'files' });         // finished: both, at once
+```
+
+`setProgress` moves the fill on every call: it sets `--wk-progress-value`
+(the filled share, through the CSSOM, which a Content-Security-Policy
+allows). The four value attributes change together, and at most every
+`timings.progressValueEvery` (5 s), so a screen reader isn't flooded: a call
+within 5 s of the last change moves the fill only, and the next call after
+that sets them. They change at once on the first call, when `done` reaches
+`total`, when `total` or `unit` differs from the last values set (so they
+never describe another total), and when `clock` reads earlier than the last
+set. New `text` alone waits for the next due update, so words that embed the
+count ("Step 2 of 3 · 12 of 40 files") can't defeat the cap; pass `aria:
+'now'` when the words must change at once. Nothing fires later by itself: if the updates stop inside the
+window, the attributes stay behind the fill until the next call, so pass
+`aria: 'now'` when the work pauses or changes stage. The task helper
+(`wkTask`, #142) does so on waiting, pause and each change of stage. `text` replaces the default words ("Step 2 of 3 · 12 of 40 files").
+Options: `aria: 'now'` sets them whatever the cap (a change of stage),
+`aria: false` never does (except on the first call, since a bar without
+`aria-valuenow` is indeterminate), and `clock` returns milliseconds for the
+cap (default `performance.now`). A `total` that isn't a positive number
+throws a `RangeError`. Progress only moves forward, and a bar never goes back
+to indeterminate: start a new bar instead. An app that sets
+`--wk-progress-value` itself sets the attributes too.
+
+In forced colours the fill is `Highlight` inside a `CanvasText` outline, the
+spinner keeps its border, and a button with a spinner is drawn in
+`ButtonFace` and `ButtonText` so its label stays hidden.
+
+## Timings and motion
+
+The timings in [`BEHAVIOUR.md`](BEHAVIOUR.md#timings), in milliseconds, for
+the task helper, toasts and the app's own code:
+
+```js
+import { timings, motion, reducedMotion } from '@wails-kit/ui';
+timings.indicatorDelay;   // 400: no indicator for work that ends sooner
+timings.indicatorMin;     // 500: an indicator, once shown, stays this long
+// stopDelay 10_000, waiting 30_000, timeout 120_000, estimateStable 5_000,
+// loadingLine 3_000, recheckDelay 500, toast 6_000, toastWithAction 10_000,
+// copied 2_000, progressValueEvery 5_000,
+// backoff [2_000, 4_000, 8_000, 16_000, 30_000] (the last repeats),
+// backoffJitter 0.2, wakeSettle 2_000
+motion;                   // { durationFast: 100, durationBase: 200, durationSlow: 300, easeOut, easeIn }
+reducedMotion();          // true while the system asks for reduced motion
+```
+
+Both objects are frozen. In CSS the same motion values are tokens:
+
+| Token | Value | For |
+|---|---|---|
+| `--wk-duration-fast` | 100ms | state changes: hover, press, a switch's thumb |
+| `--wk-duration-base` | 200ms | things appearing or moving: a menu, a toast, a row |
+| `--wk-duration-slow` | 300ms | large surfaces: a sheet |
+| `--wk-ease-out` | `cubic-bezier(.2, 0, 0, 1)` | things entering |
+| `--wk-ease-in` | `cubic-bezier(.4, 0, 1, 1)` | things leaving |
+
+Every transition in the kit uses a duration token. Under
+`prefers-reduced-motion: reduce`, transitions are instant or a fade of 100 ms
+at most and nothing slides; a component that animates from script checks
+`reducedMotion()`.
 
 ## Diff
 
@@ -402,7 +522,7 @@ renderers: `settingsModel(schema, values, errors)`, `conditionMet`,
 | Path | |
 |---|---|
 | `src/ui.css` | the stylesheet entry: `tokens.css`, `base.css`, `components.css`, `settings.css` |
-| `src/index.js` | the module entry: `kit.js` (custom elements), `chart.js`, `diff.js`, `settings-model.js`, `settings.js` |
+| `src/index.js` | the module entry: `kit.js` (custom elements, the busy control's press guard and `setProgress`), `motion.js` (timings and motion values, no DOM), `chart.js`, `diff.js`, `settings-model.js`, `settings.js` |
 | `src/index.d.ts` | TypeScript types |
 | `theme/theme.css`, `theme/example.css` | the theme file and an example theme |
 | `theme/check.mjs` | the theme check, shipped: checks a theme against `THEMING.md` |

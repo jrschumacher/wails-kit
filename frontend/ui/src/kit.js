@@ -20,11 +20,18 @@
 // arrow at the input's min or max. syncSteppers() redraws the arrows after the
 // app sets a value itself.
 //
+// A busy control (data-busy, with aria-disabled="true"; BEHAVIOUR.md) ignores
+// presses: this module stops its clicks, from the pointer or the keyboard,
+// before they reach the app. setProgress() sets a progress bar's fill and
+// its value attributes together.
+//
 // Every element works when the app builds the DOM imperatively: it may be
 // connected before its children exist (it wires itself when they arrive, and
 // rewires when they are replaced), moved (disconnected and reconnected), or
 // removed while open. Everything an element adds to the document, the window
 // or other elements is removed when it is disconnected.
+
+import { timings } from './motion.js';
 
 let uid = 0;
 // An id for el, keeping the one it has; a new one is free in the document.
@@ -764,6 +771,59 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('input', e => { if (e.target instanceof Element && e.target.matches('.wk-stepper > input')) syncSteppers(e.target.closest('.wk-stepper')); });
 
+// A busy control keeps focus and its name, and a second press does nothing:
+// aria-disabled alone doesn't stop a click, so drop it here, in the capture
+// phase on window, before the app's listeners on the document or below. Only
+// the control that was pressed counts: it must itself have data-busy and
+// aria-disabled="true", so other controls inside a busy region (a Stop
+// button in a busy row) still work.
+const PRESSABLE = 'button, a[href], input, select, summary, [role="button"], [role="link"], [role^="menuitem"], [role="switch"], [role="checkbox"], [role="radio"], [role="tab"], [role="option"]';
+window.addEventListener('click', e => {
+  const control = e.target instanceof Element && e.target.closest(PRESSABLE);
+  if (control && control.matches('[data-busy][aria-disabled="true"]')) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
+}, true);
+
+// Makes a wk-progress bar determinate and moves it: the fill follows done of
+// total at once, and aria-valuemin, -max, -now and -valuetext change
+// together (the words default to "12 of 40 files" from unit). The value
+// attributes change at most every timings.progressValueEvery (5 s), so a
+// screen reader isn't flooded: a call within that window moves the fill
+// only, and the next call after it sets them. They change at once on the
+// first call, when done reaches total, when total or unit differs from the
+// last values set (so they never describe another total), and when
+// the clock reads earlier than the last set (a different clock). New text
+// alone waits for the next due update, so text that embeds the count can't
+// defeat the cap; pass aria: 'now' when the words must change at once. Nothing
+// fires later by itself: updates that stop inside the window leave the
+// attributes behind the fill, so a caller that pauses passes aria: 'now'
+// (wkTask does on waiting, pause and a change of stage). options.aria: true
+// (the default) follows the cap, 'now' sets them whatever the cap, false
+// never sets them (except on the first call: a bar without aria-valuenow is
+// indeterminate). options.clock returns milliseconds (default
+// performance.now).
+const progressSet = new WeakMap();
+function setProgress(bar, { done = 0, total, unit = '', text } = {}, { aria = true, clock = () => performance.now() } = {}) {
+  const max = Number(total);
+  if (!Number.isFinite(max) || max <= 0) throw new RangeError(`setProgress: total must be a positive number, not ${total}`);
+  const now = Math.min(Math.max(Number(done) || 0, 0), max);
+  bar.style.setProperty('--wk-progress-value', `${Math.round(now / max * 10_000) / 100}%`);
+  const at = clock();
+  const last = progressSet.get(bar);
+  const first = !bar.hasAttribute('aria-valuenow') || !last;
+  const due = first || aria === 'now' || (aria && (
+    now >= max || max !== last.max || unit !== last.unit ||
+    at < last.at || at - last.at >= timings.progressValueEvery));
+  if (!due) return;
+  progressSet.set(bar, { at, max, unit });
+  bar.setAttribute('aria-valuemin', '0');
+  bar.setAttribute('aria-valuemax', String(max));
+  bar.setAttribute('aria-valuenow', String(now));
+  bar.setAttribute('aria-valuetext', text ?? `${now} of ${max}${unit ? ` ${unit}` : ''}`);
+}
+
 const define = (name, cls) => { if (!customElements.get(name)) customElements.define(name, cls); };
 define('wk-menu', WkMenu);
 define('wk-context-menu', WkContextMenu);
@@ -771,4 +831,4 @@ define('wk-tabs', WkTabs);
 define('wk-tooltip', WkTooltip);
 define('wk-dialog', WkDialog);
 
-export { WkMenu, WkContextMenu, WkTabs, WkTooltip, WkDialog, syncSteppers };
+export { WkMenu, WkContextMenu, WkTabs, WkTooltip, WkDialog, syncSteppers, setProgress };

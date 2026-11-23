@@ -355,12 +355,12 @@ Never put an error a person must act on in a toast: it disappears.
 
 - Motion explains a change, where something came from or went. It doesn't decorate,
   and it never blocks input: focus moves and controls work from the first frame.
-- Durations (*planned* tokens): `--wk-duration-fast` 100 ms for state changes (hover,
+- Durations (tokens): `--wk-duration-fast` 100 ms for state changes (hover,
   press, a switch's thumb), `--wk-duration-base` 200 ms for things appearing or moving
   (a menu, a toast, a row), `--wk-duration-slow` 300 ms for large surfaces (a sheet).
   Nothing longer than 300 ms on a direct response. Things leaving take about
   two-thirds of the time they took to enter.
-- Easing (*planned* tokens): `--wk-ease-out` for things entering, `--wk-ease-in` for
+- Easing (tokens): `--wk-ease-out` for things entering, `--wk-ease-in` for
   things leaving.
 - **Reduced motion:** with `prefers-reduced-motion: reduce`, transitions are instant or
   a fade of no more than 100 ms. Nothing slides, scales or zooms. Small in-place
@@ -454,8 +454,10 @@ A desktop app has places to show work that a web page doesn't. All of these are
 
 ## Building blocks
 
-All *planned*, except [Go task events](#go-task-events) (the `tasks` package). They
-implement the rules above; an app uses these instead of its own.
+They implement the rules above; an app uses these instead of its own. The timings and
+motion tokens, the progress bar and spinner (see the
+[README](README.md#busy-spinner-and-progress)), and [Go task events](#go-task-events)
+(the `tasks` package) ship; the rest are *planned*.
 
 ### wkTask
 
@@ -507,11 +509,12 @@ paused, stalled, done, failed, cancelled or stopped. See
 
 ### Timings and motion tokens
 
-`kit.js` exports `timings = Object.freeze({ indicatorDelay: 400, indicatorMin: 500,
+The package exports `timings = Object.freeze({ indicatorDelay: 400, indicatorMin: 500,
 stopDelay: 10_000, waiting: 30_000, timeout: 120_000, estimateStable: 5_000,
 loadingLine: 3_000, recheckDelay: 500, toast: 6_000, toastWithAction: 10_000, copied:
 2_000, progressValueEvery: 5_000, backoff: [2_000, 4_000, 8_000, 16_000, 30_000],
-backoffJitter: 0.2, wakeSettle: 2_000 })`. `tokens.css` sets `--wk-duration-fast`,
+backoffJitter: 0.2, wakeSettle: 2_000 })` from `src/motion.js`, with `motion` (the
+same values as the tokens) and `reducedMotion()`. `tokens.css` sets `--wk-duration-fast`,
 `--wk-duration-base`, `--wk-duration-slow`, `--wk-ease-in` and `--wk-ease-out`.
 
 ### Progress bar and spinner
@@ -522,11 +525,18 @@ backoffJitter: 0.2, wakeSettle: 2_000 })`. `tokens.css` sets `--wk-duration-fast
   tall, a `--wk-color-fill-strong` track and a `--wk-color-working` fill. Bars go in
   panels, sheets and standalone regions; in a table or list row, progress is words
   beside the dot, with no bar. On failure the bar goes and the words take its place.
+  `setProgress(bar, { done, total, unit })` moves the fill on every call and changes
+  the value attributes together, at most every 5 s (at once on the first call, when
+  done, and when the total or unit changes; new words alone wait for the next update;
+  `{ aria: 'now' }` forces it). It sets no timer, so `wkTask` passes `aria: 'now'` on
+  waiting, pause and each change of stage, and the attributes never stay behind the
+  fill while the work stands still.
 - **Spinner:** in a button, `<span class="wk-spinner" aria-hidden="true">`; on its own,
   `<span class="wk-spinner" role="progressbar" aria-label="Fetching runs">`. 12 px in a
   small button and 14 px otherwise, drawn with a border in `currentColor`. In a button
-  it takes the label's place, and the label is hidden with `visibility: hidden` so the
-  width holds; the accessible name doesn't change.
+  it takes the label's place, and the label keeps its place so the width holds; the
+  accessible name doesn't change. (The label's text is painted transparent: `visibility:
+  hidden` would drop it from the accessible name.)
 
 ### Toast
 
@@ -567,9 +577,6 @@ indicator.
 
 Where shipped code doesn't yet follow this page:
 
-- `.wk-button[aria-disabled="true"]` dims to 45% and drops the pressed face, so a busy
-  button (`aria-disabled` plus `data-busy`) would look disabled; `[data-busy]` must
-  override it.
 - The diff view's "Show more" button sets `disabled` while loading, which drops focus,
   and each hunk has its own `aria-live` note instead of the shared announcer.
 - The settings window validates on `change` only: it doesn't re-check as the person
@@ -577,9 +584,8 @@ Where shipped code doesn't yet follow this page:
   check is still running. It marks a tab with attention but shows no window Notice
   ("2 settings need attention."), and an empty required setting shows its error only
   after the app passes errors in, not when the window opens.
-- The switch's transition is 120 ms, not `--wk-duration-fast` (100 ms); the token will
-  set it.
 - `wk-copy` is styling only: the app copies, and nothing gives feedback.
-- The Button card documents `disabled` and the locked state, but no busy state.
+- The design system's Button card documents `disabled` and the locked state, but no
+  busy state; the kit's README documents it.
 - `shortcuts` adds Edit > Undo only as the native role, which undoes text editing; an
   app can't yet label it or route it to its own undo.
