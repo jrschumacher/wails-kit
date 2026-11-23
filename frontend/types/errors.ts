@@ -1,4 +1,4 @@
-// Error types — mirrors errors/errors.go and updates/service.go
+// Error types — mirrors errors/errors.go, updates/service.go and tasks/tasks.go
 // Kept in sync via Go reflection test in frontend/types_test.go
 
 export type ErrorCode =
@@ -22,7 +22,13 @@ export type ErrorCode =
   | "update_check"
   | "update_download"
   | "update_apply"
-  | "update_verify";
+  | "update_verify"
+  // Task error codes (tasks package)
+  | "tasks_not_found"
+  | "tasks_duplicate_id"
+  | "tasks_invalid_spec"
+  | "tasks_invalid_state"
+  | "tasks_unsupported";
 
 export interface UserError {
   code: ErrorCode;

@@ -44,6 +44,10 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 ┌──────────┐────▶ appdirs, errors, events (optional)
 │  state   │
 └──────────┘
+
+┌──────────┐────▶ errors, events (optional)
+│  tasks   │
+└──────────┘
 ```
 
 - `errors`, `events`, and `appdirs` are leaf packages with no kit dependencies
@@ -57,6 +61,7 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 - `logging` depends on `appdirs` for log directory paths
 - `shortcuts` depends on `events` (optional) and `wails/v3` for native menu APIs
 - `state` depends on `appdirs` and `errors`; optionally depends on `events`
+- `tasks` depends on `errors`; optionally depends on `events` (it emits `tasks:changed`, a snapshot of the whole task list, whose shape `@wails-kit/types` mirrors in `TaskSnapshot`)
 - `settings/templates/anyllm` depends on `settings` and `any-llm-go` (external); provides LLM provider settings integration
 
 ### Frontend packages

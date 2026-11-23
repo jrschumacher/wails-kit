@@ -10,6 +10,7 @@ import (
 	"github.com/jrschumacher/wails-kit/errors"
 	"github.com/jrschumacher/wails-kit/events"
 	"github.com/jrschumacher/wails-kit/settings"
+	"github.com/jrschumacher/wails-kit/tasks"
 	"github.com/jrschumacher/wails-kit/updates"
 )
 
@@ -61,6 +62,7 @@ func TestEventsTypeParity(t *testing.T) {
 		"UpdateDownloading": updates.EventDownloading,
 		"UpdateReady":      updates.EventReady,
 		"UpdateError":      updates.EventError,
+		"TasksChanged":     tasks.EventChanged,
 	}
 	for name, value := range eventConstants {
 		if !strings.Contains(ts, `"`+value+`"`) {
@@ -75,6 +77,7 @@ func TestEventsTypeParity(t *testing.T) {
 		"UpdateDownloadingPayload": reflect.TypeOf(updates.DownloadingPayload{}),
 		"UpdateReadyPayload":      reflect.TypeOf(updates.ReadyPayload{}),
 		"UpdateErrorPayload":      reflect.TypeOf(updates.ErrorPayload{}),
+		"TasksChangedPayload":     reflect.TypeOf(tasks.ChangedPayload{}),
 	}
 
 	for name, typ := range payloads {
@@ -109,6 +112,11 @@ func TestErrorsTypeParity(t *testing.T) {
 		updates.ErrUpdateDownload,
 		updates.ErrUpdateApply,
 		updates.ErrUpdateVerify,
+		tasks.ErrNotFound,
+		tasks.ErrDuplicateID,
+		tasks.ErrInvalidSpec,
+		tasks.ErrInvalidState,
+		tasks.ErrUnsupported,
 	}
 
 	for _, code := range codes {
@@ -119,6 +127,31 @@ func TestErrorsTypeParity(t *testing.T) {
 
 	// Check UserError fields
 	checkJSONFields(t, ts, "UserError", reflect.TypeOf(errors.UserError{}))
+}
+
+// TestTasksTypeParity checks the tasks:changed snapshot contract: every state,
+// retry policy and stop mode, and every field of the snapshot and its error.
+func TestTasksTypeParity(t *testing.T) {
+	ts := readFile(t, "types/tasks.ts")
+
+	for _, s := range tasks.States {
+		if !strings.Contains(ts, `"`+string(s)+`"`) {
+			t.Errorf("TaskState %q missing from tasks.ts", s)
+		}
+	}
+	for _, r := range []tasks.RetryPolicy{tasks.RetryAuto, tasks.RetryManual, tasks.RetryUnsafe} {
+		if !strings.Contains(ts, `"`+string(r)+`"`) {
+			t.Errorf("TaskRetry %q missing from tasks.ts", r)
+		}
+	}
+	for _, m := range []tasks.StopMode{tasks.StopCancel, tasks.StopStop, tasks.StopStopAsks, tasks.StopPause, tasks.StopUnsafe} {
+		if !strings.Contains(ts, `"`+string(m)+`"`) {
+			t.Errorf("TaskStop %q missing from tasks.ts", m)
+		}
+	}
+
+	checkJSONFields(t, ts, "TaskSnapshot", reflect.TypeOf(tasks.Snapshot{}))
+	checkJSONFields(t, ts, "TaskError", reflect.TypeOf(tasks.ErrorInfo{}))
 }
 
 // checkJSONFields verifies that every exported JSON-tagged field in a Go struct
