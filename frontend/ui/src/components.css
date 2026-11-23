@@ -606,7 +606,8 @@ wk-dialog { display: contents; }
    words that changed inside a paired line are a <mark class="wk-diff-word">
    on the stronger tint. The gutter, the markers and the screen-reader labels
    cannot be selected, so copying takes the code alone. diff.js sets
-   --wk-diff-digits on a body to the width of its largest line number. */
+   --wk-diff-digits on a body to the width of its largest line number, and
+   --wk-diff-indent on a code cell (see the hanging indent below). */
 .wk-diff { display: flex; flex-direction: column; gap: var(--wk-space-3); min-width: 0; }
 .wk-diff:focus-visible { outline-offset: var(--wk-focus-offset); }
 .wk-diff-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--wk-space-2) var(--wk-space-3); }
@@ -630,6 +631,8 @@ wk-dialog { display: contents; }
 .wk-diff-hunk:focus-visible { outline-offset: calc(-1 * var(--wk-focus-width)); }
 .wk-diff-hunk-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .wk-diff-more.wk-link { font-family: var(--wk-font-family); font-size: var(--wk-font-size-sm); }
+.wk-diff-more-note { color: var(--wk-color-text-secondary); font-family: var(--wk-font-family); font-size: var(--wk-font-size-sm); }
+.wk-diff-more-note:empty { display: none; }
 .wk-diff-line { display: grid; grid-template-columns: calc(var(--wk-diff-digits) * 1ch + 20px) calc(var(--wk-diff-digits) * 1ch + 20px) 1.75em minmax(0, 1fr); }
 .wk-diff-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .wk-diff-half { display: grid; grid-template-columns: calc(var(--wk-diff-digits) * 1ch + 20px) 1.75em minmax(0, 1fr); min-width: 0; }
@@ -643,6 +646,9 @@ wk-dialog { display: contents; }
 [data-kind="add"] > .wk-diff-mark, [data-kind="del"] > .wk-diff-mark { color: var(--wk-color-text); font-weight: var(--wk-font-weight-semibold); }
 .wk-diff-code { min-width: 0; padding-right: var(--wk-space-3); color: var(--wk-color-text); white-space: pre; tab-size: 4; }
 .wk-diff-body[data-wrap] .wk-diff-code { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* A wrapped line hangs under its own indent: diff.js sets --wk-diff-indent
+   on the cell to its leading whitespace, in columns. */
+.wk-diff-body[data-wrap] .wk-diff-code { padding-inline-start: calc(var(--wk-diff-indent, 0) * 1ch); text-indent: calc(var(--wk-diff-indent, 0) * -1ch); }
 .wk-diff-word { border-radius: 2px; background: var(--wk-color-diff-add-strong); color: inherit; }
 [data-kind="del"] .wk-diff-word { background: var(--wk-color-diff-del-strong); }
 .wk-diff-eof { grid-column: -2; padding: 0 var(--wk-space-3) 2px 0; color: var(--wk-color-text-secondary); font-family: var(--wk-font-family); font-size: var(--wk-font-size-xs); }
@@ -684,6 +690,6 @@ wk-dialog { display: contents; }
   .wk-diff-pair { border-inline-start: 0; }
   .wk-diff-line[data-kind="add"], .wk-diff-half[data-kind="add"] { border-inline-start: 4px solid CanvasText; }
   .wk-diff-line[data-kind="del"], .wk-diff-half[data-kind="del"] { border-inline-start: 4px dashed CanvasText; }
-  .wk-diff-word { forced-color-adjust: none; background: Canvas; color: CanvasText; text-decoration: underline; text-decoration-thickness: 2px; }
+  .wk-diff-word, [data-kind="add"] .wk-diff-word, [data-kind="del"] .wk-diff-word { forced-color-adjust: none; background: Canvas; color: CanvasText; text-decoration: underline; text-decoration-thickness: 2px; }
   .wk-diff-hunk { border-color: GrayText; }
 }

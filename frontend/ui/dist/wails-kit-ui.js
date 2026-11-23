@@ -1147,7 +1147,8 @@ export function wkChart(spec) {
 //     view: 'unified' | 'split', onview: view => {},
 //     wrap: false,                      // unified: long lines wrap (true) or scroll (false);
 //                                       // the split view always wraps, so its halves stay aligned
-//     collapseAbove: 400,               // files with more lines than this start collapsed
+//     collapseAbove: 400,               // files with more lines than this start collapsed,
+//     collapseCharsAbove: 200000,       // and so do files with more characters than this
 //     generated: file => false,         // generated files start collapsed
 //     headingLevel: 3,                  // each file's header is a heading of this level
 //     highlight: (file, line) => fragment,  // optional syntax highlighting of one line
@@ -1155,6 +1156,9 @@ export function wkChart(spec) {
 //                                       // range { oldStart, oldEnd, newStart, newEnd } (1-based,
 //                                       // inclusive); returns strings, or a promise of them
 //     contextStep: 20,                  // lines one "Show more" reveals
+//     emptyText: 'No changes',          // shown for a diff with no files
+//     onrender: (fileElement, file) => {},  // after a file's rows are built: when it is
+//                                       // first expanded and on every rebuild (a view switch)
 //   }) -> <section class="wk-diff">
 //
 // Keys, while focus is in the diff: n and p move to the next or previous hunk,
@@ -1176,22 +1180,31 @@ function unquote(path) {
   }
   return new TextDecoder().decode(new Uint8Array(bytes));
 }
-// A path from a ---/+++ line, without its timestamp or its a/ or b/ prefix.
-const strip = (path, prefix) => {
-  const p = unquote(path.split('\t')[0].trim());
-  return p.startsWith(prefix) ? p.slice(2) : p;
-};
-// The two paths of "diff --git a/x b/y". With spaces in the names the split is
-// ambiguous; equal halves win, and the ---/+++ or rename lines that follow
-// settle the rest.
-function gitPaths(rest) {
-  const quoted = rest.match(/^("(?:[^"\\]|\\.)*"|\S+) ("(?:[^"\\]|\\.)*"|\S+)$/);
-  if (rest.startsWith('"') && quoted) return [strip(quoted[1], 'a/'), strip(quoted[2], 'b/')];
-  const half = (rest.length - 1) / 2;
-  if (Number.isInteger(half) && rest[half] === ' ' && rest.slice(2, half) === rest.slice(half + 3)) return [rest.slice(2, half), rest.slice(half + 3)];
-  if (quoted) return [strip(quoted[1], 'a/'), strip(quoted[2], 'b/')];
-  const m = rest.match(/^a\/(.*) b\/(.*)$/);
-  return m ? [m[1], m[2]] : [rest, rest];
+// A path from a ---/+++ line, without git's quotes or diff's timestamp.
+const field = path => unquote(path.split('\t')[0].trim());
+// git puts a prefix on each side's path: a/ and b/ by default; c/, i/, w/ or
+// o/ with diff.mnemonicPrefix; anything with --src-prefix and --dst-prefix;
+// nothing with --no-prefix. Two paths name one file when they are equal (no
+// prefix) or differ only in a first folder each (the prefixes): the file's
+// path and each side's prefix, or null.
+function samePath(a, b) {
+  if (a === b) return { path: a, prefixes: ['', ''] };
+  const cut = p => { const i = p.indexOf('/'); return i > 0 ? [p.slice(0, i + 1), p.slice(i + 1)] : null; };
+  const x = cut(a), y = cut(b);
+  return x && y && x[1] && x[1] === y[1] ? { path: x[1], prefixes: [x[0], y[0]] } : null;
+}
+// The file "diff --git <old> <new>" names when both sides name the same one
+// (anything but a rename or a copy, whose own lines name the paths). With
+// spaces in the name, the first split that names one file wins.
+function gitHeader(rest) {
+  const quoted = /^"(?:[^"\\]|\\.)*"$/;
+  for (let i = rest.indexOf(' '); i > 0; i = rest.indexOf(' ', i + 1)) {
+    const a = rest.slice(0, i), b = rest.slice(i + 1);
+    if (a.startsWith('"') !== quoted.test(a) || b.startsWith('"') !== quoted.test(b)) continue;
+    const same = samePath(unquote(a), unquote(b));
+    if (same) return same;
+  }
+  return null;
 }
 
 /**
@@ -1210,7 +1223,7 @@ export function parseUnifiedDiff(text) {
   const files = [];
   let file = null, hunk = null, oldLeft = 0, newLeft = 0, oldNo = 0, newNo = 0, binaryPatch = false;
   const begin = git => {
-    file = { path: '', oldPath: '', status: 'modified', binary: false, oldMode: null, newMode: null, additions: 0, deletions: 0, hunks: [], git, sawOld: false };
+    file = { path: '', oldPath: '', status: 'modified', binary: false, oldMode: null, newMode: null, additions: 0, deletions: 0, hunks: [], git, sawOld: false, named: false, rawOld: null, rawNew: null };
     files.push(file); hunk = null; binaryPatch = false;
   };
   const last = () => hunk?.lines.at(-1);
@@ -1228,7 +1241,8 @@ export function parseUnifiedDiff(text) {
     if (line.startsWith('\\')) { if (last()) last().noNewline = true; continue; }
     if (line.startsWith('diff --git ')) {
       begin(true);
-      [file.oldPath, file.path] = gitPaths(line.slice(11));
+      const same = gitHeader(line.slice(11));
+      if (same) { file.path = file.oldPath = same.path; file.named = true; }
       continue;
     }
     const range = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@ ?(.*)$/);
@@ -1244,11 +1258,11 @@ export function parseUnifiedDiff(text) {
     if (!file) continue; // text before the first file (a commit message)
     if (line.startsWith('--- ')) {
       file.sawOld = true; hunk = null;
-      const p = strip(line.slice(4), 'a/');
-      if (p === '/dev/null') file.status = 'added'; else file.oldPath = p;
+      const p = field(line.slice(4));
+      if (p === '/dev/null') file.status = 'added'; else file.rawOld = p;
     } else if (line.startsWith('+++ ')) {
-      const p = strip(line.slice(4), 'b/');
-      if (p === '/dev/null') file.status = 'deleted'; else file.path = p;
+      const p = field(line.slice(4));
+      if (p === '/dev/null') file.status = 'deleted'; else file.rawNew = p;
     } else if (line.startsWith('new file mode ')) { file.status = 'added'; file.newMode = line.slice(14).trim(); }
     else if (line.startsWith('deleted file mode ')) { file.status = 'deleted'; file.oldMode = line.slice(18).trim(); }
     else if (line.startsWith('old mode ')) file.oldMode = line.slice(9).trim();
@@ -1265,8 +1279,22 @@ export function parseUnifiedDiff(text) {
       if (m && m[2] === '/dev/null') file.status = 'deleted';
     }
   }
+  // Paths from the ---/+++ lines, when nothing better named them: without
+  // the prefixes those lines show, or the ones an earlier file showed when
+  // one side is /dev/null; unchanged when there is no prefix to see.
+  let prefixes = null;
   return files.map(f => {
-    const { git, sawOld, ...out } = f;
+    const { git, sawOld, named, rawOld, rawNew, ...out } = f;
+    const renamed = out.status === 'renamed' || out.status === 'copied';
+    if (!named && !renamed && (rawOld != null || rawNew != null)) {
+      const same = rawOld != null && rawNew != null ? samePath(rawOld, rawNew) : null;
+      if (same) { out.path = same.path; if (same.prefixes[0]) prefixes = same.prefixes; }
+      else if (rawNew != null && rawOld != null) out.path = rawNew; // two files compared by name: show the new one
+      else {
+        const raw = rawOld ?? rawNew, prefix = prefixes?.[rawOld != null ? 0 : 1];
+        out.path = prefix && raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
+      }
+    }
     if (!out.path) out.path = out.oldPath;
     if (out.status !== 'renamed' && out.status !== 'copied') out.oldPath = out.path;
     if (out.status === 'renamed' && out.oldPath === out.path) out.status = 'modified';
@@ -1278,13 +1306,13 @@ export function parseUnifiedDiff(text) {
  * The split view's rows for a hunk's lines: [{ left, right }], each side a
  * line or null. A context line sits on both sides; a run of removed lines and
  * the run of added lines after it pair up row by row, the longer run's rest
- * facing an empty side.
+ * facing an empty side. A line of any other kind is treated as context.
  */
 export function diffSplitRows(lines) {
   const rows = [];
   for (let i = 0; i < lines.length;) {
     const line = lines[i];
-    if (line.kind === 'context') { rows.push({ left: line, right: line }); i++; continue; }
+    if (line?.kind !== 'del' && line?.kind !== 'add') { rows.push({ left: line, right: line }); i++; continue; }
     const dels = [], adds = [];
     while (i < lines.length && lines[i].kind === 'del') dels.push(lines[i++]);
     while (i < lines.length && lines[i].kind === 'add') adds.push(lines[i++]);
@@ -1293,7 +1321,12 @@ export function diffSplitRows(lines) {
   return rows;
 }
 
-const TOKEN = /\s+|[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu;
+// Words keep their combining marks; an emoji keeps its modifiers and the
+// emoji joined to it (a ZWJ sequence), and a flag both its letters.
+const TOKEN = /\s+|[\p{L}\p{M}\p{N}_]+|\p{RI}\p{RI}|\p{Extended_Pictographic}[\p{M}\p{Emoji_Modifier}]*(?:\u200d\p{Extended_Pictographic}[\p{M}\p{Emoji_Modifier}]*)*|[^\s\p{L}\p{M}\p{N}_]\p{M}*/gu;
+// Lines longer than this get no word marks: comparing them would cost more
+// than the marks are worth (a minified file, say).
+const WORD_LINE_MAX = 10000;
 const tokenize = text => [...text.matchAll(TOKEN)].map(m => ({ text: m[0], start: m.index, end: m.index + m[0].length }));
 
 /**
@@ -1301,9 +1334,11 @@ const tokenize = text => [...text.matchAll(TOKEN)].map(m => ({ text: m[0], start
  * (`after`) that differ, word by word, as [start, end) character ranges:
  * { del: [[s, e], …], add: [[s, e], …] }. Lines with no word in common get no
  * ranges (the whole line changed; the row's tint says so). Above `limit`
- * (tokens before × tokens after) only the common start and end are matched.
+ * (tokens before × tokens after) only the common start and end are matched;
+ * a line longer than 10,000 characters gets no ranges.
  */
 export function diffWordRanges(before, after, limit = 40000) {
+  if (before.length > WORD_LINE_MAX || after.length > WORD_LINE_MAX) return { del: [], add: [] };
   const a = tokenize(before), b = tokenize(after);
   let p = 0;
   while (p < a.length && p < b.length && a[p].text === b[p].text) p++;
@@ -1340,19 +1375,37 @@ export function diffWordRanges(before, after, limit = 40000) {
 }
 
 // Files from a diff string or from the app, copied so the view can add the
-// context it fetches, with counts and line numbers filled in.
+// context it fetches, with counts and line numbers filled in. A line of an
+// unknown kind becomes context.
+const KINDS = new Set(['context', 'add', 'del']);
 function normalize(input) {
   const files = typeof input === 'string' ? parseUnifiedDiff(input) : (input || []);
   return files.map(f => {
     const hunks = (f.hunks || []).map(h => {
       const range = (h.header || '').match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@ ?(.*)$/);
-      const lines = (h.lines || []).map(l => ({ ...l, old: l.old ?? null, new: l.new ?? null, text: l.text ?? '' }));
-      const first = k => lines.find(l => l[k] != null)?.[k];
-      const count = k => lines.filter(l => l[k] != null).length;
-      const oldStart = h.oldStart ?? (range ? +range[1] : first('old') ?? 0);
-      const newStart = h.newStart ?? (range ? +range[3] : first('new') ?? 0);
-      const oldLines = h.oldLines ?? (range ? (range[2] == null ? 1 : +range[2]) : count('old'));
-      const newLines = h.newLines ?? (range ? (range[4] == null ? 1 : +range[4]) : count('new'));
+      // Any kind but add and del is context, so every line has a place.
+      const kinds = (h.lines || []).map(l => ({ ...l, kind: KINDS.has(l.kind) ? l.kind : 'context', text: String(l.text ?? '') }));
+      const on = side => kinds.filter(l => l.kind === 'context' || l.kind === (side === 'old' ? 'del' : 'add'));
+      const given = side => on(side).find(l => l[side] != null);
+      // A given number sets where the count starts; else the header; else 1.
+      const start = side => {
+        const at = h[side + 'Start'] ?? (range ? +range[side === 'old' ? 1 : 3] : null);
+        if (at != null) return at;
+        const g = given(side);
+        return g ? g[side] - on(side).indexOf(g) : (on(side).length ? 1 : 0);
+      };
+      const oldStart = start('old'), newStart = start('new');
+      // Lines without numbers take them from the hunk's start, in order.
+      let o = oldStart, n = newStart;
+      const lines = kinds.map(l => {
+        const old = l.kind === 'add' ? null : (l.old ?? o);
+        const neu = l.kind === 'del' ? null : (l.new ?? n);
+        if (old != null) o = old + 1;
+        if (neu != null) n = neu + 1;
+        return { ...l, old, new: neu };
+      });
+      const oldLines = h.oldLines ?? (range ? (range[2] == null ? 1 : +range[2]) : on('old').length);
+      const newLines = h.newLines ?? (range ? (range[4] == null ? 1 : +range[4]) : on('new').length);
       const header = h.header || `@@ -${oldStart},${oldLines} +${newStart},${newLines} @@`;
       return { header, oldStart, oldLines, newStart, newLines, section: h.section ?? (range?.[5] || ''), lines };
     });
@@ -1401,7 +1454,22 @@ function markRanges(cell, ranges) {
   }
 }
 
-const LABEL = { add: 'Added', del: 'Removed', context: 'Line' };
+// What a screen reader hears before a line, the same in both views.
+const lineLabel = line => line.kind === 'add' ? `Added ${line.new}: `
+  : line.kind === 'del' ? `Removed ${line.old}: `
+  : line.old === line.new ? `Line ${line.new}: ` : `Line ${line.old}, now ${line.new}: `;
+// Leading whitespace in columns (a tab to the next multiple of 4, as
+// tab-size), for the hanging indent of a wrapped line; at most 24.
+function indentOf(text) {
+  let col = 0;
+  for (const ch of text) {
+    if (ch === ' ') col++;
+    else if (ch === '\t') col = (Math.floor(col / 4) + 1) * 4;
+    else break;
+    if (col >= 24) return 24;
+  }
+  return col;
+}
 const MARK = { add: '+', del: MINUS, context: ' ' };
 
 /** Builds the diff view. */
@@ -1410,12 +1478,15 @@ export function wkDiff(spec) {
   const label = spec.label || 'Changes';
   const files = normalize(spec.diff);
   const collapseAbove = spec.collapseAbove ?? 400;
+  const collapseCharsAbove = spec.collapseCharsAbove ?? 200000;
   const step = Math.max(1, spec.contextStep || 20);
   let view = spec.view === 'split' ? 'split' : 'unified';
 
   const root = el('section', 'wk-diff');
-  root.id = id; root.tabIndex = 0;
+  root.id = id;
   root.setAttribute('aria-label', label);
+  if (!files.length) { el('p', 'wk-diff-none', spec.emptyText || 'No changes', root); return root; }
+  root.tabIndex = 0;
   root.setAttribute('aria-keyshortcuts', 'n p ] [');
   const keys = sr('Press n or p for the next or previous change, ] or [ for the next or previous file.', root);
   keys.id = `${id}-keys`;
@@ -1438,8 +1509,6 @@ export function wkDiff(spec) {
       for (const state of states) if (state.built) { state.built = false; if (state.open) build(state); }
     });
   }
-  if (!files.length) el('p', 'wk-diff-none', spec.emptyText || 'No changes', root);
-
   function counts(a, d, parent) {
     const box = el('span', 'wk-diff-counts', null, parent);
     const shown = el('span', null, null, box);
@@ -1451,6 +1520,7 @@ export function wkDiff(spec) {
   }
 
   const lineCount = f => f.hunks.reduce((n, h) => n + h.lines.length, 0);
+  const charCount = f => f.hunks.reduce((n, h) => n + h.lines.reduce((m, l) => m + l.text.length, 0), 0);
   const states = files.map((file, index) => {
     const fid = `${id}-file-${index}`;
     const box = el('div', 'wk-diff-file', null, root);
@@ -1477,7 +1547,7 @@ export function wkDiff(spec) {
     const body = el('div', 'wk-diff-body', null, box);
     body.id = `${fid}-body`;
     body.setAttribute('role', 'group'); body.setAttribute('aria-labelledby', button.id);
-    const large = lineCount(file) > collapseAbove;
+    const large = lineCount(file) > collapseAbove || charCount(file) > collapseCharsAbove;
     const state = { file, index, box, button, body, open: file.collapsed != null ? !file.collapsed : !(large || generated || file.binary), built: false };
     button.addEventListener('click', () => { state.open = !state.open; paint(state); });
     paint(state);
@@ -1496,6 +1566,11 @@ export function wkDiff(spec) {
     body.replaceChildren();
     body.dataset.view = view;
     body.toggleAttribute('data-wrap', Boolean(spec.wrap) || view === 'split');
+    fill(state);
+    spec.onrender?.(state.box, file);
+  }
+  function fill(state) {
+    const { file, body } = state;
     if (file.binary) { el('p', 'wk-diff-note', 'Binary file not shown.', body); return; }
     if (!file.hunks.length) {
       const modes = file.oldMode && file.newMode && file.oldMode !== file.newMode;
@@ -1530,53 +1605,75 @@ export function wkDiff(spec) {
     row.tabIndex = -1; row.dataset.hunk = String(k);
     sr(`Change ${k + 1} of ${file.hunks.length} in ${file.path}, ${hunk.oldLines ? `from line ${hunk.oldStart}` : `after line ${hunk.oldStart}`}: `, row);
     const g = gap(file, k);
-    const canExpand = spec.getContext && file.status !== 'added' && file.status !== 'deleted' && g.to >= g.from;
+    const canExpand = !hunk.noMore && spec.getContext && file.status !== 'added' && file.status !== 'deleted' && g.to >= g.from;
     if (canExpand) {
       const more = el('button', 'wk-link wk-diff-more', null, row);
       more.type = 'button';
-      const label = () => { const n = gap(file, k).to - gap(file, k).from + 1; more.textContent = n > step ? `Show ${step} more lines` : `Show ${plural(n, 'hidden line', 'hidden lines')}`; };
-      label();
-      more.addEventListener('click', async () => {
-        const cur = gap(file, k);
-        const from = Math.max(cur.from, cur.to - step + 1), to = cur.to;
-        more.disabled = true;
-        let got;
-        try { got = await spec.getContext(file, { oldStart: from, oldEnd: to, newStart: from + cur.shift, newEnd: to + cur.shift }); } catch { got = null; }
-        more.disabled = false;
-        if (!Array.isArray(got) || !got.length) { more.remove(); row.focus(); return; }
-        got = got.slice(-(to - from + 1));
-        const first = to - got.length + 1;
-        const added = got.map((text, j) => ({ kind: 'context', old: first + j, new: first + j + cur.shift, text: String(text) }));
-        hunk.lines.unshift(...added);
-        hunk.oldStart = first; hunk.oldLines += added.length;
-        hunk.newStart = first + cur.shift; hunk.newLines += added.length;
-        // Rows built for another view are rebuilt when that view is shown.
-        if (row.isConnected) row.after(...rowsFor(file, added));
-        if (gap(file, k).to < gap(file, k).from) { more.remove(); row.focus(); } else label();
-      });
+      more.disabled = Boolean(hunk.loading);
+      moreLabel(file, k, more);
+      const note = el('span', 'wk-diff-more-note', null, row);
+      note.setAttribute('aria-live', 'polite');
+      more.addEventListener('click', () => showMore(state, hunk, k));
     }
     el('span', 'wk-diff-hunk-text', hunk.header, row).setAttribute('aria-hidden', 'true');
     return row;
   }
 
+  function moreLabel(file, k, more) {
+    const g = gap(file, k), n = g.to - g.from + 1;
+    more.textContent = n > step ? `Show ${step} more lines` : `Show ${plural(n, 'hidden line', 'hidden lines')}`;
+  }
+  // Fetches the hidden lines above hunk k. The view may be rebuilt (a view
+  // switch) while they load, so the rows go after the header as it is then.
+  async function showMore(state, hunk, k) {
+    const { file } = state;
+    const header = () => state.built && state.body.querySelector(`.wk-diff-hunk[data-hunk="${k}"]`);
+    const parts = h => h ? { more: h.querySelector('.wk-diff-more'), note: h.querySelector('.wk-diff-more-note') } : {};
+    const cur = gap(file, k);
+    const from = Math.max(cur.from, cur.to - step + 1), to = cur.to;
+    hunk.loading = true;
+    { const { more, note } = parts(header()); if (more) more.disabled = true; if (note) note.textContent = ''; }
+    let got, failed = false;
+    try { got = await spec.getContext(file, { oldStart: from, oldEnd: to, newStart: from + cur.shift, newEnd: to + cur.shift }); } catch { failed = true; }
+    hunk.loading = false;
+    const row = header();
+    const { more, note } = parts(row);
+    const hadFocus = more && document.activeElement === more;
+    if (more) more.disabled = false;
+    if (failed) { if (note) note.textContent = 'Couldn\u2019t load lines'; return; }
+    const close = () => { more?.remove(); if (hadFocus) row.focus(); };
+    if (!Array.isArray(got) || !got.length) { hunk.noMore = true; close(); return; }
+    got = got.slice(-(to - from + 1));
+    const first = to - got.length + 1;
+    const added = got.map((text, j) => ({ kind: 'context', old: first + j, new: first + j + cur.shift, text: String(text) }));
+    hunk.lines.unshift(...added);
+    hunk.oldStart = first; hunk.oldLines += added.length;
+    hunk.newStart = first + cur.shift; hunk.newLines += added.length;
+    // A file that is not built picks the lines up when it is.
+    if (row) row.after(...rowsFor(file, added));
+    if (gap(file, k).to < gap(file, k).from) close(); else if (more) moreLabel(file, k, more);
+    if (row) spec.onrender?.(state.box, file);
+  }
+
   function code(file, line, ranges, parent) {
     const cell = el('span', 'wk-diff-code', null, parent);
-    const lit = spec.highlight?.(file, line);
+    let lit = null;
+    try { lit = spec.highlight?.(file, line); } catch { lit = null; } // a highlighter that fails leaves plain text
     if (lit != null && lit !== false) cell.append(lit);
     else cell.textContent = line.text;
+    const indent = indentOf(line.text);
+    if (indent) cell.style.setProperty('--wk-diff-indent', String(indent));
     if (ranges?.length && cell.textContent === line.text) markRanges(cell, ranges);
     if (line.noNewline) el('span', 'wk-diff-eof', 'No newline at end of file', parent);
     return cell;
   }
   // side: 'old' or 'new' for a half of the split view, null for a unified row.
   function cells(file, line, ranges, row, side) {
-    const n = side ? line[side] : line.kind === 'del' ? line.old : line.new;
-    const unified = !side;
-    sr(`${LABEL[line.kind]} ${n}: `, row);
-    if (unified) {
+    sr(lineLabel(line), row);
+    if (!side) {
       el('span', 'wk-diff-num', line.old == null ? '' : String(line.old), row).setAttribute('aria-hidden', 'true');
       el('span', 'wk-diff-num', line.new == null ? '' : String(line.new), row).setAttribute('aria-hidden', 'true');
-    } else el('span', 'wk-diff-num', String(n), row).setAttribute('aria-hidden', 'true');
+    } else el('span', 'wk-diff-num', String(line[side]), row).setAttribute('aria-hidden', 'true');
     el('span', 'wk-diff-mark', MARK[line.kind], row).setAttribute('aria-hidden', 'true');
     code(file, line, ranges, row);
   }
@@ -1647,10 +1744,14 @@ export function wkDiff(spec) {
     const sel = document.getSelection();
     if (!sel || sel.isCollapsed || !sel.rangeCount || !e.clipboardData) return;
     const range = sel.getRangeAt(0);
-    const c = range.startContainer;
-    const start = c.nodeType === 1 ? (c.childNodes[range.startOffset] || c) : c.parentElement;
-    const startHalf = (start.nodeType === 1 ? start : start.parentElement)?.closest('.wk-diff-half');
-    const side = startHalf?.dataset.side;
+    // The side: the half the selection starts in, else the one it ends in,
+    // else the first it crosses, else the new side; none in the unified view.
+    const halfAt = (c, offset, end) => {
+      const node = c.nodeType === 1 ? (c.childNodes[end ? offset - 1 : offset] || c) : c;
+      return (node.nodeType === 1 ? node : node.parentElement)?.closest('.wk-diff-half');
+    };
+    const crossed = [...root.querySelectorAll('.wk-diff-half')].find(h => range.intersectsNode(h));
+    const side = crossed ? (halfAt(range.startContainer, range.startOffset) || halfAt(range.endContainer, range.endOffset, true) || crossed).dataset.side || 'new' : undefined;
     const lines = [];
     for (const cell of root.querySelectorAll('.wk-diff-code')) {
       if (!range.intersectsNode(cell)) continue;

@@ -743,7 +743,7 @@ try {
   await check('link with aria-expanded draws a chevron that turns down when open; scrolling regions take focus', async () => {
     const { page, problems } = await open();
     const chevron = sel => page.locator(sel).evaluate(el => ({ content: getComputedStyle(el, '::before').content, transform: getComputedStyle(el, '::before').transform }));
-    const closed = await chevron('#buttons button.wk-link[aria-expanded=false]'), open_ = await chevron('#demo-diff-file-0-toggle');
+    const closed = await chevron('#buttons button.wk-link[aria-expanded=false]'), open_ = await chevron('#buttons button.wk-link[aria-expanded=true]');
     assert.notEqual(closed.content, 'none'); assert.notEqual(closed.transform, open_.transform);
     assert.equal(await page.locator('a.wk-link').first().evaluate(el => getComputedStyle(el, '::before').content), 'none');
     for (const sel of ['.wk-codeblock--scroll > pre', '.wk-errorbox > pre', '#demo-long-sheet .wk-dialog-scroll']) {
@@ -1162,14 +1162,174 @@ try {
     const look = await page.evaluate(() => {
       const row = sel => { const el = document.querySelector(`#demo-diff ${sel}`); const cs = getComputedStyle(el); return { style: cs.borderInlineStartStyle, width: cs.borderInlineStartWidth, mark: el.querySelector('.wk-diff-mark').textContent }; };
       const word = getComputedStyle(document.querySelector('#demo-diff mark.wk-diff-word')).textDecorationLine;
-      return { add: row('.wk-diff-line[data-kind=add]'), del: row('.wk-diff-line[data-kind=del]'), half: getComputedStyle(document.querySelector('#demo-diff-split .wk-diff-half[data-kind=del]')).borderInlineStartStyle, word };
+      const probe = document.createElement('span'); probe.style.backgroundColor = 'Canvas'; document.body.append(probe);
+      const canvas = getComputedStyle(probe).backgroundColor; probe.remove();
+      const marks = [...document.querySelectorAll('mark.wk-diff-word')].map(m => getComputedStyle(m).backgroundColor);
+      return { canvas, marks: [...new Set(marks)], count: marks.length, add: row('.wk-diff-line[data-kind=add]'), del: row('.wk-diff-line[data-kind=del]'), half: getComputedStyle(document.querySelector('#demo-diff-split .wk-diff-half[data-kind=del]')).borderInlineStartStyle, word };
     });
-    assert.deepEqual(look, { add: { style: 'solid', width: '4px', mark: '+' }, del: { style: 'dashed', width: '4px', mark: '−' }, half: 'dashed', word: 'underline' });
+    const { canvas, marks, count, ...rest } = look;
+    assert.ok(count > 10, `${count} word marks`);
+    assert.deepEqual(marks, [canvas], 'every word mark, added or removed, is on Canvas in forced colours');
+    assert.deepEqual(rest, { add: { style: 'solid', width: '4px', mark: '+' }, del: { style: 'dashed', width: '4px', mark: '−' }, half: 'dashed', word: 'underline' });
     const shot = sel => page.locator(sel).first().screenshot();
     await page.locator('#demo-diff-file-1').scrollIntoViewIfNeeded();
     // Two rows with the same text apart from their kind still look different.
     const [del, add] = await Promise.all([shot('#demo-diff-file-1 .wk-diff-line[data-kind=del] .wk-diff-mark'), shot('#demo-diff-file-1 .wk-diff-line[data-kind=add] .wk-diff-mark')]);
     assert.ok(!del.equals(add));
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff: parsed input with unknown kinds and no line numbers; highlight that throws; an empty diff; onrender', async () => {
+    const { page, problems } = await open();
+    const r = await page.evaluate(async () => {
+      const { wkDiff } = await import('../src/index.js');
+      const out = {};
+      const t = performance.now();
+      const parsed = [{ path: 'x.txt', hunks: [{ header: '@@ -5,3 +5,3 @@', lines: [{ kind: 'context', text: 'a' }, { kind: 'added', text: 'odd' }, { kind: 'del', text: 'b' }, { kind: 'add', text: 'c' }] }] }];
+      for (const view of ['unified', 'split']) {
+        const el = wkDiff({ id: `kinds-${view}`, diff: parsed, view });
+        out[view] = [...el.querySelectorAll('.wk-diff-sr')].filter(x => !x.closest('[aria-hidden]')).map(x => x.textContent).filter(x => /^(Line|Added|Removed) /.test(x)); // what a screen reader reaches
+      }
+      out.fast = performance.now() - t < 1000;
+      const lit = wkDiff({ id: 'lit', diff: 'diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-foo bar\n+foo baz\n', highlight: (f, l) => { if (l.kind === 'del') throw new Error('boom'); const s = document.createElement('b'); s.textContent = l.text; return s; } });
+      out.lit = [...lit.querySelectorAll('.wk-diff-code')].map(c => [c.textContent, c.querySelectorAll('b').length, c.querySelectorAll('mark').length]);
+      const empty = wkDiff({ id: 'none', diff: '', emptyText: 'Nothing changed' });
+      out.empty = [empty.textContent, empty.querySelectorAll('.wk-diff-head, .wk-segmented').length, empty.hasAttribute('tabindex')];
+      const calls = [];
+      const big = 'diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1,500 +1,500 @@\n' + Array.from({ length: 500 }, (_, i) => ` line ${i}`).join('\n') + '\n';
+      const wide = 'diff --git a/m.js b/m.js\n--- a/m.js\n+++ b/m.js\n@@ -1 +1 @@\n-' + 'a'.repeat(120000) + '\n+' + 'b'.repeat(120000) + '\n';
+      const two = wkDiff({ id: 'hooks', diff: big + wide + 'diff --git a/s b/s\n--- a/s\n+++ b/s\n@@ -1 +1 @@\n-x\n+y\n', onrender: (box, file) => calls.push(`${box.id}:${file.path}`) });
+      document.body.append(two);
+      out.collapsedByChars = two.querySelector('#hooks-file-1-toggle').getAttribute('aria-expanded');
+      out.afterBuild = [...calls];
+      two.querySelector('#hooks-file-0-toggle').click();
+      out.afterExpand = [...calls];
+      two.querySelector('#hooks-view-split').click();
+      out.afterSwitch = [...calls];
+      two.remove();
+      return out;
+    });
+    assert.ok(r.fast);
+    assert.deepEqual(r.unified, ['Line 5: ', 'Line 6: ', 'Removed 7: ', 'Added 7: '], 'an unknown kind reads as context; numbers come from the header');
+    assert.deepEqual(r.split, r.unified);
+    assert.deepEqual(r.lit, [['foo bar', 0, 1], ['foo baz', 1, 1]], 'a highlighter that throws leaves plain text (with its word marks) for that line');
+    assert.deepEqual(r.empty, ['Nothing changed', 0, false]);
+    assert.equal(r.collapsedByChars, 'false', 'a file over 200,000 characters starts collapsed');
+    assert.deepEqual(r.afterBuild, ['hooks-file-2:s']);
+    assert.deepEqual(r.afterExpand, ['hooks-file-2:s', 'hooks-file-0:a']);
+    assert.deepEqual(r.afterSwitch.slice(2).sort(), ['hooks-file-0:a', 'hooks-file-2:s']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff: Show more keeps working through a view switch, keeps its button on errors, and goes on an empty result', async () => {
+    const { page, problems } = await open();
+    const r = await page.evaluate(async () => {
+      const { wkDiff } = await import('../src/index.js');
+      const text = 'diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -30,3 +30,3 @@\n a\n-b\n+c\n d\n';
+      const source = Array.from({ length: 100 }, (_, i) => `line ${i + 1}`);
+      const tick = () => new Promise(res => setTimeout(res, 0));
+      const out = {};
+      // A view switch while the lines load: they land in the view shown then.
+      let release;
+      const race = wkDiff({ id: 'race', diff: text, getContext: (f, range) => new Promise(res => { release = () => res(source.slice(range.oldStart - 1, range.oldEnd)); }) });
+      document.body.append(race);
+      race.querySelector('.wk-diff-more').click(); await tick();
+      race.querySelector('#race-view-split').click(); await tick();
+      out.pendingDisabled = race.querySelector('.wk-diff-more').disabled;
+      release(); await tick(); await tick();
+      out.split = [...race.querySelectorAll('.wk-diff-half[data-side=old]')].map(h => h.dataset.old).join(',');
+      out.label = race.querySelector('.wk-diff-more')?.textContent;
+      race.querySelector('#race-view-unified').click();
+      out.unified = [...race.querySelectorAll('.wk-diff-line')].map(h => h.dataset.old ?? '-').join(',');
+      // Errors: rejected, then thrown; the button stays, with a note; a retry that works clears it.
+      for (const kind of ['rejects', 'throws']) {
+        let fail = true;
+        const el = wkDiff({ id: `err-${kind}`, diff: text, getContext: (f, range) => {
+          if (fail) { if (kind === 'throws') throw new Error('x'); return Promise.reject(new Error('net')); }
+          return source.slice(range.oldStart - 1, range.oldEnd);
+        } });
+        document.body.append(el);
+        el.querySelector('.wk-diff-more').click(); await tick(); await tick();
+        const more = el.querySelector('.wk-diff-more'), note = el.querySelector('.wk-diff-more-note');
+        out[kind] = { button: Boolean(more), disabled: more?.disabled, note: note.textContent, live: note.getAttribute('aria-live'), color: getComputedStyle(note).color };
+        fail = false;
+        more.click(); await tick(); await tick();
+        out[kind].retry = [el.querySelector('.wk-diff-more-note').textContent, el.querySelectorAll('.wk-diff-line').length];
+        el.remove();
+      }
+      const probe = document.createElement('span'); probe.style.color = 'var(--wk-color-text-secondary)'; document.body.append(probe);
+      out.secondary = getComputedStyle(probe).color; probe.remove();
+      const empty = wkDiff({ id: 'empty-ctx', diff: text, getContext: () => [] });
+      document.body.append(empty);
+      empty.querySelector('.wk-diff-more').focus(); empty.querySelector('.wk-diff-more').click(); await tick(); await tick();
+      out.empty = [empty.querySelectorAll('.wk-diff-more').length, document.activeElement.classList.contains('wk-diff-hunk')];
+      return out;
+    });
+    const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+    assert.equal(r.pendingDisabled, true, 'the rebuilt button waits for the pending load');
+    assert.equal(r.split, range(10, 32).join(','), 'the loaded lines appear in the view shown when they arrive');
+    assert.equal(r.label, 'Show 9 hidden lines');
+    assert.equal(r.unified, [...range(10, 31), '-', 32].join(','));
+    for (const kind of ['rejects', 'throws']) {
+      assert.deepEqual(r[kind], { button: true, disabled: false, note: 'Couldn’t load lines', live: 'polite', color: r.secondary, retry: ['', 24] }, kind);
+    }
+    assert.deepEqual(r.empty, [0, true], 'an empty result removes the button and focus goes to the hunk');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff: a wrapped line hangs under its indent, and copying still gives its own whitespace', async () => {
+    const { page, problems } = await open('/demo/index.html', { viewport: { width: 700, height: 900 } });
+    const r = await page.evaluate(async () => {
+      const { wkDiff } = await import('../src/index.js');
+      const long = 'word '.repeat(40).trim();
+      const el = wkDiff({ id: 'hang', wrap: true, diff: `diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n \t\t${long}\n-  ${long}\n+  ${long}!\n` });
+      document.body.prepend(el);
+      const codes = [...el.querySelectorAll('.wk-diff-code')];
+      const geometry = codes.map(c => {
+        const rects = [...(() => { const r = document.createRange(); r.selectNodeContents(c); return r.getClientRects(); })()];
+        const lines = [...new Set(rects.map(x => Math.round(x.top)))].length;
+        const range = document.createRange(); range.setStart(c.firstChild.nodeType === 3 ? c.firstChild : c.querySelector('mark')?.firstChild || c.firstChild, 0); range.collapse(true);
+        return { indent: c.style.getPropertyValue('--wk-diff-indent'), lines, padding: parseFloat(getComputedStyle(c).paddingInlineStart), textIndent: parseFloat(getComputedStyle(c).textIndent) };
+      });
+      const range = document.createRange(); range.selectNodeContents(el.querySelector('.wk-diff-rows'));
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+      const data = new DataTransfer();
+      el.querySelector('.wk-diff-line').dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }));
+      return { geometry, copied: data.getData('text/plain'), long };
+    });
+    assert.deepEqual(r.geometry.map(g => g.indent), ['8', '2', '2'], 'tabs count to the next multiple of 4');
+    for (const g of r.geometry) {
+      assert.ok(g.lines > 1, 'the line wraps');
+      assert.ok(g.padding > 0 && Math.abs(g.padding + g.textIndent) < .5, 'the first line starts at the edge and the rest hang under the indent');
+    }
+    assert.equal(r.copied, `\t\t${r.long}\n  ${r.long}\n  ${r.long}!`);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff: a split-view selection that starts on a header copies one side only', async () => {
+    const { page, problems } = await open();
+    const r = await page.evaluate(() => {
+      const copy = (start, so, end, eo) => {
+        const range = document.createRange(); range.setStart(start, so); range.setEnd(end, eo);
+        const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+        const data = new DataTransfer();
+        document.querySelector('#demo-diff-split .wk-diff-line').dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }));
+        return data.getData('text/plain');
+      };
+      const split = document.getElementById('demo-diff-split');
+      const rows = [...split.querySelectorAll('#demo-diff-split-file-0 .wk-diff-line')];
+      const oldCode = rows[2].querySelector('[data-side=old] .wk-diff-code');
+      return {
+        toNew: copy(split.querySelector('.wk-diff-hunk'), 0, rows[3], rows[3].childNodes.length),
+        toOld: copy(split.querySelector('.wk-diff-file-head'), 0, oldCode, oldCode.childNodes.length),
+      };
+    });
+    assert.equal(r.toNew, 'type Server struct {\n\taddr    string\n\ttimeout  time.Duration\n\tmaxBytes int64', 'it ends on the new side');
+    assert.equal(r.toOld, 'type Server struct {\n\taddr    string\n\ttimeout time.Duration', 'it ends on the old side');
     assert.deepEqual(problems, []);
     await page.close();
   });

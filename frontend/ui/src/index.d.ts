@@ -52,21 +52,25 @@ export type DiffStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'copied'
 export interface DiffFile {
   path: string; oldPath: string; status: DiffStatus; binary: boolean;
   oldMode: string | null; newMode: string | null; additions: number; deletions: number; hunks: DiffHunk[];
+  /** Set by the app on parsed input: start collapsed as generated, or force collapsed or expanded. */
+  generated?: boolean; collapsed?: boolean;
 }
-/** A file the app parsed itself: only the path is required; the rest is filled in. */
+/** A file the app parsed itself: only the path is required; the rest is filled in. A line of any other kind is shown as context; lines without numbers are numbered from the hunk's start. */
 export interface DiffFileInput {
   path: string; oldPath?: string; status?: DiffStatus | 'binary'; binary?: boolean; generated?: boolean; collapsed?: boolean;
   oldMode?: string | null; newMode?: string | null; additions?: number; deletions?: number;
-  hunks?: { header?: string; oldStart?: number; oldLines?: number; newStart?: number; newLines?: number; section?: string; lines: (Omit<DiffLine, 'old' | 'new'> & { old?: number | null; new?: number | null })[] }[];
+  hunks?: { header?: string; oldStart?: number; oldLines?: number; newStart?: number; newLines?: number; section?: string; lines: (Omit<DiffLine, 'old' | 'new' | 'kind'> & { kind: DiffLineKind | string; old?: number | null; new?: number | null })[] }[];
 }
 export interface DiffContextRange { oldStart: number; oldEnd: number; newStart: number; newEnd: number }
 export interface DiffSpec {
   id?: string; label?: string; diff: string | DiffFileInput[]; emptyText?: string;
   view?: 'unified' | 'split'; onview?: (view: 'unified' | 'split') => void;
-  wrap?: boolean; collapseAbove?: number; generated?: (file: DiffFile) => boolean; headingLevel?: 2 | 3 | 4 | 5 | 6;
+  wrap?: boolean; collapseAbove?: number; collapseCharsAbove?: number; generated?: (file: DiffFile) => boolean; headingLevel?: 2 | 3 | 4 | 5 | 6;
   highlight?: (file: DiffFile, line: DiffLine) => Node | string | null | undefined;
   getContext?: (file: DiffFile, range: DiffContextRange) => string[] | null | Promise<string[] | null>;
   contextStep?: number;
+  /** Called after a file's rows are built: when it is first expanded, and on every rebuild (a view switch) or added context. */
+  onrender?: (fileElement: HTMLElement, file: DiffFile) => void;
 }
 export function wkDiff(spec: DiffSpec): HTMLElement;
 export function parseUnifiedDiff(text: string): DiffFile[];

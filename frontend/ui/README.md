@@ -190,10 +190,14 @@ pane.append(wkDiff({
   diff: patchText,               // git's unified diff (one or more files), or parsed files
   view: 'unified',               // or 'split'; onview(view) reports the switch
   wrap: false,                   // unified: wrap long lines, or scroll the file sideways
-  collapseAbove: 400,            // files with more lines start collapsed
+  collapseAbove: 400,            // files with more lines start collapsed,
+  collapseCharsAbove: 200000,    // and files with more characters
   generated: file => file.path.endsWith('.lock'),     // these start collapsed too
+  headingLevel: 3,               // each file's header is a heading of this level (2 to 6)
+  emptyText: 'No changes',       // all a diff with no files shows
   getContext: (file, range) => readLines(file.path, range.newStart, range.newEnd),
   highlight: (file, line) => null,                     // a DocumentFragment, or null for plain text
+  onrender: (fileElement, file) => {},                 // after a file's rows are (re)built
 }));
 ```
 
@@ -201,27 +205,41 @@ pane.append(wkDiff({
   files already parsed: `{ path, oldPath, status, hunks: [{ header, lines:
   [{ kind: 'context'|'add'|'del', old, new, text }] }] }`, where `status` is
   `modified`, `added`, `deleted`, `renamed`, `copied` or `binary`. Counts and
-  hunk ranges are filled in when missing. `parseUnifiedDiff(text)` returns the
+  hunk ranges are filled in when missing; lines without `old`/`new` are
+  numbered from the hunk's start (context takes both, `del` the old number,
+  `add` the new), and a line of any other kind is shown as context.
+  `parseUnifiedDiff(text)` returns the
   same shape, with `binary`, `oldMode`/`newMode`, `additions`/`deletions` and a
-  `noNewline` flag on a line that ended its file without a newline.
+  `noNewline` flag on a line that ended its file without a newline. Paths come
+  without git's prefixes, whichever it wrote (`a/` `b/`, `--no-prefix`,
+  `diff.mnemonicPrefix`, `--src-prefix`/`--dst-prefix`); in a plain diff,
+  a first folder that differs between the `---` and `+++` paths of the same
+  file is taken as the prefix.
 - **Per file.** A header (a `wk-link` disclosure naming the path, `old → new`
   for a rename, status chips, `+n −m` counts in tabular figures). Large,
   generated and binary files start collapsed (a parsed file's `collapsed`
-  overrides this); rows are built when a file is first expanded. A binary file
+  overrides this; its `generated` marks it generated); rows are built when a
+  file is first expanded. The empty text is all an empty diff shows. A binary file
   shows "Binary file not shown."
 - **Lines.** Old and new line numbers in a gutter; added and removed rows are
-  tinted and carry a `+` or `−` marker, and each row has a screen-reader label
-  ("Added 14:", "Removed 13:"). When removed lines are followed by added ones,
-  they pair up and the changed words are marked (`<mark class="wk-diff-word">`).
+  tinted and carry a `+` or `−` marker, and each row has a screen-reader label,
+  the same in both views ("Added 14:", "Removed 13:", "Line 10:", or "Line
+  10, now 12:" for an unchanged line whose number moved). When removed lines are followed by added ones,
+  they pair up and the changed words are marked (`<mark class="wk-diff-word">`;
+  not for a line over 10,000 characters).
   The split view puts old beside new, row by row, and always wraps long lines
   so its halves stay aligned.
 - **Context.** With `getContext(file, { oldStart, oldEnd, newStart, newEnd })`
   (1-based, inclusive; returns the lines as strings, or a promise of them),
   each hunk header offers "Show more" for the unchanged lines above it,
-  `contextStep` (20) at a time.
+  `contextStep` (20) at a time. If the callback throws or rejects, the button
+  stays and a note says "Couldn’t load lines" (announced politely); an empty
+  result removes the button. Lines that arrive after a view switch go into
+  the view then shown. A wrapped line hangs under its own indent.
 - **Highlighting** is not built in: `highlight(file, line)` may return a node
   (a `DocumentFragment` of spans) to use as the line's code. Word marks are
-  laid over it when its text is the line's text.
+  laid over it when its text is the line's text. If it throws, that line is
+  plain text.
 - **Keyboard.** While focus is in the diff, `n` and `p` move to the next or
   previous hunk (in expanded files), `]` and `[` to the next or previous file.
   Copying copies the code alone: the gutter, the markers and the labels are
@@ -234,8 +252,13 @@ pane.append(wkDiff({
   on every tint (checked by `npm test`). In forced colours the tints become a
   bar at the start of the row, solid for added and dashed for removed, and the
   markers stay.
-- **Hooks for comments.** Each file card has `data-path`; each row (or split
-  half) has `data-kind`, `data-old` and `data-new`.
+- **Hooks for comments.** Each file card has `data-path`. A unified row has
+  `data-kind` and its `data-old` and `data-new` numbers (one of them for an
+  added or removed line); a split half has `data-kind`, `data-side` (`old` or
+  `new`) and only its own side's number (`data-old` on the old half,
+  `data-new` on the new). A file's rows are built lazily and rebuilt on a
+  view switch, so anything an app adds among them belongs in `onrender`,
+  which runs after every build of a file's rows.
 
 ## Settings window
 

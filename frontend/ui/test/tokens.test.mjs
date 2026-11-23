@@ -31,7 +31,7 @@ export const THEME_TOKENS = [
   '--wk-radius-control', '--wk-radius-group',
 ];
 // Properties a component sets on itself for its variants to change.
-const LOCAL = new Set(['--wk-dot-color', '--wk-chart-c', '--wk-diff-digits']);
+const LOCAL = new Set(['--wk-dot-color', '--wk-chart-c', '--wk-diff-digits', '--wk-diff-indent']);
 
 test('the colour check catches every kind of literal', () => {
   const component = { selector: '.wk-x', forced: false };

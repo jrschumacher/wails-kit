@@ -188,3 +188,182 @@ test('word marks: what changed between a removed line and the added line that re
   const r = diffWordRanges(`${long} end`, `${long.replace('w200', 'x')} end`, 100);
   assert.deepEqual(cut(`${long} end`, r.del), ['w200']);
 });
+
+// Real `git diff --cached` output for one change (a binary edit, a rename
+// with a mode change and an edit, a deleted file with a space in its name, an
+// added file whose name needs quoting), with each kind of path prefix git
+// can write: a/ b/, --no-prefix, diff.mnemonicPrefix (c/ i/), and
+// --src-prefix=SRC/ --dst-prefix=DST/.
+const GIT = {
+  default: `diff --git a/b.png b/b.png
+index f584f40..6bf43ff 100644
+Binary files a/b.png and b/b.png differ
+diff --git a/foo.txt b/moved.txt
+old mode 100644
+new mode 100755
+similarity index 50%
+rename from foo.txt
+rename to moved.txt
+index 422c2b7..0f7bc76
+--- a/foo.txt
++++ b/moved.txt
+@@ -1,2 +1,2 @@
+ a
+-b
++c
+diff --git a/sp ace.txt b/sp ace.txt
+deleted file mode 100644
+index 587be6b..0000000
+--- a/sp ace.txt\t
++++ /dev/null
+@@ -1 +0,0 @@
+-x
+diff --git "a/tab\\t\\303\\251.txt" "b/tab\\t\\303\\251.txt"
+new file mode 100644
+index 0000000..77811bc
+--- /dev/null
++++ "b/tab\\t\\303\\251.txt"
+@@ -0,0 +1,2 @@
++y
++y2
+`,
+  noPrefix: `diff --git b.png b.png
+index f584f40..6bf43ff 100644
+Binary files b.png and b.png differ
+diff --git foo.txt moved.txt
+old mode 100644
+new mode 100755
+similarity index 50%
+rename from foo.txt
+rename to moved.txt
+index 422c2b7..0f7bc76
+--- foo.txt
++++ moved.txt
+@@ -1,2 +1,2 @@
+ a
+-b
++c
+diff --git sp ace.txt sp ace.txt
+deleted file mode 100644
+index 587be6b..0000000
+--- sp ace.txt\t
++++ /dev/null
+@@ -1 +0,0 @@
+-x
+diff --git "tab\\t\\303\\251.txt" "tab\\t\\303\\251.txt"
+new file mode 100644
+index 0000000..77811bc
+--- /dev/null
++++ "tab\\t\\303\\251.txt"
+@@ -0,0 +1,2 @@
++y
++y2
+`,
+  mnemonic: `diff --git c/b.png i/b.png
+index f584f40..6bf43ff 100644
+Binary files c/b.png and i/b.png differ
+diff --git c/foo.txt i/moved.txt
+old mode 100644
+new mode 100755
+similarity index 50%
+rename from foo.txt
+rename to moved.txt
+index 422c2b7..0f7bc76
+--- c/foo.txt
++++ i/moved.txt
+@@ -1,2 +1,2 @@
+ a
+-b
++c
+diff --git c/sp ace.txt i/sp ace.txt
+deleted file mode 100644
+index 587be6b..0000000
+--- c/sp ace.txt\t
++++ /dev/null
+@@ -1 +0,0 @@
+-x
+diff --git "c/tab\\t\\303\\251.txt" "i/tab\\t\\303\\251.txt"
+new file mode 100644
+index 0000000..77811bc
+--- /dev/null
++++ "i/tab\\t\\303\\251.txt"
+@@ -0,0 +1,2 @@
++y
++y2
+`,
+  custom: `diff --git SRC/b.png DST/b.png
+index f584f40..6bf43ff 100644
+Binary files SRC/b.png and DST/b.png differ
+diff --git SRC/foo.txt DST/moved.txt
+old mode 100644
+new mode 100755
+similarity index 50%
+rename from foo.txt
+rename to moved.txt
+index 422c2b7..0f7bc76
+--- SRC/foo.txt
++++ DST/moved.txt
+@@ -1,2 +1,2 @@
+ a
+-b
++c
+diff --git SRC/sp ace.txt DST/sp ace.txt
+deleted file mode 100644
+index 587be6b..0000000
+--- SRC/sp ace.txt\t
++++ /dev/null
+@@ -1 +0,0 @@
+-x
+diff --git "SRC/tab\\t\\303\\251.txt" "DST/tab\\t\\303\\251.txt"
+new file mode 100644
+index 0000000..77811bc
+--- /dev/null
++++ "DST/tab\\t\\303\\251.txt"
+@@ -0,0 +1,2 @@
++y
++y2
+`,
+};
+
+test('real git output: every prefix style gives the same paths', () => {
+  for (const [style, text] of Object.entries(GIT)) {
+    const files = parseUnifiedDiff(text);
+    assert.deepEqual(files.map(f => [f.oldPath, f.path, f.status, f.binary]), [
+      ['b.png', 'b.png', 'modified', true],
+      ['foo.txt', 'moved.txt', 'renamed', false],
+      ['sp ace.txt', 'sp ace.txt', 'deleted', false],
+      ['tab\té.txt', 'tab\té.txt', 'added', false],
+    ], style);
+    assert.deepEqual([files[1].oldMode, files[1].newMode], ['100644', '100755'], style);
+    assert.deepEqual(lines(files[2]), [['del', 1, null, 'x']], style);
+  }
+});
+
+test('plain diffs: prefixes seen on both sides are dropped, and reused for a /dev/null side; no pattern, no change', () => {
+  const hg = parseUnifiedDiff('--- a/one.txt\n+++ b/one.txt\n@@ -1 +1 @@\n-a\n+b\n--- /dev/null\n+++ b/two.txt\n@@ -0,0 +1 @@\n+c\n--- a/three.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-d\n');
+  assert.deepEqual(hg.map(f => [f.path, f.status]), [['one.txt', 'modified'], ['two.txt', 'added'], ['three.txt', 'deleted']]);
+  const ru = parseUnifiedDiff('--- old/src/x.c\t2026-01-01\n+++ new/src/x.c\t2026-01-02\n@@ -1 +1 @@\n-a\n+b\n');
+  assert.equal(ru[0].path, 'src/x.c', 'diff -ru old new');
+  const same = parseUnifiedDiff('--- src/x.c\n+++ src/x.c\n@@ -1 +1 @@\n-a\n+b\n');
+  assert.equal(same[0].path, 'src/x.c', 'equal paths have no prefix');
+  const lone = parseUnifiedDiff('--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+c\n');
+  assert.equal(lone[0].path, 'b/new.txt', 'with nothing to learn a prefix from, the path stays as written');
+  const two = parseUnifiedDiff('--- left.txt\n+++ right.txt\n@@ -1 +1 @@\n-a\n+b\n');
+  assert.deepEqual([two[0].path, two[0].status], ['right.txt', 'modified']);
+});
+
+test('the split view advances past a line of an unknown kind', () => {
+  assert.deepEqual(diffSplitRows([{ kind: 'weird', text: '?' }]), [{ left: { kind: 'weird', text: '?' }, right: { kind: 'weird', text: '?' } }]);
+  assert.equal(diffSplitRows([{ kind: 'added' }, { kind: 'del' }, { kind: undefined }]).length, 3);
+});
+
+test('word marks keep combining marks, emoji sequences and flags whole, and skip very long lines', () => {
+  const cut = (text, ranges) => ranges.map(([s, e]) => text.slice(s, e));
+  const pair = (a, b) => { const r = diffWordRanges(a, b); return [cut(a, r.del), cut(b, r.add)]; };
+  assert.deepEqual(pair('cafe\u0301 au lait', 'cafe au lait'), [['cafe\u0301'], ['cafe']], 'a combining accent stays with its letter');
+  assert.deepEqual(pair('\u{1F468}\u200D\u{1F469}\u200D\u{1F467} ok', '\u{1F468}\u200D\u{1F469}\u200D\u{1F466} ok'), [['\u{1F468}\u200D\u{1F469}\u200D\u{1F467}'], ['\u{1F468}\u200D\u{1F469}\u200D\u{1F466}']], 'a ZWJ sequence is one token');
+  assert.deepEqual(pair('\u{1F44D}\u{1F3FD} ok', '\u{1F44D}\u{1F3FF} ok'), [['\u{1F44D}\u{1F3FD}'], ['\u{1F44D}\u{1F3FF}']], 'a skin tone stays with its emoji');
+  assert.deepEqual(pair('\u{1F1EB}\u{1F1F7} ok', '\u{1F1E9}\u{1F1EA} ok'), [['\u{1F1EB}\u{1F1F7}'], ['\u{1F1E9}\u{1F1EA}']], 'a flag is one token');
+  const long = 'x '.repeat(6000);
+  assert.deepEqual(diffWordRanges(`${long}a`, `${long}b`), { del: [], add: [] }, 'over 10,000 characters: no marks');
+});
