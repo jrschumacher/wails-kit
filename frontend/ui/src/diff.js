@@ -101,6 +101,10 @@ export function parseUnifiedDiff(text) {
   const last = () => hunk?.lines.at(-1);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    // A hunk whose header claims more lines than follow ends where the next
+    // file starts: a diff --git line, or ---, +++ and @@ one after another.
+    if (hunk && (oldLeft > 0 || newLeft > 0) && (line.startsWith('diff --git ')
+      || (line.startsWith('--- ') && /^\+\+\+ /.test(lines[i + 1] || '') && (lines[i + 2] || '').startsWith('@@')))) oldLeft = newLeft = 0;
     if (hunk && (oldLeft > 0 || newLeft > 0)) {
       const c = line[0];
       if (c === '+' && newLeft > 0) { hunk.lines.push({ kind: 'add', old: null, new: newNo++, text: line.slice(1) }); newLeft--; file.additions++; continue; }
@@ -300,6 +304,16 @@ function el(tag, cls, text, parent) {
   if (cls) node.className = cls;
   if (text != null) node.textContent = text;
   parent?.append(node);
+  return node;
+}
+// A node the highlighter returned, or a copy when it is already on the page
+// or was used before (the same node for every line); a fragment empties when
+// it is inserted, so its first content is kept to copy.
+const usedNodes = new WeakMap();
+function fresh(node) {
+  if (usedNodes.has(node)) return usedNodes.get(node).cloneNode(true);
+  if (node.isConnected) return node.cloneNode(true);
+  usedNodes.set(node, node.nodeType === 11 ? node.cloneNode(true) : node);
   return node;
 }
 const sr = (text, parent) => el('span', 'wk-diff-sr', text, parent);
@@ -531,6 +545,7 @@ export function wkDiff(spec) {
     const cell = el('span', 'wk-diff-code', null, parent);
     let lit = null;
     try { lit = spec.highlight?.(file, line); } catch { lit = null; } // a highlighter that fails leaves plain text
+    if (lit instanceof Node) lit = fresh(lit);
     if (lit != null && lit !== false) cell.append(lit);
     else cell.textContent = line.text;
     const indent = indentOf(line.text);

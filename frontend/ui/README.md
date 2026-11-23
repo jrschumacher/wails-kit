@@ -214,7 +214,9 @@ pane.append(wkDiff({
   without git's prefixes, whichever it wrote (`a/` `b/`, `--no-prefix`,
   `diff.mnemonicPrefix`, `--src-prefix`/`--dst-prefix`); in a plain diff,
   a first folder that differs between the `---` and `+++` paths of the same
-  file is taken as the prefix.
+  file is taken as the prefix. A hunk whose header claims more lines than
+  follow ends at the next file. Combined diffs (`diff --cc`, from a merge)
+  are not supported: such a file shows "No changes to show".
 - **Per file.** A header (a `wk-link` disclosure naming the path, `old → new`
   for a rename, status chips, `+n −m` counts in tabular figures). Large,
   generated and binary files start collapsed (a parsed file's `collapsed`

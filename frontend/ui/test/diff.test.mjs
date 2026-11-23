@@ -367,3 +367,35 @@ test('word marks keep combining marks, emoji sequences and flags whole, and skip
   const long = 'x '.repeat(6000);
   assert.deepEqual(diffWordRanges(`${long}a`, `${long}b`), { del: [], add: [] }, 'over 10,000 characters: no marks');
 });
+
+test('a hunk that claims more lines than follow ends at the next file', () => {
+  const files = parseUnifiedDiff(`diff --git a/f b/f
+--- a/f
++++ b/f
+@@ -1,5 +1,5 @@
+ a
+-b
++c
+diff --git a/g b/g
+--- a/g
++++ b/g
+@@ -1 +1 @@
+-x
++y
+--- a/h
++++ b/h
+@@ -1,9 +1,9 @@
+ kept
+--- a/k
++++ b/k
+@@ -1 +1 @@
+-p
++q
+`);
+  assert.deepEqual(files.map(f => [f.path, f.additions, f.deletions, f.hunks.map(h => h.lines.map(l => `${l.kind}:${l.text}`))]), [
+    ['f', 1, 1, [['context:a', 'del:b', 'add:c']]],
+    ['g', 1, 1, [['del:x', 'add:y']]],
+    ['h', 0, 0, [['context:kept']]],
+    ['k', 1, 1, [['del:p', 'add:q']]],
+  ]);
+});

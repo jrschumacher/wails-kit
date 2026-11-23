@@ -1194,6 +1194,14 @@ try {
       out.fast = performance.now() - t < 1000;
       const lit = wkDiff({ id: 'lit', diff: 'diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-foo bar\n+foo baz\n', highlight: (f, l) => { if (l.kind === 'del') throw new Error('boom'); const s = document.createElement('b'); s.textContent = l.text; return s; } });
       out.lit = [...lit.querySelectorAll('.wk-diff-code')].map(c => [c.textContent, c.querySelectorAll('b').length, c.querySelectorAll('mark').length]);
+      const shared = document.createElement('span'); shared.className = 'lit'; shared.textContent = 'same';
+      const frag = document.createDocumentFragment(); frag.append(Object.assign(document.createElement('i'), { textContent: 'frag' }));
+      const reuse = wkDiff({ id: 'reuse', diff: 'diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1,3 +1,3 @@\n a\n-b\n+c\n', highlight: (f, l) => l.kind === 'add' ? frag : shared });
+      out.reuse = [...reuse.querySelectorAll('.wk-diff-code')].map(c => c.textContent);
+      const placed = document.createElement('b'); placed.textContent = 'on page'; document.body.append(placed);
+      const onPage = wkDiff({ id: 'onpage', diff: 'diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-x\n+y\n', highlight: () => placed });
+      out.onPage = [placed.parentNode === document.body, ...[...onPage.querySelectorAll('.wk-diff-code')].map(c => c.textContent)];
+      placed.remove();
       const empty = wkDiff({ id: 'none', diff: '', emptyText: 'Nothing changed' });
       out.empty = [empty.textContent, empty.querySelectorAll('.wk-diff-head, .wk-segmented').length, empty.hasAttribute('tabindex')];
       const calls = [];
@@ -1214,6 +1222,8 @@ try {
     assert.deepEqual(r.unified, ['Line 5: ', 'Line 6: ', 'Removed 7: ', 'Added 7: '], 'an unknown kind reads as context; numbers come from the header');
     assert.deepEqual(r.split, r.unified);
     assert.deepEqual(r.lit, [['foo bar', 0, 1], ['foo baz', 1, 1]], 'a highlighter that throws leaves plain text (with its word marks) for that line');
+    assert.deepEqual(r.reuse, ['same', 'same', 'frag'], 'a node returned for every line is copied, not moved');
+    assert.deepEqual(r.onPage, [true, 'on page', 'on page'], 'a node already on the page stays there; the line gets a copy');
     assert.deepEqual(r.empty, ['Nothing changed', 0, false]);
     assert.equal(r.collapsedByChars, 'false', 'a file over 200,000 characters starts collapsed');
     assert.deepEqual(r.afterBuild, ['hooks-file-2:s']);
