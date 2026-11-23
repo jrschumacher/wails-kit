@@ -217,7 +217,7 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Tabs | `wk-tablist` inside `<wk-tabs>` |
 | Menu, context menu, tooltip | `wk-menu` and its items (`<button>`, or `<a href>` for a URL), `wk-menu--inline` (the items laid out in place, as in a popover), `wk-tooltip` |
 | Dialog, sheet, popover surface | `wk-dialog` (`--alert`, sheets), `wk-popover` |
-| Settings group, row and tabs | `wk-settings-heading`, `wk-settings-group`, `wk-settings-row`, `wk-settings-label`, `wk-settings-help`, `wk-settings-note`, `wk-settings-tabs` / `wk-settings-tab` (`data-attention`) |
+| Settings group, row and tabs | `wk-settings-heading`, `wk-settings-group`, `wk-settings-row`, `wk-settings-label`, `wk-settings-help`, `wk-settings-note`, `wk-settings-tabs` / `wk-settings-tab` (`data-attention`), `wk-settings-pending` (a check's words), `wk-settings-status` (the window's Notice region) |
 | Panel, facts, section heading | `wk-panel` (`--rows`, `--dashed`), `wk-facts`, `wk-section-heading` |
 | Status dot | `wk-dot` with `data-shape` (`filled`, `ringed`, `half`, `hollow`, `dashed`, `bar`), `data-tone` (`neutral`, `working`, `attention`) and `data-size="sm"`. It has no state names: the app maps its own states onto shapes and tones. The filled working dot at the default size has a halo (running), its gap drawn in `--wk-dot-ground`; set that on the dot when it sits on something other than `wk-color-bg`. |
 | Utilities | `wk-visually-hidden`: read by assistive technology, not drawn |
@@ -359,12 +359,15 @@ A field with a `condition` shows only while the condition is met. A field's
 
 ```js
 import { WkSettings } from '@wails-kit/ui'; // or from the dist module
-import { GetSchema, GetValues, SetValues } from './bindings/.../service';
+import { GetSchema, GetValues, SetValues, CheckValue, CheckFailures } from './bindings/.../service';
 
 const el = document.querySelector('wk-settings');
 el.schema = await GetSchema();
 el.values = await GetValues();
+el.check = CheckValue; // for fields with a back-end check
+el.errors = (await CheckFailures()) ?? [];
 el.addEventListener('wk-settings-change', async e => {
+  if (e.detail.checked) return; // CheckValue saved it already
   const errors = await SetValues(e.detail.values); // []ValidationError or null
   el.errors = errors ?? [];
 });
@@ -377,21 +380,52 @@ el.addEventListener('wk-settings-change', async e => {
 | `errors` | `ValidationError[]` to show (from `SetValues`); each shows under its field, marks it `aria-invalid`, and puts the attention dot on its group's tab |
 | `icons` | `{ [groupKey]: svg markup or a Node }`, a 22 px glyph above each tab's name |
 | `validate` | optional `(schema, values) => ValidationError[]` run on each change, such as `validate` from `@wails-kit/settings`; its errors replace the shown ones |
+| `check` | optional `(key, values) => Promise<ValidationError[] \| null>` for fields with a `check` in the schema: the `CheckValue` binding. Without it, those fields apply on change like any other |
+
+| Method | |
+|---|---|
+| `reveal(key)` | selects the field's tab, opens Advanced if it's there, and focuses its control; `false` when the field isn't shown. Use it to open Settings on a field whose check failed |
 
 | Attribute | |
 |---|---|
 | `label` | the tab list's accessible name (default "Settings") |
 
-**Event** `wk-settings-change` (bubbles), when a control commits a value
-(`change`: a text field on blur or Enter): `detail` is `{ key, value, values,
-errors }`. `value` has the schema's type (a boolean for a toggle, a number or
+**Event** `wk-settings-change` (bubbles), when a value applies (a control's
+`change`: a text field on blur or Enter; for a checked field, once its check
+passes): `detail` is `{ key, value, values, errors, checked }`; `checked` is
+true when the value passed a back-end check, which has saved it. `value` has the schema's type (a boolean for a toggle, a number or
 `null` for a number field, a string otherwise); `values` holds every field;
 `errors` is what `validate` returned (`[]` without it). Without `validate`,
 the shown error on the changed field clears and the others stay until the app
 sets `errors`.
 
+**Validation timing** follows [BEHAVIOUR.md](BEHAVIOUR.md#forms-and-validation):
+
+- A field is checked when it commits, not on each keystroke. Once it shows an
+  error, it is re-checked as the person types (with `validate`, or for an empty
+  required field), so the error clears as soon as it's fixed.
+- An empty required field shows "<label> is required" from the moment the window
+  opens. The window's Notice, between the tabs and the pane (under the heading
+  with one group), counts the visible fields with an error: "2 settings need
+  attention." It is a polite `role="status"` region, empty when nothing needs
+  attention.
+- A field with a back-end check (`check: { pending }` in the schema, and the
+  `check` property set) applies only once the check passes. The check runs on
+  commit and, once the field shows an error, 500 ms after typing stops. Its words
+  (`pending`, else "Checking…") show beside the field with a working dot after
+  400 ms and stay at least 500 ms; the row has `data-pending` meanwhile, and the
+  words are a polite status region. Typing is never blocked, the person's text
+  stays after a failure, and a check overtaken by a newer one is ignored. A failed
+  check's error stays on its field until it is checked again, even when the app
+  sets `errors`.
+- A check that outlives the window carries on in Go (`CheckValue`): if it fails,
+  `settings:check_failed` lets the main window show a Notice with "Open Settings";
+  Settings then shows `CheckFailures()` and calls `reveal(key)`. See the
+  [settings package](../../settings/README.md#back-end-checks).
+
 The rules the window follows are exported with no DOM, for tests and other
-renderers: `settingsModel(schema, values, errors)`, `conditionMet`,
+renderers: `settingsModel(schema, values, errors)` (with `attention`, the
+count for the Notice), `conditionMet`,
 `resolveOptions`, `fieldValue`, `readValue`, `displayValue`,
 `dependentResets`, `errorsByField` and `SECRET_MASK`.
 

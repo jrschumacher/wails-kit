@@ -570,11 +570,6 @@ Where shipped code doesn't yet follow this page:
   override it.
 - The diff view's "Show more" button sets `disabled` while loading, which drops focus,
   and each hunk has its own `aria-live` note instead of the shared announcer.
-- The settings window validates on `change` only: it doesn't re-check as the person
-  types once a field shows an error, and it has no pending state for a field whose
-  check is still running. It marks a tab with attention but shows no window Notice
-  ("2 settings need attention."), and an empty required setting shows its error only
-  after the app passes errors in, not when the window opens.
 - The switch's transition is 120 ms, not `--wk-duration-fast` (100 ms); the token will
   set it.
 - `wk-copy` is styling only: the app copies, and nothing gives feedback.

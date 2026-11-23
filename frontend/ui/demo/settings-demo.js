@@ -2,7 +2,9 @@
 // schema in the shape settings.Service.GetSchema() returns, with every field
 // type, a condition, dynamic options, advanced fields and a computed value.
 // A stand-in for the app's SetValues answers each change: it rejects an
-// empty name and a port under 1024, as the Go service's validation would.
+// empty or overlong name and a port under 1024, as the Go service's validation would.
+// A stand-in for CheckValue checks the projects folder on the "back end":
+// after 600 ms it accepts a path that starts with / or ~/.
 const SECRET_MASK = '••••••••';
 const glyph = path => `<svg viewBox="0 0 22 22" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">${path}</g></svg>`;
 
@@ -13,6 +15,7 @@ export const schema = {
         { key: 'general.name', type: 'text', label: 'Display name', description: 'Shown to people you share with.', placeholder: 'Your name', validation: { required: true, maxLen: 40 } },
         { key: 'general.launch', type: 'toggle', label: 'Open at login', description: 'Starts in the background when you sign in.', default: true },
         { key: 'general.updates', type: 'select', label: 'Check for updates', default: 'daily', options: [{ label: 'Daily', value: 'daily' }, { label: 'Weekly', value: 'weekly' }, { label: 'Never', value: 'never' }] },
+        { key: 'general.folder', type: 'text', label: 'Projects folder', description: 'Checked before it applies.', placeholder: '~/Projects', check: { pending: 'Checking folder…' } },
         { key: 'general.copies', type: 'number', label: 'Copies to keep', default: 2, validation: { min: 1, max: 8 } },
         { key: 'general.config', type: 'computed', label: 'Settings file' },
       ],
@@ -40,7 +43,9 @@ const icons = {
 // The stand-in for SetValues: the errors the Go service would return.
 function setValues(values) {
   const errors = [];
-  if (!String(values['general.name'] ?? '').trim()) errors.push({ field: 'general.name', message: 'Display name is required', code: 'required' });
+  const name = String(values['general.name'] ?? '');
+  if (!name.trim()) errors.push({ field: 'general.name', message: 'Display name is required', code: 'required' });
+  else if (name.length > 40) errors.push({ field: 'general.name', message: 'Display name must be at most 40 characters', code: 'max_length' });
   const port = values['provider.port'];
   if (values['provider.name'] === 'local' && typeof port === 'number' && port < 1024) errors.push({ field: 'provider.port', message: 'Port must be at least 1024', code: 'min' });
   return errors;
@@ -48,17 +53,23 @@ function setValues(values) {
 
 const host = document.getElementById('settings-demo');
 host.innerHTML = `<header class="demo-head"><div><h1 class="wk-title">Settings window</h1>
-<p class="wk-caption">&lt;wk-settings&gt; drawn from a sample settings schema. Changes go to a stand-in for SetValues, which rejects an empty name and a port under 1024.</p></div>
+<p class="wk-caption">&lt;wk-settings&gt; drawn from a sample settings schema. Changes go to a stand-in for SetValues, which rejects an empty or overlong name and a port under 1024. The projects folder goes to a stand-in for CheckValue first, which takes 600 ms and accepts a path starting with / or ~/.</p></div>
 <nav class="demo-row"><a class="wk-link" href="index.html">Kit demo</a></nav></header>
 <div class="demo-settings-window"><wk-settings id="demo-settings" label="Settings"></wk-settings></div>
 <pre id="demo-log" class="demo-log" aria-live="polite"></pre>`;
 const el = document.getElementById('demo-settings');
 el.schema = schema;
 el.icons = icons;
-el.values = { 'general.name': 'Sam', 'general.launch': true, 'general.updates': 'weekly', 'general.copies': 2, 'general.config': '~/.config/example/settings.json', 'provider.name': 'alpha', 'provider.model': 'a-large', 'provider.key': SECRET_MASK };
+// The stand-in for CheckValue: the field's error, or SetValues' reply when it passes.
+el.check = (key, values) => new Promise(resolve => setTimeout(() => {
+  const path = String(values[key] ?? '');
+  resolve(path.startsWith('/') || path.startsWith('~/') ? setValues(values) : [{ field: key, message: 'There is no folder at this path. Choose a folder that exists.', code: 'check' }]);
+}, 600));
+el.values = { 'general.name': 'Sam', 'general.folder': '~/Projects', 'general.launch': true, 'general.updates': 'weekly', 'general.copies': 2, 'general.config': '~/.config/example/settings.json', 'provider.name': 'alpha', 'provider.model': 'a-large', 'provider.key': SECRET_MASK };
 window.settingsEvents = [];
 el.addEventListener('wk-settings-change', e => {
   window.settingsEvents.push(JSON.parse(JSON.stringify(e.detail)));
-  el.errors = setValues(e.detail.values);
+  // A value that passed its check is saved already (CheckValue).
+  if (!e.detail.checked) el.errors = setValues(e.detail.values);
   document.getElementById('demo-log').textContent = `wk-settings-change ${e.detail.key} = ${JSON.stringify(e.detail.value)}\n` + document.getElementById('demo-log').textContent.split('\n').slice(0, 5).join('\n');
 });
