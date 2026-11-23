@@ -243,7 +243,7 @@ example `npx serve .`) and open `/demo/index.html`.
 | `<wk-tabs>` (`WkTabs`) | WAI-ARIA tabs with automatic activation; event `wk-change` |
 | `<wk-tooltip>` (`WkTooltip`) | WAI-ARIA tooltip on focus and after a hover delay (`delay="ms"`); event `wk-toggle` |
 | `syncSteppers(root?)` | redraws stepper arrows after the app sets a value itself |
-| `setProgress(bar, { done, total, unit?, text? }, { aria? })` | makes a `wk-progress` determinate and moves it; see [Busy, spinner and progress](#busy-spinner-and-progress) |
+| `setProgress(bar, { done, total, unit?, text? }, { aria?, clock? })` | makes a `wk-progress` determinate and moves it, with its value attributes changing at most every 5 s; see [Busy, spinner and progress](#busy-spinner-and-progress) |
 | `timings`, `motion`, `reducedMotion()` | the action lifecycle's timings and the motion values, for scripts; see [Timings and motion](#timings-and-motion) |
 | `wkChart(spec)` | bars, stacked bars, or a line with a band, as plain SVG, with a legend, hover and keyboard readout, and a Chart/Table switch; colours from `--wk-color-chart-1` to `-5` (`tone` 1 to 5 or `"neutral"`) |
 | `niceTicks`, `labelStep`, `runs`, `roundedTop`, `roundedEnd`, `tableModel`, `readout` | the chart's layout rules, with no DOM |
@@ -263,9 +263,15 @@ markup.
 `aria-disabled="true"` and `data-busy` at once, on the press; never
 `disabled`, which drops focus. It keeps its focus, its accessible name, its
 width and its pressed face (`--wk-color-fill-strong`), with the `progress`
-cursor, not the 45% disabled look. The kit drops any click on a `[data-busy]`
-element or inside one, from the pointer or the keyboard, in the capture phase
-on `window`, so a second press never reaches the app. Styled for
+cursor, not the 45% disabled look. The kit drops a click, from the pointer
+or the keyboard, when the control pressed (the nearest `button`, `a[href]`,
+`input`, `summary`, `[role="button"]` or `[role^="menuitem"]` to the click)
+itself has both `data-busy` and `aria-disabled="true"`, so a second press
+never reaches the app. Other controls inside a busy region (a Stop button in
+a busy row) still work, and `data-busy` without `aria-disabled` blocks
+nothing. The kit listens in the capture phase on `window`: the app's
+listeners on the document or below never see the dropped click, but a
+capture listener on `window` registered before the kit loaded still does. Styled for
 `wk-button` (every variant), `wk-filter`, `button.wk-chip`, `wk-copy` and
 `button.wk-link`. Remove both attributes when the work ends.
 
@@ -301,16 +307,21 @@ fade in place.
 import { setProgress } from '@wails-kit/ui';
 setProgress(bar, { done: 12, total: 40, unit: 'files' });
 // aria-valuemin="0" aria-valuemax="40" aria-valuenow="12" aria-valuetext="12 of 40 files"
-setProgress(bar, { done: 13, total: 40, unit: 'files' }, { aria: false }); // the fill alone
+setProgress(bar, { done: 13, total: 40, unit: 'files' });         // within 5 s: the fill alone
+setProgress(bar, { done: 40, total: 40, unit: 'files' });         // finished: both, at once
 ```
 
-`setProgress` sets `--wk-progress-value` (the filled share, through the
-CSSOM, which a Content-Security-Policy allows) and the four value attributes
-together; `text` replaces the default words ("Step 2 of 3 · 12 of 40
-files"). With `{ aria: false }` only the fill moves, so the value attributes
-can change at most every `timings.progressValueEvery` (5 s) while the fill
-moves more often; the first call always sets them, since a bar without
-`aria-valuenow` is indeterminate. A `total` that isn't a positive number
+`setProgress` moves the fill on every call: it sets `--wk-progress-value`
+(the filled share, through the CSSOM, which a Content-Security-Policy
+allows). The four value attributes change together, and at most every
+`timings.progressValueEvery` (5 s), so a screen reader isn't flooded: a call
+within 5 s of the last change moves the fill only, and the next call after
+that sets them. The first call, and a call with `done >= total`, always set
+them. `text` replaces the default words ("Step 2 of 3 · 12 of 40 files").
+Options: `aria: 'now'` sets them whatever the cap (a change of stage),
+`aria: false` never does (except on the first call, since a bar without
+`aria-valuenow` is indeterminate), and `clock` returns milliseconds for the
+cap (default `performance.now`). A `total` that isn't a positive number
 throws a `RangeError`. Progress only moves forward, and a bar never goes back
 to indeterminate: start a new bar instead. An app that sets
 `--wk-progress-value` itself sets the attributes too.

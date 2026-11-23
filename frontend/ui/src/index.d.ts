@@ -23,7 +23,7 @@ export class WkTooltip extends HTMLElement { readonly open: boolean; show(): voi
 export class WkDialog extends HTMLElement { readonly open: boolean; show(options?: { opener?: Element }): void; close(returnValue?: string): void }
 export function syncSteppers(root?: ParentNode | Element): void;
 export interface ProgressReport { done?: number; total: number; unit?: string; text?: string }
-export function setProgress(bar: HTMLElement, progress: ProgressReport, options?: { aria?: boolean }): void;
+export function setProgress(bar: HTMLElement, progress: ProgressReport, options?: { aria?: boolean | 'now'; clock?: () => number }): void;
 
 // ---- Timings and motion (motion.js) ----
 export const timings: Readonly<{

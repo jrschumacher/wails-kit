@@ -1936,7 +1936,30 @@ try {
     await page.close();
   });
 
-  await check('progress bar: setProgress keeps aria-valuenow and aria-valuetext in step, moves the fill alone with { aria: false }, and an indeterminate bar has no value', async () => {
+  await check('busy: only the pressed control counts; a control inside a [data-busy] container still works, and data-busy without aria-disabled is not blocked', async () => {
+    const { page, problems } = await open();
+    const out = await page.evaluate(() => {
+      const host = document.createElement('div');
+      host.innerHTML = '<div data-busy aria-disabled="true"><button class="wk-button" type="button" id="t-stop">Stop</button><span id="t-text">Removing…</span></div>'
+        + '<button class="wk-button" type="button" data-busy id="t-pressed">Pressed only</button>'
+        + '<div role="menu"><button role="menuitem" type="button" data-busy aria-disabled="true" id="t-item">Item</button></div>';
+      document.getElementById('busy').append(host);
+      const hits = window.hits = {};
+      host.addEventListener('click', e => { const id = e.target.closest('[id]').id; hits[id] = (hits[id] || 0) + 1; });
+      for (const id of ['t-stop', 't-text', 't-pressed', 't-item']) document.getElementById(id).click();
+      return hits;
+    });
+    assert.deepEqual(out, { 't-stop': 1, 't-text': 1, 't-pressed': 1 });
+    // From the keyboard too: the Stop button in a busy row works.
+    await page.focus('#t-stop');
+    await page.keyboard.press('Enter');
+    assert.equal(await page.evaluate(() => window.hits['t-stop']), 2);
+    assert.equal(await active(page), 't-stop');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('progress bar: setProgress keeps aria-valuenow and aria-valuetext in step, changes them at most every 5 s (aria: now and done always), moves the fill on every call, and an indeterminate bar has no value', async () => {
     const { page, problems } = await open();
     const ax = async name => (await axTree(page)).find(n => n.role?.value === 'progressbar' && n.name?.value === name);
     const state = () => page.evaluate(() => {
@@ -1959,7 +1982,7 @@ try {
     assert.deepEqual([moved.now, moved.text], ['12', '12 of 40 files'], 'the value attributes wait');
     await page.evaluate(async () => {
       const { setProgress } = await import('/src/index.js');
-      setProgress(document.getElementById('demo-progress'), { done: 21, total: 40, text: 'Step 2 of 3 · 21 of 40 files' });
+      setProgress(document.getElementById('demo-progress'), { done: 21, total: 40, text: 'Step 2 of 3 · 21 of 40 files' }, { aria: 'now' });
     });
     const both = await state();
     assert.deepEqual([both.now, both.text, both.fill], ['21', 'Step 2 of 3 · 21 of 40 files', '52.5% 100%']);
@@ -1976,6 +1999,36 @@ try {
       return [bar.getAttribute('aria-valuenow'), bar.getAttribute('aria-valuetext'), threw];
     });
     assert.deepEqual(first, ['3', '3 of 4', true]);
+    // The value attributes change at most every timings.progressValueEvery
+    // (an injected clock, no waiting): the fill moves on every call; the
+    // first call, a finished one and { aria: 'now' } always set them.
+    const capped = await page.evaluate(async () => {
+      const { setProgress, timings } = await import('/src/index.js');
+      const bar = document.createElement('div');
+      bar.className = 'wk-progress';
+      document.getElementById('busy').append(bar);
+      let t = 1000;
+      const clock = () => t;
+      const step = (done, at, aria) => {
+        t = at;
+        setProgress(bar, { done, total: 10 }, aria === undefined ? { clock } : { clock, aria });
+        return [bar.getAttribute('aria-valuenow'), bar.style.getPropertyValue('--wk-progress-value')];
+      };
+      return {
+        every: timings.progressValueEvery,
+        steps: [
+          step(1, 1000),                 // first: set
+          step(2, 2000),                 // within 5 s: fill only
+          step(3, 5999),                 // still within
+          step(4, 6000),                 // 5 s after the last set: set
+          step(5, 6001, 'now'),          // forced
+          step(6, 6002, false),          // never
+          step(10, 6003),                // done >= total: set
+        ],
+      };
+    });
+    assert.equal(capped.every, 5000);
+    assert.deepEqual(capped.steps, [['1', '10%'], ['1', '20%'], ['1', '30%'], ['4', '40%'], ['5', '50%'], ['5', '60%'], ['10', '100%']]);
     const sweep = await page.evaluate(() => {
       const bar = document.getElementById('demo-progress-sweep');
       return { values: [...bar.attributes].filter(a => a.name.startsWith('aria-value')).length, animation: getComputedStyle(bar, '::before').animationName };
@@ -2040,6 +2093,28 @@ try {
     await button.evaluate(el => { const w = el.getBoundingClientRect().width; el.lastChild.textContent = ''; el.style.width = `${w}px`; });
     const without = await button.screenshot();
     assert.equal(Buffer.compare(withLabel, without), 0, 'the label shows through in forced colours');
+    // The focus ring of a button with a spinner is Highlight, not the accent
+    // (it opts out of forced colours); a busy button with no spinner yet
+    // still differs from one at rest, by a Highlight border.
+    const marks = await page.evaluate(() => {
+      const probe = document.createElement('i');
+      probe.style.color = 'Highlight';
+      document.body.append(probe);
+      const highlight = getComputedStyle(probe).color;
+      probe.remove();
+      const spinning = document.querySelector('#demo-busy .wk-button--primary');
+      spinning.focus();
+      const pressed = [...document.querySelectorAll('#demo-busy .wk-button')].find(b => b.textContent === 'Pressed');
+      const rest = document.getElementById('demo-busy-try');
+      return {
+        highlight, focusVisible: spinning.matches(':focus-visible'), ring: getComputedStyle(spinning).outlineColor, ringStyle: getComputedStyle(spinning).outlineStyle,
+        busy: getComputedStyle(pressed).borderTopColor, rest: getComputedStyle(rest).borderTopColor,
+      };
+    });
+    assert.ok(marks.focusVisible);
+    assert.deepEqual([marks.ring, marks.ringStyle], [marks.highlight, 'solid']);
+    assert.equal(marks.busy, marks.highlight);
+    assert.notEqual(marks.rest, marks.highlight);
     assert.deepEqual(problems, []);
     await page.close();
   });

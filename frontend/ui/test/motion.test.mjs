@@ -52,6 +52,28 @@ test('no transition in the kit has a literal duration: each uses a --wk-duration
   assert.match(decls(sw).transition, /var\(--wk-duration-fast\)/);
 });
 
+// Loops of a small in-place indicator, exempt from the duration tokens: the
+// tokens time a change (something entering, leaving or changing state, 300
+// ms at most on a direct response), while these set the pace of a loop that
+// runs as long as the work does: the spinner's turn, the indeterminate bar's
+// sweep and, under reduced motion, its fade. Any other animation uses a token.
+const LOOPS = new Set(['wk-spin', 'wk-progress-sweep', 'wk-progress-fade']);
+test('no animation in the kit has a literal duration, except the indicator loops on the allow-list', () => {
+  let loops = 0;
+  for (const file of ['../src/components.css', '../src/base.css', '../src/settings.css']) {
+    for (const r of selectorsOf(read(file))) {
+      const d = decls(r);
+      for (const [p, v] of r.decls) {
+        if (!/^animation(-duration)?$/.test(p) || v === 'none') continue;
+        const name = p === 'animation' ? v.split(/\s+/).find(w => /^wk-/.test(w)) : (d['animation-name'] || '');
+        if (LOOPS.has(name)) { loops++; assert.match(v, /\binfinite\b/, `${file}: ${r.selector}: ${name} is on the allow-list as a loop`); continue; }
+        assert.doesNotMatch(v, /(^|[\s,])[\d.]+m?s\b/, `${file}: ${r.selector} { ${p}: ${v} } needs a --wk-duration-* token`);
+      }
+    }
+  }
+  assert.equal(loops, 3, 'the spinner, the sweep and the reduced-motion fade');
+});
+
 // Kit names the design system lacks (proposed for it), each a rule here.
 const PROPOSED = {
   Busy: ['.wk-button[data-busy]', '.wk-button--quiet[data-busy]', '.wk-filter[data-busy]', 'button.wk-chip[data-busy]', '.wk-copy[data-busy]', 'button.wk-link[data-busy]'],
@@ -72,7 +94,10 @@ test('busy: the pressed face and the progress cursor, overriding the 45% aria-di
   const busy = decls(plain.find(r => r.selector === '.wk-button[data-busy]'));
   assert.equal(busy.opacity, '1');
   assert.equal(busy.cursor, 'progress');
-  assert.match(busy['background-image'], /var\(--wk-color-fill-strong\)/);
+  // The pressed face of .wk-button:active: two fill-strong layers.
+  const pressed = decls(plain.find(r => r.selector === '.wk-button:active:not(:disabled, [aria-disabled="true"])'));
+  assert.equal(busy['background-image'], pressed['background-image']);
+  assert.equal((busy['background-image'].match(/var\(--wk-color-fill-strong\)/g) || []).length, 4);
   // Same specificity as .wk-button[aria-disabled="true"], so it must come later.
   assert.ok(css.indexOf('.wk-button[data-busy]') > css.indexOf('.wk-button[aria-disabled="true"]'));
 });
@@ -100,4 +125,6 @@ test('forced colours: the bar\'s fill is Highlight inside a CanvasText outline; 
   assert.match(decls(forced.find(r => r.selector === '.wk-progress:not([aria-valuenow])::before')).background, /Highlight/);
   assert.match(decls(forced.find(r => r.selector === '.wk-spinner'))['border-color'], /currentColor/);
   assert.equal(decls(forced.find(r => r.selector === '.wk-button:has(> .wk-spinner)'))['forced-color-adjust'], 'none');
+  assert.equal(decls(forced.find(r => r.selector === '.wk-button:has(> .wk-spinner):focus-visible'))['outline-color'], 'Highlight');
+  assert.equal(decls(forced.find(r => r.selector === '.wk-button[data-busy]'))['border-color'], 'Highlight');
 });

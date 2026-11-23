@@ -31,6 +31,8 @@
 // removed while open. Everything an element adds to the document, the window
 // or other elements is removed when it is disconnected.
 
+import { timings } from './motion.js';
+
 let uid = 0;
 // An id for el, keeping the one it has; a new one is free in the document.
 function ensureId(el, prefix) {
@@ -771,26 +773,40 @@ document.addEventListener('input', e => { if (e.target instanceof Element && e.t
 
 // A busy control keeps focus and its name, and a second press does nothing:
 // aria-disabled alone doesn't stop a click, so drop it here, in the capture
-// phase, before any listener of the app's on the document or below.
+// phase on window, before the app's listeners on the document or below. Only
+// the control that was pressed counts: it must itself have data-busy and
+// aria-disabled="true", so other controls inside a busy region (a Stop
+// button in a busy row) still work.
+const PRESSABLE = 'button, a[href], input, summary, [role="button"], [role^="menuitem"]';
 window.addEventListener('click', e => {
-  if (e.target instanceof Element && e.target.closest('[data-busy]')) {
+  const control = e.target instanceof Element && e.target.closest(PRESSABLE);
+  if (control && control.matches('[data-busy][aria-disabled="true"]')) {
     e.preventDefault();
     e.stopImmediatePropagation();
   }
 }, true);
 
 // Makes a wk-progress bar determinate and moves it: the fill follows done of
-// total, and aria-valuemin, -max, -now and -valuetext change together (the
-// words default to "12 of 40 files" from unit). With { aria: false } only
-// the fill moves, so a caller can change the value attributes at most every
-// timings.progressValueEvery; the first call always sets them, because a bar
-// without aria-valuenow is indeterminate.
-function setProgress(bar, { done = 0, total, unit = '', text } = {}, { aria = true } = {}) {
+// total at once, and aria-valuemin, -max, -now and -valuetext change
+// together (the words default to "12 of 40 files" from unit). The value
+// attributes change at most every timings.progressValueEvery (5 s), so a
+// screen reader isn't flooded: a call within that window moves the fill
+// only, and the next call after it sets them. The first call, and a call
+// with done >= total, always sets them. options.aria: true (the default)
+// follows that cap, 'now' sets them whatever the cap, false never sets them
+// (except on the first call: a bar without aria-valuenow is indeterminate).
+// options.clock returns milliseconds (default performance.now).
+const progressSetAt = new WeakMap();
+function setProgress(bar, { done = 0, total, unit = '', text } = {}, { aria = true, clock = () => performance.now() } = {}) {
   const max = Number(total);
   if (!Number.isFinite(max) || max <= 0) throw new RangeError(`setProgress: total must be a positive number, not ${total}`);
   const now = Math.min(Math.max(Number(done) || 0, 0), max);
   bar.style.setProperty('--wk-progress-value', `${Math.round(now / max * 10_000) / 100}%`);
-  if (!aria && bar.hasAttribute('aria-valuenow')) return;
+  const at = clock();
+  const first = !bar.hasAttribute('aria-valuenow') || !progressSetAt.has(bar);
+  const due = first || aria === 'now' || (aria && (now >= max || at - progressSetAt.get(bar) >= timings.progressValueEvery));
+  if (!due) return;
+  progressSetAt.set(bar, at);
   bar.setAttribute('aria-valuemin', '0');
   bar.setAttribute('aria-valuemax', String(max));
   bar.setAttribute('aria-valuenow', String(now));

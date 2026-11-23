@@ -38,9 +38,10 @@
 /* ---- Busy: a control whose action is running (BEHAVIOUR.md) ------------
    aria-disabled="true" plus data-busy, never disabled (which drops focus).
    It keeps its focus, its accessible name and its pressed face, with the
-   progress cursor; data-busy overrides the 45% aria-disabled look. kit.js
+   progress cursor; data-busy overrides the 45% aria-disabled look. The face
+   is the pressed one (.wk-button:active), two fill-strong layers. kit.js
    drops the presses a busy control gets. */
-.wk-button[data-busy] { opacity: 1; cursor: progress; box-shadow: var(--wk-shadow-control); background-image: linear-gradient(var(--wk-color-fill-strong), var(--wk-color-fill-strong)); }
+.wk-button[data-busy] { opacity: 1; cursor: progress; box-shadow: var(--wk-shadow-control); background-image: linear-gradient(var(--wk-color-fill-strong), var(--wk-color-fill-strong)), linear-gradient(var(--wk-color-fill-strong), var(--wk-color-fill-strong)); }
 .wk-button--quiet[data-busy] { box-shadow: none; }
 .wk-filter[data-busy], button.wk-chip[data-busy], .wk-copy[data-busy] { cursor: progress; background-image: linear-gradient(var(--wk-color-fill-strong), var(--wk-color-fill-strong)); }
 button.wk-link[data-busy] { cursor: progress; }
@@ -99,6 +100,10 @@ button.wk-link[data-busy] { cursor: progress; }
   /* The system repaints a transparent text fill: draw the button with
      system colours itself, so its label stays hidden under the spinner. */
   .wk-button:has(> .wk-spinner) { forced-color-adjust: none; border-color: ButtonText; background: ButtonFace; color: ButtonText; }
+  .wk-button:has(> .wk-spinner):focus-visible { outline-color: Highlight; }
+  /* The pressed face is a background the system drops: mark busy with a
+     Highlight border instead, with or without a spinner. */
+  .wk-button[data-busy] { border-color: Highlight; }
 }
 
 /* ---- Link -------------------------------------------------------------- */
