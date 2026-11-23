@@ -63,6 +63,14 @@
   --wk-color-chart-3: #628ccf;
   --wk-color-chart-4: #8a55a6;
   --wk-color-chart-5: #b8592c;
+  /* Code syntax (the editor package's code editor and highlighter): each
+     reaches 4.5:1 on wk-color-control. */
+  --wk-color-code-keyword: #8a3d9e;
+  --wk-color-code-string: #1d6b42;
+  --wk-color-code-number: #9a4a12;
+  --wk-color-code-comment: #687080;
+  --wk-color-code-type: #1b6585;
+  --wk-color-code-function: #3355b0;
   /* Diff rows: an added line's tint, a removed line's, and the stronger
      step that marks the words that changed. Removed is the attention hue;
      added is blue, not green, so the pair stays apart for red-green colour
@@ -152,6 +160,12 @@
     --wk-color-chart-3: #9dbff3;
     --wk-color-chart-4: #b98bd0;
     --wk-color-chart-5: #e0825a;
+    --wk-color-code-keyword: #d29be6;
+    --wk-color-code-string: #8cce9f;
+    --wk-color-code-number: #e7a46e;
+    --wk-color-code-comment: #959cab;
+    --wk-color-code-type: #71c3d6;
+    --wk-color-code-function: #91b3f2;
     --wk-color-diff-add: rgba(121, 166, 238, .14);
     --wk-color-diff-add-strong: rgba(121, 166, 238, .3);
     --wk-color-diff-del: rgba(238, 107, 95, .14);
@@ -193,6 +207,12 @@
   --wk-color-chart-3: #9dbff3;
   --wk-color-chart-4: #b98bd0;
   --wk-color-chart-5: #e0825a;
+  --wk-color-code-keyword: #d29be6;
+  --wk-color-code-string: #8cce9f;
+  --wk-color-code-number: #e7a46e;
+  --wk-color-code-comment: #959cab;
+  --wk-color-code-type: #71c3d6;
+  --wk-color-code-function: #91b3f2;
   --wk-color-diff-add: rgba(121, 166, 238, .14);
   --wk-color-diff-add-strong: rgba(121, 166, 238, .3);
   --wk-color-diff-del: rgba(238, 107, 95, .14);

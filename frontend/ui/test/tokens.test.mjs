@@ -235,6 +235,23 @@ test('theme/theme.css as shipped holds the kit defaults, so linking it unchanged
   }
 });
 
+// The syntax colours of @wails-kit/editor's code editor and highlighter.
+// They are kit-held (a theme does not set them).
+export const CODE_TOKENS = ['keyword', 'string', 'number', 'comment', 'type', 'function'].map(n => `--wk-color-code-${n}`);
+
+test('every code syntax colour reaches 4.5:1 on the control ground, in light and dark', () => {
+  const kit = kitTokens();
+  for (const name of CODE_TOKENS) {
+    assert.ok(!THEME_TOKENS.includes(name), `${name} is kit-held, not a theme token`);
+    for (const block of ['light', 'dark', 'attrDark']) {
+      const colour = kit[block].get(name), ground = kit[block].get('--wk-color-control');
+      assert.ok(colour && ground, `tokens.css: ${name} or --wk-color-control has no ${block} value`);
+      const ratio = contrast(colour, ground);
+      assert.ok(ratio >= 4.5, `tokens.css ${block}: ${name} is ${ratio.toFixed(2)}:1 on --wk-color-control`);
+    }
+  }
+});
+
 // Split a selector list at top-level commas (not those inside :where() etc).
 const selectors = list => {
   const out = [];
