@@ -1,6 +1,6 @@
-// Browser checks for the code editor, on the review pages in demo/
-// (index.html, themed.html), which load the prebuilt dist/code.js as an app
-// vendors it. Run with: npm run test:browser
+// Browser checks for the editors, on the review pages in demo/ (index.html
+// and themed.html for the code editor, markdown.html for the Markdown
+// editor), which load the prebuilt dist/ modules as an app vendors them. Run with: npm run test:browser
 // It needs playwright-core (a devDependency) and Chrome: set CHROME_PATH, or
 // have Chrome at /usr/bin/google-chrome or the macOS default. Without Chrome
 // it skips, unless CI is set, when it fails.
@@ -511,6 +511,352 @@ try {
       return { children: el.childElementCount, editors: document.querySelectorAll('#scratch .cm-editor').length, value: el.value, focus: document.activeElement === document.body };
     });
     assert.deepEqual(after, { children: 0, editors: 0, value: 'x', focus: true });
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  // ---- The Markdown editor (demo/markdown.html, dist/markdown.js) ------
+  const MD = '/editor/demo/markdown.html';
+  // Puts the comment box's text, focuses it with the cursor at the end, and
+  // selects its last `select` characters (Shift+Left), or all of it (true).
+  const mdSet = async (page, text, select = 0) => {
+    await page.evaluate(t => { const el = document.getElementById('demo-comment'); el.value = t; el.focus(); }, text);
+    await page.keyboard.press(`${mod}+End`);
+    if (select === true) await page.keyboard.press(`${mod}+a`);
+    else for (let i = 0; i < select; i++) await page.keyboard.press('Shift+ArrowLeft');
+  };
+  const mdValue = page => value(page, 'demo-comment');
+  const mdSelected = page => page.evaluate(() => getSelection().toString());
+
+  await check('markdown: the page loads with no errors, CSP violations or network; styles adopted, tokens used (light and dark)', async () => {
+    for (const scheme of ['light', 'dark']) {
+      const { page, problems } = await open(MD, { colorScheme: scheme });
+      const look = await page.evaluate(() => {
+        const md = document.getElementById('demo-rendered');
+        const keyword = [...md.querySelectorAll('.wk-code span')].find(s => s.textContent === 'func');
+        return {
+          editors: document.querySelectorAll('.wk-markdown-editor').length,
+          styleTags: document.querySelectorAll('style').length,
+          adopted: document.adoptedStyleSheets.length,
+          color: getComputedStyle(md).color, text: window.t.colour('var(--wk-color-text)'),
+          keyword: keyword && getComputedStyle(keyword).color, keywordToken: window.t.colour('var(--wk-color-code-keyword)'),
+          table: md.querySelector('table').className, th: getComputedStyle(md.querySelector('th')).color, secondary: window.t.colour('var(--wk-color-text-secondary)'),
+          link: getComputedStyle(md.querySelector('a.wk-link')).color, accent: window.t.colour('var(--wk-color-accent)'),
+          imgs: document.querySelectorAll('.wk-markdown img').length,
+          margin: getComputedStyle(md.querySelector('p')).marginBottom,
+          count: document.querySelector('#demo-comment .wk-markdown-editor-count').textContent,
+          overflow: document.documentElement.scrollWidth > innerWidth,
+        };
+      });
+      assert.equal(look.editors, 4);
+      assert.equal(look.styleTags, 0);
+      assert.ok(look.adopted >= 1);
+      assert.equal(look.color, look.text, scheme);
+      assert.equal(look.keyword, look.keywordToken, `${scheme}: code blocks are not highlighted`);
+      assert.equal(look.table, 'wk-table');
+      assert.equal(look.th, look.secondary);
+      assert.equal(look.link, look.accent);
+      assert.equal(look.imgs, 0, 'a remote image rendered as <img>');
+      assert.notEqual(look.margin, '0px', 'paragraphs have no space between them');
+      assert.match(look.count, /^\d+ \/ 1000$/);
+      assert.equal(look.overflow, false);
+      assert.deepEqual(problems, [], scheme);
+      await page.close();
+    }
+  });
+
+  await check('markdown: Write and Preview switch by keyboard (wk-tabs); the preview renders the current text; toolbar only in Write', async () => {
+    const { page, problems } = await open(MD);
+    await mdSet(page, '**bold** text');
+    await page.focus('#demo-comment [role=tab]:text-is("Write")');
+    await page.keyboard.press('ArrowRight');
+    const look = await page.evaluate(() => {
+      const el = document.getElementById('demo-comment');
+      const tab = el.querySelector('[role=tab][aria-selected=true]');
+      const panel = document.getElementById(tab.getAttribute('aria-controls'));
+      return {
+        mode: el.mode, tab: tab.textContent, focused: document.activeElement === tab, html: panel.querySelector('.wk-markdown').innerHTML,
+        writeHidden: el.querySelector('.wk-code-editor').closest('[role=tabpanel]').hidden, toolbar: el.querySelector('[role=toolbar]').hidden,
+        events: window.kitEvents.filter(e => e.target === 'demo-comment').map(e => [e.type, e.detail.mode]),
+      };
+    });
+    assert.deepEqual(look, { mode: 'preview', tab: 'Preview', focused: true, html: '<p><strong>bold</strong> text</p>', writeHidden: true, toolbar: true, events: [['wk-mode', 'preview']] });
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await page.evaluate(() => document.getElementById('demo-comment').mode), 'write');
+    assert.equal(await page.evaluate(() => document.querySelector('#demo-comment [role=toolbar]').hidden), false);
+    // Tab goes from the tab into the toolbar (one stop), then the text.
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), 'Bold');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-label')), 'Italic');
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => document.activeElement.matches('#demo-comment .cm-content')), true);
+    // An empty text previews as "Nothing to preview"; mode set by the app fires nothing.
+    await page.evaluate(() => { window.kitEvents = []; const el = document.getElementById('demo-comment'); el.value = ''; el.mode = 'preview'; });
+    assert.equal(await page.textContent('#demo-comment .wk-markdown-editor-preview'), 'Nothing to preview');
+    assert.deepEqual(await page.evaluate(() => window.kitEvents), []);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('markdown: the shortcuts and the toolbar wrap the selection (bold, italic, code, link, list, quote)', async () => {
+    const { page, problems } = await open(MD);
+    const cases = [
+      [`${mod}+b`, 'hello **world**', 'world'],
+      [`${mod}+i`, 'hello _world_', 'world'],
+      [`${mod}+e`, 'hello `world`', 'world'],
+      [`${mod}+k`, 'hello [world](url)', 'url'],
+    ];
+    for (const [key, want, selected] of cases) {
+      await mdSet(page, 'hello world', 5);
+      await page.keyboard.press(key);
+      assert.equal(await mdValue(page), want, key);
+      assert.equal(await mdSelected(page), selected, key);
+    }
+    // Pressing it again unwraps.
+    await mdSet(page, 'hello world', 5);
+    await page.keyboard.press(`${mod}+b`);
+    await page.keyboard.press(`${mod}+b`);
+    assert.equal(await mdValue(page), 'hello world');
+    // A selected URL becomes the link's target.
+    await mdSet(page, 'see https://example.com/x', 21);
+    await page.keyboard.press(`${mod}+k`);
+    assert.equal(await mdValue(page), 'see [](https://example.com/x)');
+    // Lines: the toolbar buttons, and focus stays in the text.
+    await mdSet(page, 'one\ntwo', true);
+    await page.click('#demo-comment [data-tool=list]');
+    assert.equal(await mdValue(page), '- one\n- two');
+    await page.click('#demo-comment [data-tool=list]');
+    assert.equal(await mdValue(page), 'one\ntwo');
+    await page.click('#demo-comment [data-tool=quote]');
+    assert.equal(await mdValue(page), '> one\n> two');
+    assert.equal(await page.evaluate(() => document.activeElement.matches('#demo-comment .cm-content')), true);
+    await mdSet(page, 'a\nb', true);
+    await page.click('#demo-comment [data-tool=code]');
+    assert.equal(await mdValue(page), '```\na\nb\n```');
+    await mdSet(page, 'x', 1);
+    await page.click('#demo-comment [data-tool=bold]');
+    assert.equal(await mdValue(page), '**x**');
+    const labels = await page.evaluate(() => [...document.querySelectorAll('#demo-comment [role=toolbar] button')].map(b => [b.getAttribute('aria-label'), b.getAttribute('aria-keyshortcuts')]));
+    const m = mod === 'Meta' ? 'Meta' : 'Control';
+    assert.deepEqual(labels, [['Bold', `${m}+B`], ['Italic', `${m}+I`], ['Code', `${m}+E`], ['Link', `${m}+K`], ['Bulleted list', null], ['Quote', null]]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('markdown: Mod-Enter and the submit action submit; empty and too long show an error until fixed; a pending onsubmit keeps it busy', async () => {
+    const { page, problems } = await open(MD);
+    const submits = () => page.evaluate(() => window.kitEvents.filter(e => e.type === 'wk-submit').map(e => e.detail.value));
+    await mdSet(page, 'Looks good');
+    await page.evaluate(() => { window.kitEvents = []; });
+    await page.keyboard.press(`${mod}+Enter`);
+    assert.deepEqual(await submits(), ['Looks good']);
+    assert.equal(await mdValue(page), 'Looks good', 'Mod-Enter inserted a line');
+    await page.click('#demo-comment button:text-is("Comment")');
+    assert.deepEqual(await submits(), ['Looks good', 'Looks good']);
+    // Empty: an error on the text, focus in it, and no submit.
+    await mdSet(page, '  ');
+    await page.focus('#demo-comment [role=tab]:text-is("Write")');
+    await page.keyboard.press('ArrowRight');
+    await page.click('#demo-comment button:text-is("Comment")');
+    const err = await page.evaluate(() => {
+      const c = document.querySelector('#demo-comment .cm-content');
+      const e = document.querySelector('#demo-comment .wk-markdown-editor-error');
+      return { text: e.hidden ? null : e.textContent, invalid: c.getAttribute('aria-invalid'), described: c.getAttribute('aria-describedby').split(' ').includes(e.id), focus: document.activeElement === c, mode: document.getElementById('demo-comment').mode };
+    });
+    assert.deepEqual(err, { text: 'Write something first.', invalid: 'true', described: true, focus: true, mode: 'write' });
+    assert.equal((await submits()).length, 2);
+    // Typing fixes it, and the error goes.
+    await page.keyboard.type('ok');
+    assert.equal(await page.evaluate(() => document.querySelector('#demo-comment .wk-markdown-editor-error').hidden), true);
+    assert.equal(await page.getAttribute('#demo-comment .cm-content', 'aria-invalid'), null);
+    // Too long.
+    await mdSet(page, 'x'.repeat(1003));
+    await page.keyboard.press(`${mod}+Enter`);
+    assert.equal(await page.textContent('#demo-comment .wk-markdown-editor-error'), 'Shorten this by 3 characters.');
+    await page.keyboard.press('Backspace');
+    await page.keyboard.press('Backspace');
+    assert.equal(await page.textContent('#demo-comment .wk-markdown-editor-error'), 'Shorten this by 1 character.');
+    await page.keyboard.press('Backspace');
+    assert.equal(await page.evaluate(() => document.querySelector('#demo-comment .wk-markdown-editor-error').hidden), true);
+    assert.equal((await submits()).length, 2);
+    // Busy while onsubmit's promise is pending: a second submit does nothing.
+    await page.evaluate(() => { window.pendingSubmit = new Promise(r => { window.finishSubmit = r; }); });
+    await mdSet(page, 'Ship it');
+    await page.keyboard.press(`${mod}+Enter`);
+    await page.keyboard.press(`${mod}+Enter`);
+    // force: Playwright waits for an aria-disabled button; the press must do nothing.
+    await page.click('#demo-comment button:text-is("Comment")', { force: true });
+    const busy = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('#demo-comment button')].find(x => x.textContent === 'Comment');
+      return { busy: document.getElementById('demo-comment').getAttribute('aria-busy'), aria: b.getAttribute('aria-disabled'), data: b.hasAttribute('data-busy'), disabled: b.disabled, cancel: [...document.querySelectorAll('#demo-comment button')].find(x => x.textContent === 'Cancel').getAttribute('aria-disabled') };
+    });
+    assert.deepEqual(busy, { busy: '', aria: 'true', data: true, disabled: false, cancel: null });
+    assert.equal((await submits()).length, 3);
+    await page.evaluate(() => window.finishSubmit());
+    await until(page, () => !document.getElementById('demo-comment').hasAttribute('aria-busy'));
+    await page.focus('#demo-comment .cm-content');
+    await page.keyboard.press(`${mod}+Enter`);
+    assert.equal((await submits()).length, 4);
+    // A cancelled wk-submit stops onsubmit.
+    const cancelled = await page.evaluate(() => {
+      const el = document.getElementById('demo-comment');
+      el.addEventListener('wk-submit', e => e.preventDefault(), { once: true });
+      return el.submit();
+    });
+    assert.equal(cancelled, false);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('markdown: the count updates as the person types and marks a text over the limit', async () => {
+    const { page, problems } = await open(MD);
+    await mdSet(page, 'abc');
+    assert.equal(await page.textContent('#demo-comment .wk-markdown-editor-count'), '3 / 1000');
+    await page.keyboard.type('de');
+    assert.equal(await page.textContent('#demo-comment .wk-markdown-editor-count'), '5 / 1000');
+    const counted = await page.evaluate(() => document.querySelector('#demo-comment .cm-content').getAttribute('aria-describedby').split(' ').includes(document.querySelector('#demo-comment .wk-markdown-editor-count').id));
+    assert.equal(counted, true);
+    await mdSet(page, 'y'.repeat(1000));
+    assert.equal(await page.evaluate(() => document.querySelector('#demo-comment .wk-markdown-editor-count').hasAttribute('data-over')), false);
+    await page.keyboard.type('z');
+    const over = await page.evaluate(() => {
+      const c = document.querySelector('#demo-comment .wk-markdown-editor-count');
+      return { text: c.textContent, over: c.hasAttribute('data-over'), colour: getComputedStyle(c).color, token: window.t.colour('var(--wk-color-attention-text)') };
+    });
+    assert.deepEqual(over, { text: '1001 / 1000', over: true, colour: over.token, token: over.token });
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('markdown: preview and rendered links go to onlink and never navigate; unsafe links are text; images do not load', async () => {
+    const { page, problems } = await open(MD);
+    const url = page.url();
+    await page.evaluate(() => { document.getElementById('demo-comment').mode = 'preview'; });
+    await page.click('#demo-comment .wk-markdown a:text-is("the guide")');
+    await page.click('#demo-rendered a:text-is("https://example.com/faq")');
+    await page.click('#demo-rendered a:text-is("A remote chart")', { button: 'middle' });
+    await page.click('#demo-rendered a:text-is("A remote chart")', { modifiers: [mod] });
+    assert.deepEqual(await page.evaluate(() => window.links), ['https://example.com/guide', 'https://example.com/faq', 'https://example.com/chart.png']);
+    assert.equal(page.url(), url);
+    assert.equal(page.context().pages().length, 1, 'a link opened a window');
+    const look = await page.evaluate(() => [...document.querySelectorAll('.wk-markdown a')].map(a => [a.getAttribute('href'), a.getAttribute('rel'), a.getAttribute('target')]));
+    for (const [href, rel, target] of look) {
+      assert.match(href, /^https:\/\/example\.com\//);
+      assert.equal(rel, 'noopener noreferrer');
+      assert.equal(target, null);
+    }
+    // An editor whose preview has images, from a host not allowed and from the page's own origin: none load.
+    const imgs = await page.evaluate(async () => {
+      const { wkMarkdownEditor } = await import('/editor/dist/markdown.js');
+      const el = wkMarkdownEditor({ label: 'Images', value: `![a](https://example.com/a.png) ![b](${location.origin}/editor/demo/missing.png) <img src="https://example.com/raw.png">`, mode: 'preview' });
+      document.getElementById('demo').append(el);
+      return { imgs: el.querySelectorAll('img').length, links: el.querySelectorAll('.wk-markdown a').length };
+    });
+    assert.deepEqual(imgs, { imgs: 0, links: 2 });
+    // problems records any request outside the page's server, and any failed one.
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('markdown: disabled blocks edits, the toolbar and submit; enabling it again restores them', async () => {
+    const { page, problems } = await open(MD);
+    const el = '#demo-md-disabled';
+    const look = () => page.evaluate(s => {
+      const root = document.querySelector(s);
+      return {
+        aria: root.querySelector('.cm-content').getAttribute('aria-disabled'), data: root.hasAttribute('data-disabled'), editable: root.querySelector('.cm-content').getAttribute('contenteditable'),
+        tools: [...root.querySelectorAll('[role=toolbar] button')].every(b => b.disabled), action: root.querySelector('.wk-markdown-editor-actions button').disabled,
+      };
+    }, el);
+    assert.deepEqual(await look(), { aria: 'true', data: true, editable: 'false', tools: true, action: true });
+    const before = await value(page, 'demo-md-disabled');
+    await page.click(`${el} .cm-content`, { force: true });
+    await page.keyboard.type('x');
+    await page.keyboard.press(`${mod}+b`);
+    assert.equal(await value(page, 'demo-md-disabled'), before);
+    assert.equal(await page.evaluate(s => document.querySelector(s).submit(), el), false);
+    // The preview is still there to read.
+    await page.click(`${el} [role=tab]:text-is("Preview")`);
+    assert.equal(await page.evaluate(s => document.querySelector(`${s} .wk-markdown strong`).textContent, el), 'locked');
+    await page.evaluate(s => { const r = document.querySelector(s); r.disabled = false; r.mode = 'write'; }, el);
+    assert.deepEqual(await look(), { aria: null, data: false, editable: 'true', tools: false, action: false });
+    await page.click(`${el} .cm-content`);
+    await page.keyboard.press(`${mod}+End`);
+    await page.keyboard.type('!');
+    assert.equal(await value(page, 'demo-md-disabled'), `${before}!`);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('markdown: the API: events and callbacks, value and mode set quietly, label required, destroy, auto-grow', async () => {
+    const { page, problems } = await open(MD);
+    const result = await page.evaluate(async () => {
+      const { wkMarkdownEditor } = await import('/editor/dist/markdown.js');
+      const calls = [];
+      const el = wkMarkdownEditor({ label: 'Note', minHeight: '60px', maxHeight: '120px', onchange: v => calls.push(['onchange', v]), onmode: m => calls.push(['onmode', m]), onsubmit: v => calls.push(['onsubmit', v]) });
+      for (const t of ['wk-change', 'wk-mode', 'wk-submit']) el.addEventListener(t, e => calls.push([t, e.detail.value ?? e.detail.mode]));
+      document.getElementById('demo').append(el);
+      const box = el.querySelector('.wk-code-editor');
+      const small = box.getBoundingClientRect().height;
+      el.value = 'a\n'.repeat(40);
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const big = box.getBoundingClientRect().height;
+      const scrolls = el.querySelector('.cm-scroller').scrollHeight > el.querySelector('.cm-scroller').clientHeight;
+      el.mode = 'preview';
+      el.value = 'x';
+      const quiet = calls.length;
+      const errors = [];
+      for (const spec of [{}, { label: ' ' }]) { try { wkMarkdownEditor(spec); errors.push('none'); } catch (e) { errors.push(e.constructor.name); } }
+      el.destroy(); el.destroy();
+      el.value = 'later';
+      return { small, big, scrolls, quiet, errors, children: el.childElementCount, value: el.value, submit: el.submit() };
+    });
+    assert.equal(Math.round(result.small), 60);
+    assert.equal(Math.round(result.big), 120);
+    assert.equal(result.scrolls, true);
+    assert.equal(result.quiet, 0, 'setting value or mode fired something');
+    assert.deepEqual(result.errors, ['TypeError', 'TypeError']);
+    assert.equal(result.children, 0);
+    assert.equal(result.submit, false);
+    // Typing fires wk-change then onchange; the tab fires wk-mode then onmode; Mod-Enter wk-submit then onsubmit.
+    await page.evaluate(async () => {
+      const { wkMarkdownEditor } = await import('/editor/dist/markdown.js');
+      window.order = [];
+      const el = wkMarkdownEditor({ id: 'demo-order', label: 'Order', onchange: () => window.order.push('onchange'), onmode: m => window.order.push(`onmode:${m}`), onsubmit: () => window.order.push('onsubmit') });
+      for (const t of ['wk-change', 'wk-mode', 'wk-submit']) el.addEventListener(t, e => window.order.push(`${t}:${JSON.stringify(e.detail)}`));
+      document.getElementById('demo').append(el);
+    });
+    await page.click('#demo-order .cm-content');
+    await page.keyboard.type('a');
+    await page.keyboard.press(`${mod}+Enter`);
+    await page.click('#demo-order [role=tab]:text-is("Preview")');
+    assert.deepEqual(await page.evaluate(() => window.order), ['wk-change:{"value":"a"}', 'onchange', 'wk-submit:{"value":"a"}', 'onsubmit', 'wk-mode:{"mode":"preview"}', 'onmode:preview']);
+    // The tabs' own wk-change does not escape the editor.
+    assert.equal(await page.evaluate(() => window.kitEvents.some(e => e.type === 'wk-change' && e.detail.index !== undefined)), false);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('markdown: forced colours: borders, the selected tab and the focus ring stay visible', async () => {
+    const { page, problems } = await open(MD, { forcedColors: 'active' });
+    await page.evaluate(() => { document.getElementById('demo-comment').mode = 'preview'; });
+    const look = await page.evaluate(() => {
+      const canvasText = window.t.colour('CanvasText');
+      const pv = getComputedStyle(document.querySelector('#demo-comment .wk-markdown-editor-preview'));
+      const code = getComputedStyle(document.querySelector('#demo-rendered p code'));
+      const quote = getComputedStyle(document.querySelector('#demo-rendered blockquote'));
+      return { canvasText, preview: pv.borderTopColor, code: `${code.borderTopStyle} ${code.borderTopColor}`, quote: quote.borderLeftColor };
+    });
+    assert.equal(look.preview, look.canvasText);
+    // Over the limit is not shown by colour alone.
+    await page.evaluate(() => { const el = document.getElementById('demo-comment'); el.value = 'x'.repeat(1001); });
+    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#demo-comment .wk-markdown-editor-count')).textDecorationLine), 'underline');
+    assert.equal(look.code, `solid ${look.canvasText}`);
+    assert.equal(look.quote, look.canvasText);
+    await page.click('#demo-comment [role=tab]:text-is("Write")');
+    await page.click('#demo-comment .cm-content');
+    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#demo-comment .cm-editor')).outlineStyle), 'solid');
     assert.deepEqual(problems, []);
     await page.close();
   });

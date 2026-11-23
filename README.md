@@ -512,7 +512,7 @@ for each group in schema.groups:
 | [`@wails-kit/types`](frontend/types/README.md) | `frontend/types` | TypeScript type definitions mirroring Go types |
 | [`@wails-kit/settings`](frontend/settings/README.md) | `frontend/settings` | Headless settings logic: validation, conditions, dynamic options |
 | [`@wails-kit/ui`](frontend/ui/README.md) | `frontend/ui` | Base UI kit: tokens, components, custom elements, charts, a theme file and a settings window drawn from the schema; as an npm package or one prebuilt CSS file and ES module |
-| [`@wails-kit/editor`](frontend/editor/README.md) | `frontend/editor` | Opt-in editors themed by the kit's tokens: a CodeMirror 6 code editor and syntax highlighter, one prebuilt ES module per editor |
+| [`@wails-kit/editor`](frontend/editor/README.md) | `frontend/editor` | Opt-in editors themed by the kit's tokens: a CodeMirror 6 code editor and syntax highlighter, and a Markdown editor (Write/Preview) with a safe renderer; one prebuilt ES module per editor, sharing CodeMirror |
 
 ## Required Tools
 

@@ -578,6 +578,9 @@ Where shipped code doesn't yet follow this page:
 - The switch's transition is 120 ms, not `--wk-duration-fast` (100 ms); the token will
   set it.
 - `wk-copy` is styling only: the app copies, and nothing gives feedback.
+- The Markdown editor (`@wails-kit/editor/markdown`) marks its submit button busy at
+  once while `onsubmit`'s promise is pending, with no 400 ms indicator and nothing sent
+  to the announcer; it waits for `wkTask`.
 - The Button card documents `disabled` and the locked state, but no busy state.
 - The Go `errors` package's default messages say "Please try again" and "An unexpected
   error occurred"; apps must register their own until the defaults follow this page.
