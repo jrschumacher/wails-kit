@@ -1032,6 +1032,58 @@ try {
     await page.close();
   });
 
+  await check('status dot: the running dot (filled, working, default size) has a halo in --wk-dot-ground, which follows wk-color-bg in light and dark; an outline in forced colours', async () => {
+    for (const scheme of ['light', 'dark']) {
+      const { page, problems } = await open('/demo/index.html', { colorScheme: scheme });
+      const look = await page.evaluate(() => {
+        const dot = attrs => { const d = document.createElement('span'); d.className = 'wk-dot'; for (const [k, v] of Object.entries(attrs)) d.setAttribute(k, v); document.querySelector('#dots').append(d); const s = getComputedStyle(d); const out = { shadow: s.boxShadow, ground: s.getPropertyValue('--wk-dot-ground').trim() }; d.remove(); return out; };
+        return { bg: getComputedStyle(document.documentElement).backgroundColor, running: dot({ 'data-tone': 'working' }), filled: dot({ 'data-tone': 'working', 'data-shape': 'filled' }), small: dot({ 'data-tone': 'working', 'data-size': 'sm' }), half: dot({ 'data-tone': 'working', 'data-shape': 'half' }), neutral: dot({}) };
+      });
+      assert.ok(look.running.ground, '--wk-dot-ground is set on the dot');
+      // Two rings: the gap in the page background, then the dot's colour.
+      const rings = look.running.shadow.split(/,(?![^(]*\))/).map(x => x.trim());
+      assert.equal(rings.length, 2, look.running.shadow);
+      assert.ok(rings[0].startsWith(look.bg), `${scheme}: the halo's gap is the background (${rings[0]} vs ${look.bg})`);
+      assert.equal(look.filled.shadow, look.running.shadow);
+      for (const plain of ['small', 'half', 'neutral']) assert.equal(look[plain].shadow, 'none', `${plain} has no halo`);
+      assert.deepEqual(problems, []);
+      await page.close();
+    }
+    const { page, problems } = await open('/demo/index.html', { forcedColors: 'active' });
+    const forced = await page.locator('#demo-zebra .wk-dot[data-tone="working"]').evaluate(d => { const s = getComputedStyle(d); return { shadow: s.boxShadow, outline: s.outlineStyle, wide: parseFloat(s.outlineWidth) >= 1 }; });
+    assert.deepEqual(forced, { shadow: 'none', outline: 'solid', wide: true });
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('table: zebra rows, a muted row (secondary text, name struck), the name button and row actions; a visually hidden header keeps its name', async () => {
+    const { page, problems } = await open();
+    const look = await page.locator('#demo-zebra').evaluate(t => {
+      const probe = (prop, token) => { const e = document.createElement('i'); e.style[prop] = `var(${token})`; t.append(e); const v = getComputedStyle(e)[prop]; e.remove(); return v; };
+      const rows = [...t.tBodies[0].rows];
+      const name = rows[0].querySelector('.wk-table-name');
+      const hidden = t.querySelector('.wk-visually-hidden').getBoundingClientRect();
+      const actions = rows[0].querySelector('.wk-table-actions');
+      return {
+        fill: probe('backgroundColor', '--wk-color-fill'), selection: probe('backgroundColor', '--wk-color-selection'), secondary: probe('color', '--wk-color-text-secondary'), text: probe('color', '--wk-color-text'),
+        bgs: rows.map(r => getComputedStyle(r.cells[0]).backgroundColor),
+        muted: { color: getComputedStyle(rows[2].cells[2]).color, line: getComputedStyle(rows[2].querySelector('.wk-table-name')).textDecorationLine },
+        name: { color: getComputedStyle(name).color, weight: getComputedStyle(name).fontWeight, border: getComputedStyle(name).borderTopStyle, bg: getComputedStyle(name).backgroundColor },
+        hidden: [hidden.width, hidden.height], actionsOneLine: actions.getBoundingClientRect().height < 30,
+      };
+    });
+    assert.notEqual(look.selection, look.fill);
+    assert.deepEqual(look.bgs, ['rgba(0, 0, 0, 0)', look.fill, 'rgba(0, 0, 0, 0)', look.selection], 'every other row is tinted, and the selected even row keeps the selection tint');
+    assert.deepEqual(look.muted, { color: look.secondary, line: 'line-through' });
+    assert.deepEqual(look.name, { color: look.text, weight: '600', border: 'none', bg: 'rgba(0, 0, 0, 0)' });
+    assert.deepEqual(look.hidden, [1, 1]);
+    assert.ok(look.actionsOneLine, 'row actions stay on one line');
+    const ax = await axTree(page);
+    assert.ok(ax.some(n => n.role?.value === 'columnheader' && n.name?.value === 'Actions'), 'the hidden header is still named');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
   await check('list: the selected row carries the selection tint and darker secondary text, rows keep their own height, forced colours mark the selected row', async () => {
     const { page, problems } = await open();
     const read = p => p.locator('#list .wk-list').first().evaluate(list => {
@@ -1080,6 +1132,30 @@ try {
     await page.keyboard.press('Home');
     await page.keyboard.press('ArrowUp');
     assert.deepEqual((await state()).map(r => r.focus), [true, false, false]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('pane scroll: the list scrolls under a fixed toolbar, takes focus, and its focus ring sits inside; toolbar subtitle and sidebar detail', async () => {
+    const { page, problems } = await open();
+    const pane = page.locator('#demo-pane-scroll');
+    const before = await page.locator('#layout .wk-toolbar').boundingBox();
+    const scrolls = await pane.evaluate(p => { const can = p.scrollHeight > p.clientHeight; p.scrollTop = 200; return { can, top: p.scrollTop }; });
+    assert.ok(scrolls.can && scrolls.top > 0, 'the pane body scrolls');
+    assert.deepEqual(await page.locator('#layout .wk-toolbar').boundingBox(), before, 'the toolbar stays put');
+    await page.locator('#layout .wk-toolbar .wk-button', { hasText: 'New' }).focus();
+    await page.keyboard.press('Tab');
+    assert.equal(await active(page), 'demo-pane-scroll', 'Tab reaches the pane body');
+    assert.deepEqual(await pane.evaluate(p => [p.matches(':focus-visible'), getComputedStyle(p).outlineOffset]), [true, '-2px']);
+    const bits = await page.evaluate(() => {
+      const sub = getComputedStyle(document.querySelector('#layout .wk-toolbar-subtitle'));
+      const detail = document.querySelector('#layout .wk-sidebar-detail');
+      const item = detail.closest('.wk-sidebar-item').getBoundingClientRect(), d = detail.getBoundingClientRect();
+      const muted = getComputedStyle(document.querySelector('#chips .wk-chip--muted'));
+      const dotChip = document.querySelector('#chips .wk-chip > .wk-dot');
+      return { sub: [sub.fontSize, sub.fontWeight], detailAtEnd: item.right - d.right < 12, detailSize: getComputedStyle(detail).fontSize, muted: [muted.borderTopStyle, muted.fontWeight], dotMargin: getComputedStyle(dotChip).marginLeft };
+    });
+    assert.deepEqual(bits, { sub: ['12px', '400'], detailAtEnd: true, detailSize: '11px', muted: ['dashed', '500'], dotMargin: '-3px' });
     assert.deepEqual(problems, []);
     await page.close();
   });

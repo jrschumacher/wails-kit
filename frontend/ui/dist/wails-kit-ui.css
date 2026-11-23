@@ -435,6 +435,11 @@ button.wk-chip:hover:not(:disabled) { background: var(--wk-color-fill); color: v
 button.wk-chip:disabled { opacity: .45; cursor: default; }
 .wk-chip--count { min-width: 20px; justify-content: center; padding: 0 6px; border-color: transparent; background: var(--wk-color-fill-strong); color: var(--wk-color-text-secondary-on-selected); font-weight: var(--wk-font-weight-medium); font-variant-numeric: tabular-nums; }
 .wk-chip--attention { border-color: transparent; background: var(--wk-color-attention); color: var(--wk-color-on-attention); }
+/* A leading status dot (data-size="sm"), then the item and its state in
+   words: pulled toward the chip's edge. */
+.wk-chip > .wk-dot { margin-left: -3px; }
+/* Muted: a dashed chip that says something is absent ("No runs yet"). */
+.wk-chip--muted { border-style: dashed; font-weight: var(--wk-font-weight-medium); }
 /* Lock: what the person may do here ("View only", "Can manage"), its glyph
    first. data-level="manage" reads in the text colour. */
 .wk-chip--lock > svg { width: var(--wk-font-size-xs); height: var(--wk-font-size-xs); flex: none; }
@@ -447,10 +452,22 @@ button.wk-chip:disabled { opacity: .45; cursor: default; }
 .wk-table tbody td, .wk-table tbody th { border-bottom: var(--wk-hairline-width) solid var(--wk-color-hairline); }
 .wk-table tbody tr:last-child > * { border-bottom: 0; }
 .wk-table .wk-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Zebra: every other row tinted, for wide tables read across. It comes
+   before the selection rules, so a selected or current row keeps its tint. */
+.wk-table--zebra tbody tr:nth-child(even) > * { background: var(--wk-color-fill); }
 .wk-table tbody tr[aria-selected="true"] > *,
 .wk-table tbody tr[aria-current]:not([aria-current="false"]) > * { background: var(--wk-color-selection); }
 .wk-table tbody tr[aria-selected="true"] .wk-secondary,
 .wk-table tbody tr[aria-current]:not([aria-current="false"]) .wk-secondary { color: var(--wk-color-text-secondary-on-selected); }
+/* data-muted: a row that no longer counts (a removed item), in secondary
+   text with its name struck. */
+.wk-table tbody tr[data-muted] > * { color: var(--wk-color-text-secondary); }
+.wk-table tbody tr[data-muted] .wk-table-name { text-decoration: line-through; }
+/* The row's name as a <button> that opens the item, in the text colour. */
+.wk-table-name { padding: 2px 0; border: 0; background: none; color: inherit; font: inherit; font-weight: var(--wk-font-weight-semibold); text-align: left; cursor: pointer; }
+.wk-table-name:hover { text-decoration: underline; }
+/* A cell's row actions (small buttons), kept on one line. */
+.wk-table-actions { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 
 /* ---- List: selectable rows of any height ------------------------------- */
 /* For items that do not share columns: a <ul class="wk-list"> of
@@ -492,6 +509,8 @@ button.wk-chip:disabled { opacity: .45; cursor: default; }
 .wk-sidebar-item > .wk-chip--count, .wk-sidebar-item > .wk-chip--attention { margin-left: auto; }
 .wk-sidebar-item > .wk-chip--count + .wk-chip--attention { margin-left: 0; }
 .wk-sidebar-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Short trailing text on an item ("Running", "Idle"), at its end. */
+.wk-sidebar-detail { margin-left: auto; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .wk-sidebar ul ul .wk-sidebar-item { padding-left: 30px; }
 .wk-sidebar summary.wk-sidebar-item { list-style: none; }
 .wk-sidebar summary.wk-sidebar-item::-webkit-details-marker { display: none; }
@@ -507,6 +526,8 @@ button.wk-chip:disabled { opacity: .45; cursor: default; }
   background: var(--wk-color-bg);
 }
 .wk-toolbar-title { margin: 0; font-size: var(--wk-font-size-md); font-weight: var(--wk-font-weight-bold); }
+/* What the view counts over ("last 14 days"), after the title. */
+.wk-toolbar-subtitle { margin-left: 6px; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-regular); }
 .wk-toolbar-spacer { flex: 1; }
 
 /* ---- Footer bar -------------------------------------------------------- */
@@ -661,9 +682,12 @@ wk-dialog { display: contents; }
 /* Sizes: wk-dot-size, or wk-dot-size-small with data-size="sm" (a dot beside
    small text: a sidebar item, a connection line). The working tone draws its
    outline in wk-color-working-ring, so the mark reaches 3:1 on the ground
-   where the working colour alone does not. */
+   where the working colour alone does not. --wk-dot-ground is the surface
+   the dot sits on (wk-color-bg unless set): the gap in the running dot's
+   halo is drawn in it. */
 .wk-dot {
   --wk-dot-color: var(--wk-color-text);
+  --wk-dot-ground: var(--wk-color-bg);
   display: inline-block; flex: none; width: var(--wk-dot-size); height: var(--wk-dot-size);
   border: 1.5px solid var(--wk-dot-color); border-radius: 50%;
   background: var(--wk-dot-color); vertical-align: middle;
@@ -676,6 +700,11 @@ wk-dialog { display: contents; }
 .wk-dot[data-shape="hollow"] { background: transparent; }
 .wk-dot[data-shape="dashed"] { background: transparent; border-style: dashed; }
 .wk-dot[data-shape="bar"] { background: linear-gradient(transparent 35%, var(--wk-dot-color) 35% 65%, transparent 65%); }
+/* Running: the filled working dot at the default size gets a halo, so it
+   reads apart from a half dot at a glance. Set --wk-dot-ground on the dot
+   when it sits on something other than wk-color-bg. */
+.wk-dot[data-tone="working"]:not([data-shape]):not([data-size="sm"]),
+.wk-dot[data-tone="working"][data-shape="filled"]:not([data-size="sm"]) { box-shadow: 0 0 0 var(--wk-focus-offset) var(--wk-dot-ground), 0 0 0 calc(var(--wk-focus-offset) + 1.5px) var(--wk-dot-color); }
 /* A dot and the words it stands for, as one line ("Reconnecting"): the small
    dot, then the words in secondary text. */
 .wk-dot-label { display: inline-flex; align-items: center; gap: var(--wk-space-2); white-space: nowrap; }
@@ -701,6 +730,15 @@ wk-dialog { display: contents; }
 .wk-settings-tab[aria-selected="true"] { background: var(--wk-color-fill-strong); }
 .wk-settings-tab[aria-selected="true"] > svg { color: var(--wk-color-accent); }
 .wk-settings-tab[data-attention]::after { content: ""; position: absolute; top: 4px; right: 10px; width: 7px; height: 7px; border-radius: 50%; background: var(--wk-color-attention); }
+
+/* ---- Utilities --------------------------------------------------------- */
+/* Read by assistive technology, not drawn: a label a layout shows by
+   position alone. */
+.wk-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* A pane body that scrolls under a fixed toolbar. Give it tabindex="0" and a
+   name (aria-label or aria-labelledby), so keyboard users can scroll it. */
+.wk-pane-scroll { flex: 1; min-height: 0; overflow: auto; }
+.wk-pane-scroll:focus-visible { outline-offset: -2px; }
 
 /* ---- Panel: a boxed group ----------------------------------------------- */
 /* Rows that belong together on the window ground. --rows: settings rows
@@ -912,6 +950,9 @@ wk-dialog { display: contents; }
   .wk-range:disabled::-webkit-slider-thumb { background: Canvas; box-shadow: 0 0 0 1px GrayText; }
   .wk-range:disabled::-moz-range-thumb { background: Canvas; box-shadow: 0 0 0 1px GrayText; }
   .wk-dot, .wk-dot[data-tone] { forced-color-adjust: none; --wk-dot-color: CanvasText; border-color: CanvasText; }
+  /* The running dot's halo: an outline, since the gap's ground is a token. */
+  .wk-dot[data-tone="working"]:not([data-shape]):not([data-size="sm"]),
+  .wk-dot[data-tone="working"][data-shape="filled"]:not([data-size="sm"]) { outline: 1.5px solid CanvasText; outline-offset: 2px; box-shadow: none; }
 }
 
 /* ---- settings.css ---- */

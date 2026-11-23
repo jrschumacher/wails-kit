@@ -79,7 +79,7 @@ ${section('type', 'Type scale', `
 ${section('tokens', 'Tokens', `<div id="demo-swatches" class="demo-swatches"></div>
 <dl id="demo-values" class="demo-values"></dl>`)}
 
-${section('dots', 'Status dot', dots, 'Shapes × tones, small (data-size="sm", 8 px), at the default size and at 14 px. Tones: neutral, working, attention; the working tone draws its outline in wk-color-working-ring. No state names.')}
+${section('dots', 'Status dot', dots, 'Shapes × tones, small (data-size="sm", 8 px), at the default size and at 14 px. Tones: neutral, working, attention; the working tone draws its outline in wk-color-working-ring. A filled working dot at the default size and above shows the halo ring (running). No state names.')}
 
 ${section('buttons', 'Buttons and links', `
 <div class="demo-row">
@@ -171,19 +171,31 @@ ${section('chips', 'Chips and pills', `
   <button class="wk-chip" type="button" disabled>Disabled</button>
   <span class="wk-chip wk-chip--count">6</span>
   <span class="wk-chip wk-chip--count wk-chip--attention">2</span>
+  <span class="wk-chip"><span class="wk-dot" data-size="sm" data-tone="working" aria-hidden="true"></span>export · running</span>
+  <span class="wk-chip"><span class="wk-dot" data-size="sm" aria-hidden="true"></span>check · 3 findings</span>
+  <span class="wk-chip wk-chip--muted">No runs yet</span>
   <span class="wk-chip wk-chip--lock">${icons.eye}View only</span>
   <span class="wk-chip wk-chip--lock" data-level="manage">${icons.lock}Can manage</span>
-</div>`, 'A count chip\'s number uses wk-color-text-secondary-on-selected, which reaches 4.5:1 on its tint and on a selected row.')}
+</div>`, 'A count chip\'s number uses wk-color-text-secondary-on-selected, which reaches 4.5:1 on its tint and on a selected row. A chip may lead with a small status dot, then the item and its state in words; a muted (dashed) chip says something is absent.')}
 
 ${section('table', 'Table', `
 <table class="wk-table">
-  <thead><tr><th>Name</th><th>Kind</th><th>Status</th><th class="wk-num">Size</th><th><span class="demo-sr">Actions</span></th></tr></thead>
+  <thead><tr><th>Name</th><th>Kind</th><th>Status</th><th class="wk-num">Size</th><th><span class="wk-visually-hidden">Actions</span></th></tr></thead>
   <tbody>
     <tr><td><span class="wk-secondary">reports/</span>summary.pdf</td><td>PDF document</td><td><span class="demo-state"><span class="wk-dot" data-shape="ringed" data-tone="working" aria-hidden="true"></span>Uploading</span></td><td class="wk-num">1.2 MB</td><td><a class="wk-link" href="#table">Open</a></td></tr>
     <tr aria-current="true"><td><span class="wk-secondary">reports/</span>figures.csv</td><td>Spreadsheet</td><td><span class="demo-state"><span class="wk-dot" aria-hidden="true"></span>Saved</span></td><td class="wk-num">48 KB</td><td><a class="wk-link" href="#table">Open</a></td></tr>
     <tr><td><span class="wk-secondary">reports/</span>draft.txt</td><td>Text</td><td class="wk-secondary">Queued</td><td class="wk-num wk-secondary">2 KB</td><td></td></tr>
   </tbody>
-</table>`, 'The second row is the current one (aria-current="true"); aria-selected="true" looks the same inside a grid.')}
+</table>
+<table class="wk-table wk-table--zebra demo-zebra" id="demo-zebra">
+  <thead><tr><th>Name</th><th>State</th><th class="wk-num">Runs</th><th><span class="wk-visually-hidden">Actions</span></th></tr></thead>
+  <tbody>
+    <tr><td><button class="wk-table-name" type="button">alpha</button></td><td><span class="demo-state"><span class="wk-dot" data-tone="working" aria-hidden="true"></span>Running</span></td><td class="wk-num">19</td><td><span class="wk-table-actions"><button class="wk-button wk-button--small" type="button">Pause</button><button class="wk-button wk-button--small" type="button">Stop…</button></span></td></tr>
+    <tr><td><button class="wk-table-name" type="button">beta</button></td><td><span class="demo-state"><span class="wk-dot" aria-hidden="true"></span>Ready</span></td><td class="wk-num">4</td><td><span class="wk-table-actions"><button class="wk-button wk-button--small" type="button">Pause</button><button class="wk-button wk-button--small" type="button">Stop…</button></span></td></tr>
+    <tr data-muted><td><button class="wk-table-name" type="button">gamma</button></td><td><span class="demo-state"><span class="wk-dot" data-shape="dashed" aria-hidden="true"></span>Removed</span></td><td class="wk-num">0</td><td></td></tr>
+    <tr aria-selected="true"><td><button class="wk-table-name" type="button">delta</button></td><td><span class="demo-state"><span class="wk-dot" data-shape="half" aria-hidden="true"></span>On break</span></td><td class="wk-num">7</td><td><span class="wk-table-actions"><button class="wk-button wk-button--small" type="button">Resume</button></span></td></tr>
+  </tbody>
+</table>`, 'The first table\'s second row is the current one (aria-current="true"); aria-selected="true" looks the same inside a grid. The second is wk-table--zebra: each name is a wk-table-name button that opens the item, the actions sit in wk-table-actions (its header is wk-visually-hidden), the third row no longer counts (data-muted) and the fourth is selected (aria-selected="true"): selection wins over the zebra tint. Its running dot has the halo: the filled working dot at the default size.')}
 
 ${section('list', 'List', `
 <div class="demo-lists">
@@ -212,32 +224,35 @@ ${section('layout', 'Three-pane layout: sidebar, toolbar, list, inspector', `
       <li><a class="wk-sidebar-item" href="#layout">${icons.history}<span class="wk-sidebar-label">History</span></a></li>
       <li><details open><summary class="wk-sidebar-item">${icons.items}<span class="wk-sidebar-label">Items</span><span class="wk-chip wk-chip--count">2</span></summary>
         <ul>
-          <li><a class="wk-sidebar-item" href="#layout"><span class="wk-dot" data-tone="working" aria-hidden="true"></span><span class="wk-sidebar-label">alpha</span></a></li>
-          <li><a class="wk-sidebar-item" href="#layout"><span class="wk-dot" data-shape="dashed" data-tone="neutral" aria-hidden="true"></span><span class="wk-sidebar-label">beta</span></a></li>
+          <li><a class="wk-sidebar-item" href="#layout"><span class="wk-dot" data-size="sm" data-tone="working" aria-hidden="true"></span><span class="wk-sidebar-label">alpha</span><span class="wk-sidebar-detail">Running</span></a></li>
+          <li><a class="wk-sidebar-item" href="#layout"><span class="wk-dot" data-size="sm" data-shape="dashed" data-tone="neutral" aria-hidden="true"></span><span class="wk-sidebar-label">beta</span><span class="wk-sidebar-detail">Idle</span></a></li>
         </ul></details></li>
       <li><a class="wk-sidebar-item" href="#layout">${icons.book}<span class="wk-sidebar-label">Sources</span><span class="wk-chip wk-chip--count wk-chip--attention">1</span></a></li>
     </ul>
     <p class="wk-sidebar-heading">Group heading</p>
-    <ul><li><a class="wk-sidebar-item" href="#layout"><span class="wk-dot" data-shape="half" aria-hidden="true"></span><span class="wk-sidebar-label">gamma</span></a></li></ul>
+    <ul><li><a class="wk-sidebar-item" href="#layout"><span class="wk-dot" data-size="sm" data-shape="half" aria-hidden="true"></span><span class="wk-sidebar-label">gamma</span></a></li></ul>
     <div class="wk-sidebar-footer">server.example</div>
   </nav>
   <section class="wk-pane-list" aria-label="List">
     <header class="wk-toolbar">
       <button class="wk-button wk-button--quiet wk-button--icon" type="button" aria-label="Toggle sidebar">${icons.panel}</button>
-      <h3 class="wk-toolbar-title">Now</h3>
+      <h3 class="wk-toolbar-title">Now <span class="wk-toolbar-subtitle">last 14 days</span></h3>
       <span class="wk-toolbar-spacer"></span>
       <div class="wk-search"><input class="wk-field demo-search" type="search" placeholder="Search" aria-label="Search"></div>
       <span class="wk-chip">Read only</span>
       <button class="wk-button" type="button">New</button>
     </header>
+    <div class="wk-pane-scroll" tabindex="0" aria-label="Items" id="demo-pane-scroll">
     <table class="wk-table">
       <thead><tr><th>Name</th><th>State</th><th class="wk-num">Items</th></tr></thead>
       <tbody>
         <tr><td><b>alpha</b></td><td><span class="demo-state"><span class="wk-dot" data-shape="ringed" data-tone="working" aria-hidden="true"></span>Working</span></td><td class="wk-num">19</td></tr>
         <tr aria-current="true"><td><b>beta</b></td><td><span class="demo-state"><span class="wk-dot" aria-hidden="true"></span>Ready</span></td><td class="wk-num">4</td></tr>
         <tr><td><b>gamma</b></td><td><span class="demo-state"><span class="wk-dot" data-tone="attention" aria-hidden="true"></span>Needs you</span></td><td class="wk-num">0</td></tr>
+        ${['delta', 'epsilon', 'zeta', 'eta', 'theta', 'iota', 'kappa'].map(n => `<tr><td><b>${n}</b></td><td><span class="demo-state"><span class="wk-dot" data-shape="hollow" aria-hidden="true"></span>Offline</span></td><td class="wk-num">0</td></tr>`).join('')}
       </tbody>
     </table>
+    </div>
   </section>
   <aside class="wk-pane-inspector" aria-label="Inspector">
     <h3 class="wk-heading">beta</h3>
