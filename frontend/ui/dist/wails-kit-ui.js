@@ -1138,7 +1138,13 @@ export function wkChart(spec) {
     const activate = i => { activeIndex = i; selection = i; spec.onselection?.(i); tooltip(plot, tip, drawn.show(i), i); };
     const clear = () => { activeIndex = -1; selection = -1; spec.onselection?.(-1); drawn.hide(); tip.setAttribute('hidden', ''); status.textContent = ''; };
     drawn.svg.addEventListener('pointermove', e => { const box = drawn.svg.getBoundingClientRect(); activate(drawn.index(e.clientX - box.left, e.clientY - box.top)); });
-    drawn.svg.addEventListener('pointerleave', () => { if (document.activeElement !== plot) clear(); });
+    // A chart the app replaces or removes while it has focus or the pointer
+    // gets blur (Chrome fires it on a focused element as it is removed, while
+    // still connected) or pointerleave. That is not the person leaving the
+    // chart: clearing then would report -1 to the app and wipe the selection
+    // its replacement was built with. So decide once the DOM change is done.
+    const unlessRemoved = fn => () => queueMicrotask(() => { if (plot.isConnected && current === drawn) fn(); });
+    drawn.svg.addEventListener('pointerleave', unlessRemoved(() => { if (document.activeElement !== plot) clear(); }));
     plot.onkeydown = e => {
       const n = spec.categories.length, next = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
       if (e.key === 'Escape' && activeIndex >= 0) { clear(); e.preventDefault(); e.stopPropagation(); }
@@ -1147,7 +1153,9 @@ export function wkChart(spec) {
         activate(e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : Math.min(n - 1, Math.max(0, activeIndex < 0 ? (next > 0 ? 0 : n - 1) : activeIndex + next)));
       }
     };
-    if (!spec.retainSelectionOnBlur) plot.onblur = clear;
+    // Focus that moved to another element names it (relatedTarget): the
+    // person or the app left the chart, so clear now. A removal names none.
+    if (!spec.retainSelectionOnBlur) plot.onblur = e => (e.relatedTarget ? clear() : unlessRemoved(clear)());
     if (activeIndex >= 0) activate(Math.min(activeIndex, spec.categories.length - 1));
   }
 

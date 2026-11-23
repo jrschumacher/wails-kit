@@ -1,0 +1,36 @@
+<!-- @dsCard group="Status" height=430 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>StatusHeadline</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--wk-space-5) var(--wk-space-4); padding: var(--wk-space-5) var(--wk-space-4); }
+  .wide { grid-column: 1 / -1; }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec">
+  <section class="mu-status" aria-live="polite">
+    <h1 class="mu-status-title">On duty</h1>
+    <div class="mu-status-row"><span class="wk-dot" data-tone="working" aria-hidden="true"></span><p class="mu-status-line">Running 1 job.</p></div>
+    <div class="mu-status-actions"><button class="wk-button" type="button">Take a break</button></div>
+  </section>
+  <section class="mu-status" data-tone="attention" aria-live="polite">
+    <h1 class="mu-status-title">Needs attention</h1>
+    <div class="mu-status-row"><span class="wk-dot" data-tone="attention" aria-hidden="true"></span><p class="mu-status-line">Can't start jobs.</p></div>
+  </section>
+  <section class="mu-status" aria-live="polite">
+    <h1 class="mu-status-title">Standing down</h1>
+    <div class="mu-status-row"><span class="wk-dot" data-shape="half" data-tone="working" aria-hidden="true"></span><p class="mu-status-line">Finishing 1 job, then it's all yours.</p></div>
+    <div class="mu-status-actions"><button class="wk-button" type="button">Stop now</button></div>
+  </section>
+  <section class="mu-status wide" aria-live="polite">
+    <h1 class="mu-status-title">Removed from HQ</h1>
+    <div class="mu-status-row"><span class="wk-dot" data-shape="dashed" aria-hidden="true"></span><p class="mu-status-line">This machine no longer lends to hq.schumacher.home.</p></div>
+    <div class="mu-status-actions"><button class="wk-button wk-button--primary" type="button">Join another HQ</button><button class="wk-button" type="button">Quit Muster</button></div>
+  </section>
+</div>
+</body>
+</html>

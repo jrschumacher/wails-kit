@@ -918,8 +918,9 @@ try {
         host.replaceChildren(wkChart({ id: 'snapshot', kind: 'bars', label: 'Snapshot',
           categories: [{ label: 'First' }, { label: 'Second' }],
           series: [{ label: 'Count', values: [1, value] }], selection,
-          onselection: i => { selection = i; } }));
+          onselection: i => { selection = i; window.reported.push(i); } }));
       };
+      window.reported = [];
       window.selectedIndex = () => selection;
       window.snapshot(2);
     });
@@ -934,6 +935,10 @@ try {
       assert.equal(await page.locator('#snapshot .wk-chart-active').getAttribute('hidden'), null);
       assert.equal(await page.evaluate(() => window.selectedIndex()), 1);
     }
+    // Replacing the focused chart is not the person leaving it: the old
+    // chart's blur (Chrome fires it as the element is removed) must not
+    // report -1 in between, even for a moment (#137).
+    assert.deepEqual(await page.evaluate(() => window.reported.filter(i => i !== 1)), [], 'nothing but the kept selection was reported');
     await page.keyboard.press('Escape');
     assert.equal(await page.evaluate(() => window.selectedIndex()), -1);
     assert.equal(await page.locator('#snapshot .wk-chart-readout').textContent(), '');
