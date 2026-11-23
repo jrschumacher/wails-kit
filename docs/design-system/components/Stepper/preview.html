@@ -1,0 +1,23 @@
+<!-- @dsCard group="Forms" height=120 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Stepper</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: grid; grid-template-columns: 200px auto 1fr; gap: var(--wk-space-3) var(--wk-space-4); align-items: center; padding: var(--wk-space-4); }
+  .spec p { margin: 0; }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec">
+  <span>Slots</span>
+  <span class="wk-stepper"><input class="wk-field" type="text" inputmode="numeric" value="2" aria-label="Slots" aria-describedby="slots-hint"><span class="wk-stepper-arrows"><button type="button" aria-label="More" disabled></button><button type="button" aria-label="Fewer"></button></span></span>
+  <p id="slots-hint" class="wk-caption">This Mac offers 2, so HQ can't set more.</p>
+  <span>Jobs at once</span>
+  <span class="wk-stepper"><input class="wk-field" type="text" inputmode="numeric" value="3" aria-label="Jobs at once"><span class="wk-stepper-arrows"><button type="button" aria-label="More"></button><button type="button" aria-label="Fewer"></button></span></span>
+  <p class="wk-caption">HQ may allow fewer.</p>
+</div>
+</body>
+</html>

@@ -30,8 +30,9 @@ export const THEME_TOKENS = [
   '--wk-font-family', '--wk-font-features',
   '--wk-radius-control', '--wk-radius-group',
 ];
-// Properties a component sets on itself for its variants to change.
-const LOCAL = new Set(['--wk-dot-color', '--wk-dot-ground', '--wk-chart-c']);
+// Properties a component sets on itself for its variants to change, and
+// --wk-range-value, which the app sets on a wk-range.
+const LOCAL = new Set(['--wk-dot-color', '--wk-dot-ground', '--wk-chart-c', '--wk-range-value']);
 
 test('the colour check catches every kind of literal', () => {
   const component = { selector: '.wk-x', forced: false };

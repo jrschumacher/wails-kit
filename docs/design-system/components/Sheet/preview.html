@@ -1,0 +1,44 @@
+<!-- @dsCard group="Overlays" height=520 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sheet</title>
+<style>
+  html { background: var(--wk-color-bg); }
+  .spec { display: flex; justify-content: center; align-items: flex-start; gap: var(--wk-space-4); padding: 0 var(--wk-space-4) var(--wk-space-4); }
+  .spec > .wk-dialog { position: static; display: flex; margin: 0; }
+  .spec > .wk-dialog--sheet { width: 400px; height: 480px; }
+  .spec > .small { width: 260px; flex-direction: column; }
+</style>
+</head>
+<body class="wk-root">
+<div class="spec">
+  <div class="wk-dialog wk-dialog--sheet" role="dialog" aria-modal="true" aria-labelledby="tm-t">
+    <header class="wk-dialog-header"><h2 class="wk-dialog-title" id="tm-t">This machine</h2></header>
+    <div class="wk-dialog-scroll">
+      <h3 class="wk-section-heading">Now</h3>
+      <div class="wk-stats-grid">
+        <div class="wk-stat wk-stat--tile"><span class="wk-stat-glyph" aria-hidden="true"><svg viewBox="0 0 18 18"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="5" height="5" rx="1" fill="currentColor"/><rect x="10" y="3" width="5" height="5" rx="1"/><rect x="3" y="10" width="5" height="5" rx="1"/><rect x="10" y="10" width="5" height="5" rx="1"/></g></svg></span><b class="wk-stat-figure">1 of 2</b><span class="wk-stat-label">slots in use</span></div>
+        <div class="wk-stat wk-stat--tile"><span class="wk-stat-glyph" aria-hidden="true"><svg viewBox="0 0 18 18"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2.5 14.5 4.5V9c0 3.2-2.3 5.4-5.5 6.5C5.8 14.4 3.5 12.2 3.5 9V4.5z"/><path d="M6.6 9l1.8 1.8 3.2-3.4"/></g></svg></span><b class="wk-stat-figure">OK</b><span class="wk-stat-label">last 12 starts worked</span></div>
+      </div>
+      <h3 class="wk-section-heading">Last 14 days</h3>
+      <div class="wk-dialog-indent">129 jobs · 11 h 24 m · on duty 31% of the time · 5 of 134 starts failed, last 8 Nov</div>
+      <h3 class="wk-section-heading">Worked for</h3>
+      <div class="wk-dialog-indent">muster 61 · specgraph 38 · laurel 17 <span class="wk-secondary">· 3 more repos</span></div>
+      <h3 class="wk-section-heading">Recent</h3>
+      <div class="wk-dialog-indent">2:14 pm · a job (laurel · build) was stopped by HQ<br>1:58 pm · you stopped a job (prune · test)</div>
+      <h3 class="wk-section-heading">Set up as</h3>
+      <dl class="wk-facts wk-dialog-indent"><dt>Job types</dt><dd>Linux ARM64, Any Linux</dd><dt>Slots</dt><dd>2 × 5 CPU · 6 GiB</dd><dt>App</dt><dd>Muster 0.9.0 <span class="wk-chip">update available</span></dd></dl>
+    </div>
+    <footer class="wk-dialog-footer"><button class="wk-button wk-button--primary" type="button">Done</button></footer>
+  </div>
+  <div class="wk-dialog wk-dialog--sheet small" role="dialog" aria-modal="true" aria-labelledby="inv-t">
+    <h2 class="wk-dialog-title" id="inv-t">Send this code</h2>
+    <div class="wk-code"><code>gso-join:v1:aGFybmVzcy1ocS5zY2h1bWFjaGVyLmhvbWU6ODQ0Mzo3ZjNh</code></div>
+    <p class="wk-dialog-body wk-caption" style="margin-top:var(--wk-space-2)">Works once. Expires in 14:32.</p>
+    <div class="wk-dialog-actions"><button class="wk-button wk-dialog-start" type="button">Make a new code</button><button class="wk-button wk-button--primary" type="button">Done</button></div>
+  </div>
+</div>
+</body>
+</html>

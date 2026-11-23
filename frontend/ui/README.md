@@ -138,10 +138,11 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Filter buttons, segmented control | `wk-filters` / `wk-filter`, `wk-segmented` |
 | Chip and pill | `wk-chip` (a `<button class="wk-chip">` filters, with hover and disabled states; a leading `wk-dot data-size="sm"` then the item and its state in words; `--muted`, dashed, for an absence), `wk-pill` |
 | Table | `wk-table` (`--zebra` tints every other row); `wk-table-name`, the row's name as a `<button>` that opens the item; `wk-table-actions`, a cell's row actions on one line; `tr[data-muted]`, a row that no longer counts (secondary text, its name struck) |
+| List | `wk-list`, `wk-list-row` (`aria-selected` or `aria-current`), `wk-list-heading` (its count in a `<span>`). Selectable rows of any height. The app lays out each row and moves focus: one row `tabindex="0"`, the rest `-1`; Up and Down move, Home and End jump, Space or a click selects (the demo page shows it). |
 | Sidebar, toolbar, footer bar | `wk-sidebar` (`wk-sidebar-detail`: short trailing text on an item, "Running"), `wk-toolbar` (`wk-toolbar-subtitle` after the title: what the view counts over, "last 14 days"; keep a space before it, `Now <span class="wk-toolbar-subtitle">`, so the text reads "Now last 14 days" when copied or styles are off), `wk-footer-bar` |
 | Three-pane layout | `wk-panes`, `wk-pane-list`, `wk-pane-inspector`; `wk-pane-scroll`, a pane body that scrolls under a fixed toolbar (give it `tabindex="0"` and a name) |
 | Tabs | `wk-tablist` inside `<wk-tabs>` |
-| Menu, context menu, tooltip | `wk-menu` and its items, `wk-tooltip` |
+| Menu, context menu, tooltip | `wk-menu` and its items (`<button>`, or `<a href>` for a URL), `wk-menu--inline` (the items laid out in place, as in a popover), `wk-tooltip` |
 | Dialog, sheet, popover surface | `wk-dialog` (`--alert`, sheets), `wk-popover` |
 | Settings group, row and tabs | `wk-settings-heading`, `wk-settings-group`, `wk-settings-row`, `wk-settings-label`, `wk-settings-help`, `wk-settings-note`, `wk-settings-tabs` / `wk-settings-tab` (`data-attention`) |
 | Panel, facts, section heading | `wk-panel` (`--rows`, `--dashed`), `wk-facts`, `wk-section-heading` |
@@ -150,6 +151,7 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Empty state, notice, error box | `wk-empty`, `wk-notice`, `wk-error-box` |
 | Stat, code block, copy button | `wk-stat`, `wk-code`, `wk-copy` |
 | Stepper | `wk-stepper` (an input and two arrow buttons; see `syncSteppers`) |
+| Range | `wk-range` on `<input type="range">`, drawn the same on WebKit and Chromium. The app sets `--wk-range-value` to the filled share (`el.style.setProperty('--wk-range-value', '60%')`, which a Content-Security-Policy allows where a `style` attribute is blocked) and updates it on `input`; show the value beside it in an `<output>`. |
 | Chart | `wk-chart`, built by `wkChart()` |
 
 `demo/index.html` shows every component in each state it can show without a
@@ -161,7 +163,7 @@ example `npx serve .`) and open `/demo/index.html`.
 | Export | What it is |
 |---|---|
 | `<wk-dialog>` (`WkDialog`) | wraps a native `<dialog>` and opens it modally; focus returns to the opener; `open` attribute; `[data-wk-close]` buttons set `returnValue`; `light-dismiss` attribute; events `wk-open`, `wk-close`. Any element with `data-wk-open="<id>"` opens the dialog with that id. |
-| `<wk-menu>` (`WkMenu`) | a WAI-ARIA menu button: a `<button>` followed by a `[role=menu]`; event `wk-select`, `wk-toggle` |
+| `<wk-menu>` (`WkMenu`) | a WAI-ARIA menu button: a `<button>` followed by a `[role=menu]`; event `wk-select`, `wk-toggle`. Around a `wk-menu--inline` with no button, the same keys in place: one tab stop, arrows, Home, End and typeahead move, Enter and Space activate (`wk-select`); it never opens or closes, and leaves Escape and Tab to the page. A link item (`<a href role="menuitem">`) follows its link on Enter or Space. |
 | `<wk-context-menu for="id">` (`WkContextMenu`) | the same menu, opened by right-click, Shift+F10 or the Menu key; `detail.context` is the element it opened on |
 | `<wk-tabs>` (`WkTabs`) | WAI-ARIA tabs with automatic activation; event `wk-change` |
 | `<wk-tooltip>` (`WkTooltip`) | WAI-ARIA tooltip on focus and after a hover delay (`delay="ms"`); event `wk-toggle` |
