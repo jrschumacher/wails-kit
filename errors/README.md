@@ -16,30 +16,36 @@ err = errors.Wrap(errors.ErrProvider, "anthropic failed", originalErr)
 err = err.WithField("provider", "anthropic").WithField("status", 429)
 
 // Extract user-facing info from any error
-msg := errors.GetUserMessage(err)  // "Your session has expired. Please reconnect."
+msg := errors.GetUserMessage(err)  // "Sign-in expired"
 code := errors.GetCode(err)        // errors.ErrAuthExpired
 errors.IsCode(err, errors.ErrRateLimited)  // false
 ```
 
 ## Built-in error codes
 
+The defaults follow the voice in `frontend/ui/BEHAVIOUR.md` ("Writing the words"):
+short fragments with no full stop that name what happened, in the person's words.
+They never say "Please try again" or "Something went wrong": what happens next (Retry,
+"Next try in 8 s") is the UI's to say. Apps override them, or add their own, with
+`RegisterMessages`.
+
 | Code | Default user message |
 |------|---------------------|
-| `auth_invalid` | Authentication failed. Please check your credentials. |
-| `auth_expired` | Your session has expired. Please reconnect. |
-| `auth_missing` | Authentication is required. Please configure your credentials. |
-| `not_found` | The requested item was not found. |
-| `permission_denied` | You don't have permission to perform this action. |
-| `validation` | The input is invalid. Please check and try again. |
-| `rate_limited` | Too many requests. Please wait and try again. |
-| `timeout` | The operation timed out. Please try again. |
-| `cancelled` | The operation was cancelled. |
-| `internal` | An unexpected error occurred. Please try again. |
-| `storage_read` | Failed to read data. Please try again. |
-| `storage_write` | Failed to save data. Please try again. |
-| `config_invalid` | Configuration is invalid. Please check your settings. |
-| `config_missing` | Required configuration is missing. Please check your settings. |
-| `provider_error` | The service provider returned an error. Please try again. |
+| `auth_invalid` | Couldn't sign in with these credentials |
+| `auth_expired` | Sign-in expired |
+| `auth_missing` | Sign-in needed |
+| `not_found` | Couldn't find it |
+| `permission_denied` | You don't have permission for this |
+| `validation` | Some values aren't valid |
+| `rate_limited` | Too many requests right now |
+| `timeout` | Timed out |
+| `cancelled` | Cancelled |
+| `internal` | Couldn't finish this |
+| `storage_read` | Couldn't read the data |
+| `storage_write` | Couldn't save the data |
+| `config_invalid` | A setting isn't valid |
+| `config_missing` | A required setting is missing |
+| `provider_error` | The service returned an error |
 
 ## Custom error codes
 
