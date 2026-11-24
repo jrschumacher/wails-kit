@@ -60,10 +60,11 @@ host.innerHTML = `<header class="demo-head"><div><h1 class="wk-title">Settings w
 const el = document.getElementById('demo-settings');
 el.schema = schema;
 el.icons = icons;
-// The stand-in for CheckValue: the field's error, or SetValues' reply when it passes.
+// The stand-in for CheckValue: the field's error, or none once it's saved.
 el.check = (key, values) => new Promise(resolve => setTimeout(() => {
   const path = String(values[key] ?? '');
-  resolve(path.startsWith('/') || path.startsWith('~/') ? setValues(values) : [{ field: key, message: 'There is no folder at this path. Choose a folder that exists.', code: 'check' }]);
+  // Like CheckValue, a pass saves this one value and answers with no errors.
+  resolve(path === '' || path.startsWith('/') || path.startsWith('~/') ? [] : [{ field: key, message: 'There is no folder at this path. Choose a folder that exists.', code: 'check' }]);
 }, 600));
 el.values = { 'general.name': 'Sam', 'general.folder': '~/Projects', 'general.launch': true, 'general.updates': 'weekly', 'general.copies': 2, 'general.config': '~/.config/example/settings.json', 'provider.name': 'alpha', 'provider.model': 'a-large', 'provider.key': SECRET_MASK };
 window.settingsEvents = [];

@@ -1140,4 +1140,8 @@ wk-settings .wk-settings-row > .wk-error { flex: 1 0 100%; margin: 0; }
    window's Notice ("2 settings need attention.") sits above the panes. */
 wk-settings .wk-settings-row > .wk-settings-pending { display: flex; flex: 1 0 100%; align-items: center; gap: var(--wk-space-2); margin: 0; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
 wk-settings .wk-settings-pending:empty, wk-settings .wk-settings-status:empty { display: none; }
+/* Once the check ends, the region holds its outcome in words for screen
+   readers ("Projects folder checked", or the error); the field shows it. */
+wk-settings .wk-settings-row { position: relative; }
+wk-settings .wk-settings-row > .wk-settings-pending[data-outcome] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 wk-settings > .wk-settings-window > .wk-settings-status { margin: var(--wk-space-4) var(--wk-space-5) 0; }

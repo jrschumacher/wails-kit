@@ -380,7 +380,7 @@ el.addEventListener('wk-settings-change', async e => {
 | `errors` | `ValidationError[]` to show (from `SetValues`); each shows under its field, marks it `aria-invalid`, and puts the attention dot on its group's tab |
 | `icons` | `{ [groupKey]: svg markup or a Node }`, a 22 px glyph above each tab's name |
 | `validate` | optional `(schema, values) => ValidationError[]` run on each change, such as `validate` from `@wails-kit/settings`; its errors replace the shown ones |
-| `check` | optional `(key, values) => Promise<ValidationError[] \| null>` for fields with a `check` in the schema: the `CheckValue` binding. Without it, those fields apply on change like any other |
+| `check` | optional `(key, values) => Promise<ValidationError[] \| null>` for fields with a `check` in the schema: the `CheckValue` binding. Every value of such a field goes to it, an empty one included. No errors means the value was saved; errors on the field are its failure; errors only on other fields mean it wasn't saved (they show on their fields, and this one says "Your … wasn't saved."). Without it, those fields apply on change like any other |
 
 | Method | |
 |---|---|
@@ -408,16 +408,21 @@ sets `errors`.
   opens. The window's Notice, between the tabs and the pane (under the heading
   with one group), counts the visible fields with an error: "2 settings need
   attention." It is a polite `role="status"` region, empty when nothing needs
-  attention.
+  attention. While the person types, the field and its tab follow each
+  keystroke, but the Notice's count waits until typing stops (500 ms) and its
+  words change only when the count does.
 - A field with a back-end check (`check: { pending }` in the schema, and the
   `check` property set) applies only once the check passes. The check runs on
   commit and, once the field shows an error, 500 ms after typing stops. Its words
   (`pending`, else "Checking…") show beside the field with a working dot after
   400 ms and stay at least 500 ms; the row has `data-pending` meanwhile, and the
-  words are a polite status region. Typing is never blocked, the person's text
-  stays after a failure, and a check overtaken by a newer one is ignored. A failed
-  check's error stays on its field until it is checked again, even when the app
-  sets `errors`.
+  words are a polite status region. When the check ends, that region holds its
+  outcome in words, visually hidden (`data-outcome`): "Projects folder checked",
+  or the failure's message. Typing is never blocked, the person's text stays
+  after a failure, and a check overtaken by a newer one is ignored. An error with
+  code `check` (a failure, or one from `CheckFailures()`) stays on its field until
+  that field commits or is checked again, even when the app sets `errors` or
+  another field changes.
 - A check that outlives the window carries on in Go (`CheckValue`): if it fails,
   `settings:check_failed` lets the main window show a Notice with "Open Settings";
   Settings then shows `CheckFailures()` and calls `reveal(key)`. See the
