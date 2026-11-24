@@ -148,7 +148,10 @@ function announce(words, { assertive = false } = {}) {
 }
 
 // In the page from load: now if the body exists, else as soon as it does.
+// document.wkAnnounce is for opt-in packages (@wails-kit/editor) that say
+// things without bundling the kit; every copy's announce() is the same.
 if (typeof document !== 'undefined') {
+  document.wkAnnounce ??= announce;
   if (document.body) settle();
   else document.addEventListener('DOMContentLoaded', () => settle(), { once: true });
   const onDialog = e => {

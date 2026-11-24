@@ -247,4 +247,6 @@ declare global {
     'wk-dialog': WkDialog; 'wk-settings': WkSettings;
   }
   interface HTMLElementEventMap { 'wk-settings-change': CustomEvent<SettingsChangeDetail>; 'wk-task': CustomEvent<TaskEventDetail> }
+  /** Set by the first copy of the kit in the window, for opt-in packages that don't bundle it. */
+  interface Document { wkTask?: typeof wkTask; wkAnnounce?: typeof announce }
 }

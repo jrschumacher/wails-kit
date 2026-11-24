@@ -3071,6 +3071,19 @@ try {
     await r.page.waitForFunction(() => document.querySelector('#demo-settings .wk-settings-row'));
     // A fake clock stands still from here; the test moves it.
     if (options.clock) await r.page.clock.pauseAt(await r.page.evaluate(() => Date.now() + 1000));
+    // Everything the window's announcer says from here, in order: window.heard, [politeness, words].
+    await r.page.evaluate(() => {
+      window.heard = [];
+      const host = document.querySelector('[data-wk-announcer]');
+      const last = new Map();
+      new MutationObserver(() => {
+        for (const reg of host.querySelectorAll('[aria-live]')) {
+          const t = reg.textContent;
+          if (t && t !== last.get(reg)) window.heard.push([reg.getAttribute('aria-live'), t]);
+          last.set(reg, t);
+        }
+      }).observe(host, { subtree: true, childList: true, characterData: true });
+    });
     return r;
   };
   const row = (page, key) => page.locator(`#demo-settings .wk-settings-row[data-key="${key}"]`);
@@ -3209,9 +3222,14 @@ try {
     document.getElementById('demo-settings').check = (key, values) => new Promise(resolve => window.checks.push({ key, values, resolve }));
   });
   const answer = (page, i, errors) => page.evaluate(([n, errs]) => window.checks[n].resolve(errs), [i, errors]);
-  // The pending words shown beside a field, and the outcome its status region holds for screen readers.
-  const pendingText = (page, key) => row(page, key).locator('.wk-settings-pending').evaluate(p => (p.hasAttribute('data-outcome') ? '' : p.textContent));
-  const outcome = (page, key) => row(page, key).locator('.wk-settings-pending').evaluate(p => (p.hasAttribute('data-outcome') ? p.textContent : null));
+  // The pending words shown beside a field (wkTask's), and what the window's
+  // announcer has said since the last call (its messages go out after 500 ms:
+  // on the fake clock, said() moves it on first).
+  const pendingText = (page, key) => row(page, key).locator('.wk-settings-pending').evaluate(p => p.textContent);
+  const said = async (page, { clock = true } = {}) => {
+    if (clock) await page.clock.runFor(600);
+    return page.evaluate(() => window.heard.splice(0).map(h => h[1]));
+  };
   const eventCount = page => page.evaluate(() => window.settingsEvents.length);
 
   await check('settings window: an error shows when the field is left, then clears (and returns) as the person types', async () => {
@@ -3271,36 +3289,50 @@ try {
     assert.equal(await pendingText(page, 'general.folder'), 'Checking folder…');
     assert.equal(await row(page, 'general.folder').getAttribute('data-pending'), '');
     const pending = row(page, 'general.folder').locator('.wk-settings-pending');
-    assert.equal(await pending.getAttribute('role'), 'status');
-    assert.equal(await pending.locator('.wk-spinner[aria-hidden=true]').count(), 1);
-    assert.deepEqual(await pending.locator('.wk-spinner').evaluate(sp => [getComputedStyle(sp).width, getComputedStyle(sp).animationName]), ['12px', 'wk-spin'], 'small, and turning');
+    // wkTask's indicator: a working dot and the words in its target, no live region of its own.
+    assert.equal(await pending.getAttribute('role'), null);
+    assert.equal(await pending.locator('.wk-task-state[data-state=running] > .wk-dot[data-tone=working][aria-hidden=true]').count(), 1);
     assert.ok((await folder.getAttribute('aria-describedby')).split(' ').includes(await pending.getAttribute('id')));
+    // Its words go to the announcer when they show (after the announcer's 500 ms).
+    await page.clock.runFor(1);
+    await page.clock.runFor(499);
+    assert.deepEqual(await page.evaluate(() => window.heard.splice(0).map(h => h[1])), ['Checking folder…']);
     assert.equal(await folder.isEditable(), true, 'typing is never blocked');
-    // The check passes 100 ms after the words appeared: they stay until 500 ms, then the value applies in the same step.
-    await page.clock.runFor(100);
+    // The check passes 500 ms after the words appeared: they go, and the value applies, at once.
     await answer(page, 0, null);
+    await until(page, () => window.settingsEvents.at(-1)?.key === 'general.folder');
+    assert.equal(await pendingText(page, 'general.folder'), '');
+    assert.deepEqual(await said(page), ['Projects folder checked']);
+    // A check that passes 100 ms after its words appeared: they stay until 500 ms, then the value applies in the same step.
+    await folder.fill('/work2');
+    await folder.press('Tab');
+    await page.clock.runFor(500);
+    assert.equal(await pendingText(page, 'general.folder'), 'Checking folder…');
+    const applied = await eventCount(page);
+    await answer(page, 1, null);
     await page.clock.runFor(399);
     assert.equal(await pendingText(page, 'general.folder'), 'Checking folder…');
-    assert.equal(await eventCount(page), before, 'the result waits for the indicator minimum');
+    assert.equal(await eventCount(page), applied, 'the result waits for the indicator minimum');
     await page.clock.runFor(1);
     assert.equal(await pendingText(page, 'general.folder'), '');
     assert.equal(await row(page, 'general.folder').getAttribute('data-pending'), null);
-    // The outcome is announced in words, in the same polite region, visually hidden.
-    assert.equal(await outcome(page, 'general.folder'), 'Projects folder checked');
-    assert.equal(await pending.evaluate(p => [p.getBoundingClientRect().width, getComputedStyle(p).clipPath].join(' ')), '1 inset(50%)');
-    assert.equal((await folder.getAttribute('aria-describedby')).split(' ').includes(await pending.getAttribute('id')), false);
+    // The outcome is announced in words, by the window's announcer; nothing stays beside the field.
+    assert.equal(await pending.evaluate(p => p.childNodes.length), 0);
+    assert.equal((await folder.getAttribute('aria-describedby') || '').split(' ').includes(await pending.getAttribute('id')), false);
     const e = await lastEvent(page);
-    assert.deepEqual([e.key, e.value, e.checked], ['general.folder', '/work', true]);
-    assert.equal(await page.evaluate(() => document.getElementById('demo-settings').values['general.folder']), '/work');
-    // A quick check shows no words at all, and applies at once.
+    assert.deepEqual([e.key, e.value, e.checked], ['general.folder', '/work2', true]);
+    assert.equal(await page.evaluate(() => document.getElementById('demo-settings').values['general.folder']), '/work2');
+    assert.deepEqual(await said(page), ['Checking folder…', 'Projects folder checked']);
+    // A quick check shows no words at all, and applies at once; only its outcome is announced.
     await folder.fill('/quick');
     await folder.press('Tab');
     await page.clock.runFor(200);
-    await answer(page, 1, []);
+    await answer(page, 2, []);
     await until(page, () => window.settingsEvents.at(-1).value === '/quick');
     assert.equal(await pendingText(page, 'general.folder'), '');
     await page.clock.runFor(1000);
     assert.equal(await pendingText(page, 'general.folder'), '', 'the indicator never appears after the result');
+    assert.deepEqual(await said(page), ['Projects folder checked']);
     assert.deepEqual(problems, []);
     await page.close();
   });
@@ -3316,7 +3348,8 @@ try {
     await answer(page, 0, [{ field: 'general.folder', message: 'There is no folder at this path. Choose a folder that exists.', code: 'check' }]);
     await until(page, () => !document.querySelector('[data-key="general.folder"] .wk-error').hidden);
     assert.equal(await error.textContent(), 'There is no folder at this path. Choose a folder that exists.');
-    assert.equal(await outcome(page, 'general.folder'), 'There is no folder at this path. Choose a folder that exists.', 'the failure is announced in the status region');
+    // The failure is announced by the window's announcer, with the Notice's new count (joined, as they come together).
+    assert.deepEqual(await said(page), ['There is no folder at this path. Choose a folder that exists. 1 setting needs attention.']);
     assert.equal(await eventCount(page), before, 'a value that failed its check is not applied');
     assert.equal(await page.evaluate(() => document.getElementById('demo-settings').values['general.folder']), '~/Projects');
     assert.equal(await folder.inputValue(), 'nowhere', 'the person\'s text stays');
@@ -3360,6 +3393,60 @@ try {
     await page.close();
   });
 
+  await check('settings window: in a modal Sheet, the check\'s words and outcome reach the announcer inside it, in the accessibility tree; an overtaken check is cancelled, and one whose words show hands them on', async () => {
+    const { page, problems } = await openSettings({ clock: true });
+    await manualChecks(page);
+    await page.evaluate(() => {
+      const d = document.createElement('dialog');
+      d.className = 'wk-dialog wk-dialog--sheet';
+      d.id = 'settings-sheet';
+      document.body.append(d);
+      d.append(document.getElementById('demo-settings'));
+      d.showModal();
+      window.taskStates = [];
+      document.addEventListener('wk-task', e => window.taskStates.push(e.detail.state));
+    });
+    await page.clock.runFor(10);
+    assert.equal(await page.evaluate(() => document.getElementById('settings-sheet').contains(document.querySelector('[data-wk-announcer]'))), true);
+    // Words in a live region of the accessibility tree (the field's own error shows the same words, outside one).
+    const inTree = async words => {
+      const nodes = await axTree(page);
+      const byId = new Map(nodes.map(n => [n.nodeId, n]));
+      const live = n => (n.properties || []).some(p => p.name === 'live');
+      return nodes.some(n => {
+        if (!String(n.name?.value ?? '').includes(words)) return false;
+        for (let m = n; m; m = byId.get(m.parentId)) if (live(m)) return true;
+        return false;
+      });
+    };
+    const folder = row(page, 'general.folder').locator('input');
+    // Overtaken in the quiet wait: cancelled, with nothing said and nothing shown.
+    await folder.fill('/a');
+    await folder.press('Tab');
+    await page.clock.runFor(200);
+    await folder.fill('/b');
+    await folder.press('Tab');
+    assert.deepEqual(await page.evaluate(() => window.taskStates.splice(0)), ['running', 'cancelled', 'running']);
+    // Overtaken once its words show: the newer check keeps them; they don't go and come back.
+    await page.clock.runFor(400);
+    assert.equal(await pendingText(page, 'general.folder'), 'Checking folder…');
+    await folder.fill('/c');
+    await folder.press('Tab');
+    assert.equal(await pendingText(page, 'general.folder'), 'Checking folder…');
+    assert.deepEqual(await page.evaluate(() => window.taskStates.splice(0)), []);
+    await answer(page, 1, []);
+    await page.clock.runFor(1000);
+    assert.equal(await pendingText(page, 'general.folder'), 'Checking folder…', 'the overtaken check\'s answer is ignored');
+    await answer(page, 2, [{ field: 'general.folder', message: 'There is no folder at this path. Choose a folder that exists.', code: 'check' }]);
+    await until(page, () => !document.querySelector('[data-key="general.folder"] .wk-error').hidden);
+    assert.equal(await pendingText(page, 'general.folder'), '');
+    assert.deepEqual(await page.evaluate(() => window.taskStates.splice(0)), ['done']);
+    await page.clock.runFor(600);
+    assert.equal(await inTree('There is no folder at this path.'), true, 'the outcome is not inert under the modal');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
   await check('settings window: an empty required setting shows its error on open, and the window\'s Notice counts what needs attention', async () => {
     const { page, problems } = await openSettings({ clock: true });
     assert.equal(await page.locator('#demo-settings .wk-settings-status').textContent(), '', 'nothing needs attention at first');
@@ -3382,11 +3469,14 @@ try {
         place: [status.previousElementSibling.getAttribute('role'), status.nextElementSibling.getAttribute('role')],
       };
     });
-    assert.deepEqual(look, { error: 'Display name is required', invalid: 'true', tabs: [true, false], role: 'status', notice: '1 setting needs attention.', tone: 'attention', place: ['tablist', 'tabpanel'] });
+    // The Notice is no live region of its own: its count goes to the window's announcer, not when the window is drawn.
+    assert.deepEqual(look, { error: 'Display name is required', invalid: 'true', tabs: [true, false], role: null, notice: '1 setting needs attention.', tone: 'attention', place: ['tablist', 'tabpanel'] });
+    assert.deepEqual(await said(page), []);
     const status = page.locator('#fresh .wk-settings-status');
     assert.equal(await status.isVisible(), true);
     await page.evaluate(() => { document.getElementById('fresh').errors = [{ field: 'general.copies', message: 'Keep at most 8 copies', code: 'max' }]; });
     assert.equal(await status.textContent(), '2 settings need attention.');
+    assert.deepEqual(await said(page), ['2 settings need attention.']);
     // While the person types, the field's error clears at once, but the
     // Notice waits until typing stops, and changes (announces) only when the count does.
     await page.evaluate(() => {
@@ -3409,6 +3499,7 @@ try {
     await page.keyboard.press('Backspace');
     await page.clock.runFor(500);
     assert.equal(await page.evaluate(() => window.noticeChanges), changes, 'an unchanged count leaves the region alone');
+    assert.deepEqual(await said(page), ['1 setting needs attention.'], 'announced once, when the count changed');
     await page.evaluate(() => { document.getElementById('fresh').errors = []; });
     assert.equal(await status.textContent(), '');
     assert.equal(await status.isVisible(), false);
@@ -3551,7 +3642,7 @@ try {
     await page.close();
   });
 
-  await check('settings window: in forced colours, the pending words and their spinner, and the Notice\'s outline and words, take system colours', async () => {
+  await check('settings window: in forced colours, the pending words and their dot, and the Notice\'s outline and words, take system colours', async () => {
     const { page, problems } = await openSettings({ forcedColors: 'active', clock: true });
     await manualChecks(page);
     const folder = row(page, 'general.folder').locator('input');
@@ -3561,13 +3652,13 @@ try {
     await page.evaluate(() => { document.getElementById('demo-settings').errors = [{ field: 'general.copies', message: 'x', code: 'max' }]; });
     const look = await page.evaluate(() => {
       const probe = c => { const e = document.createElement('i'); e.style.forcedColorAdjust = 'none'; e.style.color = c; document.body.append(e); const v = getComputedStyle(e).color; e.remove(); return v; };
-      const spinner = getComputedStyle(document.querySelector('[data-key="general.folder"] .wk-spinner'));
+      const dot = getComputedStyle(document.querySelector('[data-key="general.folder"] .wk-settings-pending .wk-dot'));
       const words = getComputedStyle(document.querySelector('[data-key="general.folder"] .wk-settings-pending'));
       const notice = getComputedStyle(document.querySelector('#demo-settings .wk-settings-status .wk-notice'));
       const bold = getComputedStyle(document.querySelector('#demo-settings .wk-settings-status b'));
       return {
         canvasText: probe('CanvasText'), canvas: probe('Canvas'),
-        spinner: [spinner.borderTopStyle, spinner.borderTopWidth !== '0px', spinner.borderTopColor, spinner.borderRightColor],
+        dot: [dot.borderTopStyle, dot.borderTopColor, dot.outlineStyle, dot.outlineColor],
         words: words.color,
         // The system keeps a background's alpha: compare its colour channels.
         notice: [notice.borderTopStyle, notice.borderTopWidth !== '0px', notice.borderTopColor, notice.backgroundColor.match(/\d+/g).slice(0, 3).join()],
@@ -3577,7 +3668,7 @@ try {
     const { canvasText } = look;
     const canvas = look.canvas.match(/\d+/g).slice(0, 3).join();
     assert.notEqual(canvasText, look.canvas);
-    assert.deepEqual(look.spinner, ['solid', true, canvasText, 'rgba(0, 0, 0, 0)'], 'the spinner is drawn with a CanvasText border, open on one side');
+    assert.deepEqual(look.dot, ['solid', canvasText, 'solid', canvasText], 'the working dot is drawn in CanvasText, with its ring as an outline');
     assert.equal(look.words, canvasText, 'the pending words read as text');
     assert.deepEqual(look.notice, ['solid', true, canvasText, canvas], 'the Notice keeps a CanvasText outline on Canvas');
     assert.equal(look.bold, canvasText);

@@ -50,6 +50,12 @@ export interface RichTextEditorSpec {
   onchange?: (value: string) => void;
   /** Called with the value on submit. Return a promise to keep the submit buttons busy until it settles. */
   onsubmit?: (value: string) => unknown;
+  /**
+   * The busy submit's wkTask, when @wails-kit/ui's module is in the page: the
+   * words announced after 400 ms (default 'Sending'), on success ('Sent') and on
+   * failure ('Couldn’t send'), and the timeout (the kit's 2 min; false for none).
+   */
+  submitTask?: { words?: string; doneWords?: string; failWords?: string; timeout?: number | false };
   /** Called with the editor on cancel: a `cancel` action, cancel(), or Escape (only when this is set). */
   oncancel?: (editor: RichTextEditorElement) => void;
   /** Called with a link's URL (http, https or mailto) when the person opens it; the page never navigates. */

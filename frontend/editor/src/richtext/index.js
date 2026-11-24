@@ -22,6 +22,7 @@ import { parseMarkdown, serializeMarkdown, sourceText } from './markdown.js';
 import { serializeHtml, parseHtml, cleanHtml } from './html.js';
 import { nesting } from './limits.js';
 import { richtextStyles } from './style-spec.js';
+import { kitAnnounce, busySubmit } from '../shared/kit.js';
 
 export { FEATURES };
 
@@ -604,9 +605,11 @@ export function wkRichTextEditor(spec = {}) {
   });
 
   // ---- Footer: the error and the actions ----
-  // A polite live region from the start, so a submit error is announced
-  // even when focus does not move (Mod-Enter in the text).
-  const errorEl = el('p', { class: 'wk-richtext-editor-error', id: ids.error, role: 'status' });
+  // A submit error goes to the window's announcer, so it is heard even when
+  // focus does not move (Mod-Enter in the text). Without @wails-kit/ui's
+  // module in the page, the error is its own polite live region, in the
+  // page from the start.
+  const errorEl = el('p', { class: 'wk-richtext-editor-error', id: ids.error, role: kitAnnounce() ? null : 'status' });
   const actionButtons = [];
   for (const a of actionSpecs) {
     const b = el('button', { type: 'button', class: `wk-button${a.primary ? ' wk-button--primary' : ''}`, 'data-submit': a.submit ? '' : null, 'data-cancel': !a.submit && a.cancel ? '' : null }, [String(a.label ?? '')]);
@@ -634,10 +637,17 @@ export function wkRichTextEditor(spec = {}) {
     root.toggleAttribute('data-source', source);
   }
   const problem = () => (required && isEmptyDoc(view.state.doc) ? 'Write something first.' : null);
+  // repeat (a submit): the message is announced, the same one again too.
+  // With the announcer only a submit, or a change the editor refused (too
+  // deep a nesting, as the person types), says it; in the editor's own
+  // region (without the kit), every change is heard.
   let announce = 0;
   function setError(next, { repeat = false } = {}) {
+    const say = kitAnnounce(root);
+    if (say) errorEl.removeAttribute('role');
     if (next === error) {
       if (!repeat || !next) return;
+      if (say) { say(next); return; }
       // The same message again (another submit) is announced again.
       errorEl.textContent = '';
       const turn = ++announce;
@@ -647,6 +657,7 @@ export function wkRichTextEditor(spec = {}) {
     announce++;
     error = next;
     errorEl.textContent = next || '';
+    if (say && next) say(next);
     view.setProps({});
   }
   function setDisabled() {
@@ -666,15 +677,6 @@ export function wkRichTextEditor(spec = {}) {
       const parked = document.activeElement === root;
       root.removeAttribute('tabindex');
       if (parked) view.focus();
-    }
-  }
-  // The busy state lives on the submit controls (BEHAVIOUR.md: aria-disabled
-  // and data-busy), not on the editor.
-  function setBusy(on) {
-    busy = on;
-    for (const b of actionButtons.filter(x => x.hasAttribute('data-submit'))) {
-      b.toggleAttribute('data-busy', on);
-      if (on) b.setAttribute('aria-disabled', 'true'); else b.removeAttribute('aria-disabled');
     }
   }
 
@@ -701,9 +703,11 @@ export function wkRichTextEditor(spec = {}) {
     if (!root.dispatchEvent(new CustomEvent('wk-submit', { bubbles: true, cancelable: true, detail: { value } }))) return false;
     const result = spec.onsubmit?.(value);
     if (result && typeof result.then === 'function') {
-      setBusy(true);
-      const done = () => { if (!destroyed) setBusy(false); };
-      result.then(done, done);
+      // The busy state lives on the submit controls (BEHAVIOUR.md: aria-disabled
+      // and data-busy), not on the editor: through the window's wkTask.
+      busy = true;
+      const controls = actionButtons.filter(x => x.hasAttribute('data-submit'));
+      busySubmit(root, controls, result, { subject: label, retry: () => submit(), ...spec.submitTask }).then(() => { busy = false; });
     }
     return true;
   }

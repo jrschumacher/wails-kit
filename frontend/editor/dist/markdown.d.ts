@@ -69,6 +69,12 @@ export interface MarkdownEditorSpec {
   /** Called with the text on submit. Return a promise to keep the submit buttons busy until it settles. */
   onsubmit?: (value: string) => unknown;
   /**
+   * The busy submit's wkTask, when @wails-kit/ui's module is in the page: the
+   * words announced after 400 ms (default 'Sending'), on success ('Sent') and on
+   * failure ('Couldn’t send'), and the timeout (the kit's 2 min; false for none).
+   */
+  submitTask?: { words?: string; doneWords?: string; failWords?: string; timeout?: number | false };
+  /**
    * Called with the editor on cancel: a `cancel` action, cancel(), or Escape
    * (only when this is set; not while a find panel is open, a selection is
    * collapsed by the same press, or an input method is composing).

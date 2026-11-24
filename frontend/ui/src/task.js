@@ -1024,4 +1024,9 @@ wkTask.summary = summary;
 wkTask.showList = showList;
 wkTask.words = words;
 
+// For opt-in packages (@wails-kit/editor) that use the window's wkTask
+// without bundling the kit: document.wkTask, the first copy of the kit's in
+// the window, so their tasks join its task list.
+if (typeof document !== 'undefined') document.wkTask ??= wkTask;
+
 export { wkTask };

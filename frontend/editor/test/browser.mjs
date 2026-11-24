@@ -69,6 +69,29 @@ async function open(url = '/editor/demo/index.html', options = {}) {
   return { page, problems };
 }
 const until = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 3000 });
+// What the window's announcer (@wails-kit/ui's, which the demo pages load)
+// says from here on, in order: window.heard, [politeness, words].
+const listen = page => page.evaluate(() => {
+  window.heard = [];
+  const host = document.querySelector('[data-wk-announcer]');
+  const last = new Map();
+  new MutationObserver(() => {
+    for (const r of host.querySelectorAll('[aria-live]')) {
+      const t = r.textContent;
+      if (t && t !== last.get(r)) window.heard.push([r.getAttribute('aria-live'), t]);
+      last.set(r, t);
+    }
+  }).observe(host, { subtree: true, childList: true, characterData: true });
+});
+// Messages within 500 ms of each other are joined into one, so a message is found within the words.
+const heard = (page, words, politeness = 'polite') => until(page, ([w, p]) => window.heard.some(h => h[0] === p && h[1].includes(w)), [words, politeness]);
+// Whether the accessibility tree holds these words in a live region (not inert).
+async function inTree(page, words) {
+  const cdp = await page.context().newCDPSession(page);
+  const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+  await cdp.detach();
+  return nodes.some(n => !n.ignored && String(n.name?.value ?? '').includes(words) && nodes.some(m => !m.ignored && m.childIds?.includes(n.nodeId) && (m.properties || []).some(p => p.name === 'live')));
+}
 const value = (page, id) => page.evaluate(i => document.getElementById(i).value, id);
 const focusIn = (page, id) => page.evaluate(i => document.getElementById(i).contains(document.activeElement), id);
 const setTheme = (page, theme) => page.evaluate(v => { if (v) document.documentElement.dataset.theme = v; else delete document.documentElement.dataset.theme; }, theme);
@@ -649,9 +672,10 @@ try {
   await check('markdown: Mod-Enter and the submit action submit; empty and too long show an error until fixed; a pending onsubmit keeps it busy', async () => {
     const { page, problems } = await open(MD);
     const submits = () => page.evaluate(() => window.kitEvents.filter(e => e.type === 'wk-submit').map(e => e.detail.value));
-    // The error is a polite live region from the start, empty, so a later message is announced.
+    // With the kit in the page, the error is no live region of its own: the window's announcer says it.
     const region = await page.evaluate(() => { const e = document.querySelector('#demo-comment .wk-markdown-editor-error'); return { role: e.getAttribute('role'), text: e.textContent, shown: e.getClientRects().length > 0 || getComputedStyle(e).display !== 'none' }; });
-    assert.deepEqual(region, { role: 'status', text: '', shown: true });
+    assert.deepEqual(region, { role: null, text: '', shown: true });
+    await listen(page);
     await mdSet(page, 'Looks good');
     await page.evaluate(() => { window.kitEvents = []; });
     await page.keyboard.press(`${mod}+Enter`);
@@ -679,13 +703,10 @@ try {
     await mdSet(page, 'x'.repeat(1003));
     await page.keyboard.press(`${mod}+Enter`);
     assert.equal(await page.textContent('#demo-comment .wk-markdown-editor-error'), 'Shorten this by 3 characters.');
-    // Mod-Enter in the text leaves focus there: the live region carries the message to a screen reader.
+    // Mod-Enter in the text leaves focus there: the window's announcer carries the message to a screen reader.
     assert.equal(await page.evaluate(() => document.activeElement.matches('#demo-comment .cm-content')), true);
-    const cdp = await page.context().newCDPSession(page);
-    const { nodes } = await cdp.send('Accessibility.getFullAXTree');
-    await cdp.detach();
-    const live = nodes.find(n => !n.ignored && n.role?.value === 'status' && (n.properties || []).some(p => p.name === 'live' && p.value.value === 'polite'));
-    assert.ok(live, 'no polite status region in the accessibility tree');
+    await heard(page, 'Shorten this by 3 characters.');
+    assert.equal(await inTree(page, 'Shorten this by 3 characters.'), true, 'not in a live region of the accessibility tree');
     await page.keyboard.press('Backspace');
     await page.keyboard.press('Backspace');
     assert.equal(await page.textContent('#demo-comment .wk-markdown-editor-error'), 'Shorten this by 1 character.');
@@ -706,12 +727,44 @@ try {
     // Busy is on the submit control (aria-disabled, data-busy), not aria-busy on the editor.
     assert.deepEqual(busy, { busy: false, aria: 'true', data: true, disabled: false, cancel: null });
     assert.equal((await submits()).length, 3);
+    // Through the window's wkTask: a spinner in the button from 400 ms, its words announced then.
+    const spinner = () => page.evaluate(() => document.querySelectorAll('#demo-comment [data-submit] > .wk-spinner[aria-hidden=true]').length);
+    await until(page, () => document.querySelector('#demo-comment [data-submit] > .wk-spinner'));
+    assert.equal(await spinner(), 1);
+    await heard(page, 'Sending');
+    assert.equal(await page.evaluate(() => window.heard.some(h => /Shorten this by [12] /.test(h[1]))), false, 'the count it gives while typing ticks: not announced');
     await page.evaluate(() => window.finishSubmit());
+    // The spinner stays at least 500 ms, then the button is at rest and the outcome is announced.
     await until(page, () => !document.querySelector('#demo-comment [data-submit]').hasAttribute('data-busy'));
+    assert.equal(await spinner(), 0);
     assert.equal(await page.getAttribute('#demo-comment [data-submit]', 'aria-disabled'), null);
+    await heard(page, 'Sent');
     await page.focus('#demo-comment .cm-content');
     await page.keyboard.press(`${mod}+Enter`);
     assert.equal((await submits()).length, 4);
+    // A submit control the app locked (aria-disabled) is locked again after a submit.
+    await page.evaluate(() => {
+      document.querySelector('#demo-comment [data-submit]').setAttribute('aria-disabled', 'true');
+      window.pendingSubmit = new Promise(r => { window.finishSubmit = r; });
+    });
+    await page.focus('#demo-comment .cm-content');
+    await page.keyboard.press(`${mod}+Enter`);
+    assert.equal((await submits()).length, 5);
+    await until(page, () => document.querySelector('#demo-comment [data-submit]').hasAttribute('data-busy'));
+    await page.evaluate(() => window.finishSubmit());
+    await until(page, () => !document.querySelector('#demo-comment [data-submit]').hasAttribute('data-busy'));
+    assert.equal(await page.getAttribute('#demo-comment [data-submit]', 'aria-disabled'), 'true', 'the locked control stays locked');
+    // A failure is announced (the default words; submitTask sets them), and the control is at rest.
+    await page.evaluate(() => {
+      document.querySelector('#demo-comment [data-submit]').removeAttribute('aria-disabled');
+      window.pendingSubmit = new Promise((_, reject) => { window.failSubmit = reject; });
+    });
+    await page.keyboard.press(`${mod}+Enter`);
+    await page.evaluate(() => window.failSubmit(new Error('offline')));
+    await until(page, () => !document.querySelector('#demo-comment [data-submit]').hasAttribute('data-busy'));
+    await heard(page, 'Couldn’t send');
+    await page.evaluate(() => { window.pendingSubmit = undefined; });
+    assert.equal(await page.getAttribute('#demo-comment [data-submit]', 'aria-disabled'), null);
     // A cancelled wk-submit stops onsubmit.
     const cancelled = await page.evaluate(() => {
       const el = document.getElementById('demo-comment');
@@ -719,6 +772,50 @@ try {
       return el.submit();
     });
     assert.equal(cancelled, false);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('without @wails-kit/ui\'s module: the error is the editor\'s own polite region, and a busy submit puts a locked control back as it was (Markdown and rich text)', async () => {
+    const { page, problems } = await open(MD);
+    const r = await page.evaluate(async () => {
+      const { wkMarkdownEditor } = await import('/editor/dist/markdown.js');
+      const { wkRichTextEditor } = await import('/editor/dist/richtext.js');
+      const kit = { task: document.wkTask, announce: document.wkAnnounce };
+      delete document.wkTask;
+      delete document.wkAnnounce;
+      const out = {};
+      try {
+        for (const [name, make] of [['markdown', wkMarkdownEditor], ['richtext', wkRichTextEditor]]) {
+          let finish;
+          const ed = make({ label: `Bare ${name}`, actions: [{ label: 'Send', submit: true }], onsubmit: () => new Promise(res => { finish = res; }) });
+          document.getElementById('demo').append(ed);
+          const error = ed.querySelector('[class$="-editor-error"]');
+          const send = ed.querySelector('[data-submit]');
+          const role = error.getAttribute('role');
+          ed.submit();
+          const said = error.textContent;
+          ed.value = 'Ready';
+          send.setAttribute('aria-disabled', 'true');
+          ed.submit();
+          const busy = [send.getAttribute('aria-disabled'), send.hasAttribute('data-busy')];
+          await new Promise(res => setTimeout(res, 450));
+          const spinner = send.querySelectorAll('.wk-spinner').length;
+          finish();
+          await new Promise(res => setTimeout(res, 0));
+          out[name] = { role, said, busy, spinner, after: [send.getAttribute('aria-disabled'), send.hasAttribute('data-busy')] };
+          ed.destroy();
+          ed.remove();
+        }
+      } finally {
+        document.wkTask = kit.task;
+        document.wkAnnounce = kit.announce;
+      }
+      return out;
+    });
+    for (const name of ['markdown', 'richtext']) {
+      assert.deepEqual(r[name], { role: 'status', said: 'Write something first.', busy: ['true', true], spinner: 0, after: ['true', false] }, name);
+    }
     assert.deepEqual(problems, []);
     await page.close();
   });
@@ -1059,18 +1156,13 @@ try {
     await page.evaluate(() => { document.getElementById('demo-comment').disabled = false; });
     const back = await page.evaluate(() => ({ text: document.activeElement.matches('#demo-comment .cm-content'), tabindex: document.getElementById('demo-comment').getAttribute('tabindex') }));
     assert.deepEqual(back, { text: true, tabindex: null });
-    // The same error twice: the region empties and refills, so a screen reader hears it again.
+    // The same error twice: the announcer says it again, so a screen reader hears it again.
+    await listen(page);
     await mdSet(page, '');
     await page.keyboard.press(`${mod}+Enter`);
-    await until(page, () => document.querySelector('#demo-comment .wk-markdown-editor-error').textContent === 'Write something first.');
-    await page.evaluate(() => {
-      window.seen = [];
-      const e = document.querySelector('#demo-comment .wk-markdown-editor-error');
-      new MutationObserver(() => window.seen.push(e.textContent)).observe(e, { childList: true, characterData: true, subtree: true });
-    });
+    await heard(page, 'Write something first.');
     await page.keyboard.press(`${mod}+Enter`);
-    await until(page, () => window.seen.length >= 2);
-    assert.deepEqual(await page.evaluate(() => window.seen), ['', 'Write something first.']);
+    await until(page, () => window.heard.filter(h => h[1] === 'Write something first.').length === 2);
     assert.deepEqual(problems, []);
     await page.close();
   });
@@ -1740,7 +1832,11 @@ try {
     await page.evaluate(() => { window.kitEvents = []; });
     await page.keyboard.press(`${mod}+Enter`);
     let l = await look();
-    assert.deepEqual({ ...l, described: !!l.described }, { error: 'Write something first.', role: 'status', invalid: 'true', described: true, busy: false, ariaDisabled: null, disabled: false });
+    // With the kit in the page, the error is said by the window's announcer, not a region of its own.
+    assert.deepEqual({ ...l, described: !!l.described }, { error: 'Write something first.', role: null, invalid: 'true', described: true, busy: false, ariaDisabled: null, disabled: false });
+    await listen(page);
+    await page.keyboard.press(`${mod}+Enter`);
+    await heard(page, 'Write something first.');
     assert.equal(await rtFocused(page), true);
     // Typing it right clears the error.
     await page.keyboard.type('Ready');
@@ -1760,8 +1856,20 @@ try {
     await page.click('#demo-rich [data-submit]', { force: true });
     assert.equal(await page.evaluate(() => document.getElementById('demo-rich').submit()), false);
     assert.equal(await page.evaluate(() => window.kitEvents.filter(e => e.type === 'wk-submit').length), 1);
+    await until(page, () => document.querySelector('#demo-rich [data-submit] > .wk-spinner'));
+    await heard(page, 'Sending');
     await page.evaluate(() => window.settle());
     await until(page, () => !document.querySelector('#demo-rich [data-submit]').hasAttribute('data-busy'));
+    await heard(page, 'Sent');
+    assert.equal(await page.evaluate(() => document.querySelectorAll('#demo-rich [data-submit] > .wk-spinner').length), 0);
+    // A locked Save stays locked after a submit.
+    await page.evaluate(() => { document.querySelector('#demo-rich [data-submit]').setAttribute('aria-disabled', 'true'); window.pendingSubmit = new Promise(r => { window.settle = r; }); });
+    assert.equal(await page.evaluate(() => document.getElementById('demo-rich').submit()), true);
+    assert.equal(await page.evaluate(() => document.querySelector('#demo-rich [data-submit]').hasAttribute('data-busy')), true);
+    await page.evaluate(() => window.settle());
+    await until(page, () => !document.querySelector('#demo-rich [data-submit]').hasAttribute('data-busy'));
+    assert.equal(await page.getAttribute('#demo-rich [data-submit]', 'aria-disabled'), 'true');
+    await page.evaluate(() => document.querySelector('#demo-rich [data-submit]').removeAttribute('aria-disabled'));
     // A cancelled wk-submit does not reach onsubmit.
     await page.evaluate(() => { window.pendingSubmit = undefined; document.getElementById('demo-rich').addEventListener('wk-submit', e => e.preventDefault(), { once: true }); });
     assert.equal(await page.evaluate(() => document.getElementById('demo-rich').submit()), false);

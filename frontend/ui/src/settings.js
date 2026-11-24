@@ -27,14 +27,17 @@
 // checked when it commits (change), and once it shows an error it is
 // re-checked on every keystroke, so the error clears as soon as it's fixed. A
 // field with a back-end check applies only once the check passes: its words
-// ("Checking token…") show beside it after 400 ms and stay at least 500 ms;
-// once it shows an error, the check runs again 500 ms after typing stops.
-// Typing is never blocked. An empty required field shows its error from the
-// moment the window opens, and the window's Notice counts the fields that need
-// attention ("2 settings need attention.").
+// ("Checking token…") show beside it through wkTask (after 400 ms, for at
+// least 500 ms), and its outcome goes to the window's announcer; once it
+// shows an error, the check runs again 500 ms after typing stops. Typing is
+// never blocked. An empty required field shows its error from the moment the
+// window opens, and the window's Notice counts the fields that need attention
+// ("2 settings need attention."), announced when the count changes.
 import { SECRET_MASK, settingsModel, readValue, dependentResets } from './settings-model.js';
 import { syncSteppers } from './kit.js';
 import { timings } from './motion.js';
+import { wkTask } from './task.js';
+import { announce } from './announce.js';
 
 let settingsSeq = 0;
 const SETTINGS_EVENT = 'wk-settings-change';
@@ -63,7 +66,9 @@ class WkSettings extends HTMLElement {
     // drafts: key -> the text a control holds that hasn't applied (being
     // re-checked as typed, or waiting on or failed by its back-end check).
     // live: keys re-checked as typed, from when they show an error until a
-    // value applies with none. checks: key -> the back-end check running.
+    // value applies with none. checks: key -> the back-end check running
+    // ({ raw, value, task, ending }: its wkTask, and once it has an outcome,
+    // the promise of the task's end).
     this.drafts = new Map();
     this.live = new Set();
     this.checks = new Map();
@@ -136,14 +141,14 @@ class WkSettings extends HTMLElement {
     const schema = this.state.schema;
     this.replaceChildren();
     this.rowsByKey.clear(); this.fieldsByKey.clear(); this.tabsByGroup.clear(); this.advancedByGroup.clear();
-    for (const run of this.checks.values()) clearTimeout(run.timer);
+    for (const run of this.checks.values()) if (!run.ending) run.task?.cancelled();
     for (const timer of this.rechecks.values()) clearTimeout(timer);
     this.checks.clear(); this.rechecks.clear(); this.drafts.clear(); this.live.clear();
     clearTimeout(this.noticeTimer);
     this.noticeCount = 0;
-    // The window's Notice: a polite region, empty until a field needs attention.
+    // The window's Notice: empty until a field needs attention. Its count goes
+    // to the window's announcer when it changes, not when the window opens.
     this.notice = make('div', 'wk-settings-status');
-    this.notice.setAttribute('role', 'status');
     this.built = Boolean(schema);
     if (!schema) return;
     const model = settingsModel(schema, this.state.values, this.state.errors);
@@ -181,7 +186,7 @@ class WkSettings extends HTMLElement {
       tabs.append(list, this.notice, ...panes);
       this.append(tabs);
     }
-    this.sync();
+    this.sync({ say: false });
   }
 
   pane(group, only) {
@@ -282,14 +287,20 @@ class WkSettings extends HTMLElement {
       control.addEventListener('change', () => this.commit(field, r.type === 'toggle' ? control.checked : control.value));
     }
     if (TYPED.has(r.type)) control.addEventListener('input', () => this.typed(field, control.value));
-    // A back-end check's words: a polite region, empty until the check has
-    // run for timings.indicatorDelay, then a small spinner and the words.
+    // A back-end check's words: wkTask's target, empty until the check has
+    // run for timings.indicatorDelay, then a working dot and the words. The
+    // row has data-pending, and the control is described by them, while they show.
     let pending = null;
     if (field?.check) {
       pending = make('p', 'wk-settings-pending');
       pending.id = this.idFor(r.key, 'pending');
-      pending.setAttribute('role', 'status');
       row.append(pending);
+      new MutationObserver(() => {
+        const shown = Boolean(pending.querySelector(':scope > .wk-task-state'));
+        if (shown === row.hasAttribute('data-pending')) return;
+        row.toggleAttribute('data-pending', shown);
+        if (pending.isConnected) this.sync();
+      }).observe(pending, { childList: true });
     }
     row.append(error);
     this.rowsByKey.set(r.key, { row, control, error, pending, helpId: r.description ? helpId : null, options: null });
@@ -335,7 +346,6 @@ class WkSettings extends HTMLElement {
   typed(field, raw) {
     const key = field.key;
     if (this.shownErrors().has(key)) this.live.add(key);
-    if (this.rowsByKey.get(key)?.pending?.hasAttribute('data-outcome')) this.showPending(key, null);
     if (!this.live.has(key)) return;
     this.drafts.set(key, raw);
     const own = this.ownErrors(field, raw);
@@ -373,13 +383,11 @@ class WkSettings extends HTMLElement {
     Object.assign(values, dependentResets(this.state.schema, key, values));
     this.drafts.set(key, raw);
     const prior = this.checks.get(key);
-    if (prior) clearTimeout(prior.timer);
     const own = this.ownErrors(field, raw);
-    const label = field.label || key;
-    if (prior?.shownAt == null) this.showPending(key, null);
     if (own.length) {
       this.checks.delete(key);
-      this.showPending(key, null);
+      // The check it overtakes has nothing left to say.
+      if (prior && !prior.ending) prior.task?.cancelled();
       this.state.errors = [...this.state.errors.filter(e => e.field !== key), ...own];
       this.live.add(key);
       this.sync();
@@ -390,71 +398,75 @@ class WkSettings extends HTMLElement {
       Promise.resolve().then(() => this.state.check(key, values)).catch(() => {});
       return;
     }
-    const run = { raw, value, timer: null, shownAt: null };
+    const run = { raw, value, task: null, ending: null };
     this.checks.set(key, run);
-    // Keep the indicator a run already shows; else show it after 400 ms.
-    if (prior?.shownAt != null) run.shownAt = prior.shownAt;
-    else run.timer = setTimeout(() => { run.shownAt = Date.now(); this.showPending(key, field.check.pending || 'Checking…'); }, timings.indicatorDelay);
+    this.checkTask(field, run, prior);
     this.sync();
     Promise.resolve()
       .then(() => this.state.check(key, values))
-      .then(errs => (Array.isArray(errs) ? errs : []), () => [{ field: key, message: `Couldn't check your ${inSentence(label)}. Edit it to check again.`, code: CODE_CHECK }])
+      .then(errs => (Array.isArray(errs) ? errs : []), () => [{ field: key, message: `Couldn't check your ${inSentence(this.labelOf(field))}. Edit it to check again.`, code: CODE_CHECK }])
       .then(errs => this.settle(field, run, errs));
   }
 
+  labelOf(field) { return field.label || field.key; }
+
+  // The check's wkTask: its words beside the field after 400 ms, for at least
+  // 500 ms. A check overtaken before its words show is cancelled (nothing is
+  // said); once they show, the newer check keeps them, so they don't go and
+  // come back. One whose outcome is already showing ends first: the newer
+  // check's task starts when it has. No timeout: the window waits for
+  // CheckValue's answer, which carries on in Go if the window closes.
+  checkTask(field, run, prior) {
+    const pending = this.rowsByKey.get(field.key)?.pending;
+    if (!pending) return;
+    if (prior?.task && !prior.ending) {
+      if (pending.querySelector(':scope > .wk-task-state')) { run.task = prior.task; return; }
+      prior.task.cancelled();
+    }
+    const start = () => {
+      if (this.checks.get(field.key) !== run || !pending.isConnected) return;
+      run.task = wkTask({ target: pending, words: field.check.pending || 'Checking…', subject: this.labelOf(field), timeout: false });
+    };
+    if (prior?.ending) run.started = prior.ending.then(start);
+    else start();
+  }
+
+  // The check answered. A check overtaken by a newer one is ignored. The
+  // outcome goes to the announcer as the words leave (wkTask's done, which
+  // waits for their 500 ms), and in the same step the value applies or the
+  // field shows its error.
   settle(field, run, errs) {
     const key = field.key;
     if (this.checks.get(key) !== run) return;
-    clearTimeout(run.timer);
+    const label = this.labelOf(field);
+    // No errors means the value was saved (CheckValue's contract). Errors
+    // only on other fields mean it wasn't: they show where they belong, and
+    // this field says so.
+    let mine = errs.filter(e => e.field === key);
+    const others = errs.filter(e => e.field !== key);
+    if (others.length && !mine.length) mine = [{ field: key, message: `Your ${inSentence(label)} wasn't saved. Fix the other settings, then enter it again.`, code: CODE_CHECK }];
+    mine = mine.map(e => ({ ...e, code: e.code || CODE_CHECK }));
+    // A failed check is still an answer: its words are the field's error,
+    // which shows on the field. done, not fail: the field carries the
+    // failure, and it doesn't wait in the window's task list.
+    const words = mine.length ? mine[0].message : `${label} checked`;
     const finish = () => {
       if (this.checks.get(key) !== run) return;
       this.checks.delete(key);
-      const label = field.label || key;
-      // No errors means the value was saved (CheckValue's contract). Errors
-      // only on other fields mean it wasn't: they show where they belong, and
-      // this field says so.
-      let mine = errs.filter(e => e.field === key);
-      const others = errs.filter(e => e.field !== key);
-      if (others.length && !mine.length) mine = [{ field: key, message: `Your ${inSentence(label)} wasn't saved. Fix the other settings, then enter it again.`, code: CODE_CHECK }];
       if (mine.length) {
-        mine = mine.map(e => ({ ...e, code: e.code || CODE_CHECK }));
         const replaced = new Set(errs.map(e => e.field));
         this.state.errors = [...this.state.errors.filter(e => !replaced.has(e.field)), ...others, ...mine];
         this.live.add(key);
-        this.showPending(key, null, mine[0].message);
+        this.sync();
         return;
       }
       if (this.drafts.get(key) === run.raw) this.drafts.delete(key);
-      this.showPending(key, null, `${label} checked`, false);
       this.apply(field, run.value, { checked: true });
     };
-    // Once shown, the words stay at least 500 ms; the result waits and both change in one step.
-    const wait = run.shownAt == null ? 0 : run.shownAt + timings.indicatorMin - Date.now();
-    if (wait > 0) run.timer = setTimeout(finish, wait);
-    else finish();
-  }
-
-  // The check's status region: the pending words with a small spinner, or the
-  // outcome in words for screen readers (visually hidden: the field shows
-  // its error or its value), or nothing.
-  showPending(key, words, outcome, sync = true) {
-    const parts = this.rowsByKey.get(key);
-    if (!parts?.pending) return;
-    if (!words && !outcome && !parts.pending.firstChild) return;
-    parts.pending.toggleAttribute('data-outcome', Boolean(outcome));
-    if (outcome) {
-      parts.pending.replaceChildren(make('span', null, outcome));
-      delete parts.row.dataset.pending;
-    } else if (words) {
-      const spinner = make('span', 'wk-spinner');
-      spinner.setAttribute('aria-hidden', 'true');
-      parts.pending.replaceChildren(spinner, make('span', null, words));
-      parts.row.dataset.pending = '';
-    } else {
-      parts.pending.replaceChildren();
-      delete parts.row.dataset.pending;
-    }
-    if (sync) this.sync();
+    run.ending = Promise.resolve(run.started).then(() => {
+      if (!run.task) { announce(words); return finish(); }
+      return run.task.done({ words }).then(finish);
+    });
   }
 
   // The values the window shows: the applied ones with the drafts typed over them.
@@ -476,7 +488,7 @@ class WkSettings extends HTMLElement {
 
   // Brings every control in line with the values and errors, keeping the DOM
   // (and focus) as it is.
-  sync({ notice = true } = {}) {
+  sync({ notice = true, say = true } = {}) {
     const schema = this.state.schema;
     if (!this.built || !schema) return;
     const model = settingsModel(schema, this.shownValues(), this.state.errors);
@@ -514,12 +526,13 @@ class WkSettings extends HTMLElement {
       this.tabsByGroup.get(group.key)?.toggleAttribute('data-attention', group.attention);
       if (group.advanced.some(r => r.error)) this.expand(group.key, true);
     }
-    if (notice) this.updateNotice(model);
+    if (notice) this.updateNotice(model, { say });
   }
 
   // The window's Notice: the count of fields that need attention. Its words
-  // change, and so are announced, only when the count does.
-  updateNotice(model = settingsModel(this.state.schema, this.shownValues(), this.state.errors)) {
+  // change, and are announced, only when the count does; not when the
+  // window is drawn (say false), where the Notice is read with the window.
+  updateNotice(model = settingsModel(this.state.schema, this.shownValues(), this.state.errors), { say = true } = {}) {
     clearTimeout(this.noticeTimer);
     if (!this.notice) return;
     const count = model.attention;
@@ -527,6 +540,7 @@ class WkSettings extends HTMLElement {
     this.noticeCount = count;
     if (!count) { this.notice.replaceChildren(); return; }
     const words = count === 1 ? '1 setting needs attention.' : `${count} settings need attention.`;
+    if (say) announce(words);
     const shown = this.notice.querySelector('b');
     if (shown) { shown.textContent = words; return; }
     const box = make('div', 'wk-notice wk-notice--inline');
