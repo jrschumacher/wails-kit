@@ -26,7 +26,7 @@ const (
 	// ErrCheckTimeout: the check ran past the check timeout.
 	ErrCheckTimeout errors.Code = "settings_check_timeout"
 	// ErrUnknownSetting: CheckValue was asked about a key the schema lacks.
-	ErrUnknownSetting errors.Code = "settings_unknown_key"
+	ErrUnknownSetting errors.Code = "settings_unknown_setting"
 )
 
 // DefaultCheckTimeout is how long a back-end check may run (BEHAVIOUR.md's
@@ -36,7 +36,7 @@ const DefaultCheckTimeout = 2 * time.Minute
 func init() {
 	errors.RegisterMessages(map[errors.Code]string{
 		ErrCheckFailed:    "Couldn't confirm this value. Check it and enter it again.",
-		ErrCheckTimeout:   "The check took too long. Enter the value again to retry.",
+		ErrCheckTimeout:   "The check timed out. Enter the value again once the service can be reached.",
 		ErrUnknownSetting: "This setting doesn't exist.",
 	})
 }
@@ -73,33 +73,39 @@ func WithCheckTimeout(d time.Duration) ServiceOption {
 	}
 }
 
-// CheckValue checks values[key] and, if it passes, saves values with
-// SetValues. It is the binding the settings window calls for a field with a
-// Check, when the person leaves the field and again after they stop typing.
+// CheckValue checks values[key] and, if it passes, saves that one value. It
+// is the binding the settings window calls for a field with a Check, when
+// the person leaves the field and again after they stop typing.
+//
+// The other entries of values are context only: the check and the field's
+// condition see them, but CheckValue never saves them, so a check that
+// returns minutes later can't put back a value changed meanwhile.
 //
 //   - The field's own validation runs first; if it fails, its errors come
 //     back and the back-end check doesn't run.
 //   - The check then runs under its own timeout, not the caller's: it carries
 //     on when the window that asked closes.
-//   - A pass saves values and clears any failure recorded for the key. An
+//   - A pass saves values[key] alone, clears any failure recorded for the
+//     key, and returns no errors: no errors means the value was saved. An
 //     empty value, and a password field holding SecretMask (no change), pass
 //     without a check.
 //   - A failure is recorded (CheckFailures), emitted as EventCheckFailed and
 //     returned as a ValidationError with CodeCheck; nothing is saved.
-//   - A check overtaken by a newer one for the same key saves, records and
-//     emits nothing, and returns no errors.
+//   - When the key changed while the check ran (a newer CheckValue for it,
+//     or a SetValues that changed it), nothing is saved, recorded or
+//     emitted, and the result is a CodeCheck error saying so.
 func (s *Service) CheckValue(key string, values map[string]any) ([]ValidationError, error) {
 	field, fn, ok := s.checkFor(key)
 	if !ok {
 		return nil, errors.Newf(ErrUnknownSetting, "unknown setting %q", key)
 	}
-	var own []ValidationError
-	for _, e := range Validate(s.schema, values) {
-		if e.Field == key {
-			own = append(own, e)
-		}
-	}
-	if len(own) > 0 {
+	// Any check already running for the key is out of date from here on.
+	s.mu.Lock()
+	s.gen[key]++
+	gen := s.gen[key]
+	s.mu.Unlock()
+
+	if own := validateOne(field, values); len(own) > 0 {
 		return own, nil
 	}
 	value := values[key]
@@ -107,29 +113,31 @@ func (s *Service) CheckValue(key string, values map[string]any) ([]ValidationErr
 		fn = nil
 	}
 
-	s.checkMu.Lock()
-	s.checkSeq[key]++
-	seq := s.checkSeq[key]
-	s.checkMu.Unlock()
-
 	var err error
 	if fn != nil {
 		err = s.runCheck(fn, value, copyValues(values))
 	}
 
-	s.checkMu.Lock()
-	if s.checkSeq[key] != seq {
-		s.checkMu.Unlock()
-		return nil, nil
+	s.mu.Lock()
+	if s.gen[key] != gen {
+		s.mu.Unlock()
+		return []ValidationError{{Field: key, Message: changedMessage, Code: CodeCheck}}, nil
 	}
 	if err == nil {
-		delete(s.failures, key)
-		s.checkMu.Unlock()
-		return s.SetValues(values)
+		saveErr := s.saveOneLocked(field, value)
+		if saveErr == nil {
+			delete(s.failures, key)
+		}
+		s.mu.Unlock()
+		if saveErr != nil {
+			return nil, errors.Wrap(errors.ErrStorageWrite, "save checked setting", saveErr)
+		}
+		s.notifySaved()
+		return nil, nil
 	}
 	failure := ValidationError{Field: key, Message: checkMessage(err), Code: CodeCheck}
 	s.failures[key] = failure
-	s.checkMu.Unlock()
+	s.mu.Unlock()
 
 	if s.emitter != nil {
 		s.emitter.Emit(EventCheckFailed, CheckFailedPayload{
@@ -143,12 +151,16 @@ func (s *Service) CheckValue(key string, values map[string]any) ([]ValidationErr
 	return []ValidationError{failure}, nil
 }
 
+// changedMessage: the key changed while its check ran, so the result no longer applies.
+const changedMessage = "This setting changed while it was being checked. Enter it again to check it."
+
 // CheckFailures returns the back-end checks that failed and haven't passed
-// since, in schema order. Settings shows them when it opens, and opens on the
-// first one's field.
+// since, in schema order. A SetValues that changes the key, or a CheckValue
+// that saves it (clearing the field included), drops its failure. Settings
+// shows them when it opens, and opens on the first one's field.
 func (s *Service) CheckFailures() []ValidationError {
-	s.checkMu.Lock()
-	defer s.checkMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var out []ValidationError
 	for _, group := range s.schema.Groups {
 		for _, field := range group.Fields {
@@ -158,6 +170,58 @@ func (s *Service) CheckFailures() []ValidationError {
 		}
 	}
 	return out
+}
+
+// validateOne validates one field, with values as context for its condition.
+func validateOne(field Field, values map[string]any) []ValidationError {
+	if field.Validation == nil && field.Type != FieldSelect && field.Type != FieldToggle {
+		return nil
+	}
+	if field.Condition != nil && !conditionMet(field.Condition, values) {
+		return nil
+	}
+	return validateField(field, values[field.Key], values)
+}
+
+// saveOneLocked writes one field's value: a password to the keyring (the
+// mask is no change, "" clears it), anything else into the settings file,
+// merged with what's there. The caller holds s.mu.
+func (s *Service) saveOneLocked(field Field, value any) error {
+	switch field.Type {
+	case FieldComputed:
+		return nil
+	case FieldPassword:
+		str, _ := value.(string)
+		switch str {
+		case SecretMask:
+			return nil
+		case "":
+			_ = s.secrets.Delete(field.Key)
+			return nil
+		}
+		return s.secrets.Set(field.Key, str)
+	}
+	return s.store.Save(map[string]any{field.Key: value})
+}
+
+// notifySaved calls the onChange callbacks with every saved value (secrets
+// masked) after CheckValue saves one.
+func (s *Service) notifySaved() {
+	if len(s.onChange) == 0 {
+		return
+	}
+	values, err := s.store.Load()
+	if err != nil {
+		return
+	}
+	for k := range s.passwordKeys() {
+		if s.secrets.Has(k) {
+			values[k] = SecretMask
+		}
+	}
+	for _, fn := range s.onChange {
+		fn(values)
+	}
 }
 
 // runCheck runs fn under the check timeout, returning when it does or when

@@ -112,6 +112,9 @@ func TestErrorsTypeParity(t *testing.T) {
 		updates.ErrUpdateDownload,
 		updates.ErrUpdateApply,
 		updates.ErrUpdateVerify,
+		settings.ErrCheckFailed,
+		settings.ErrCheckTimeout,
+		settings.ErrUnknownSetting,
 	}
 
 	for _, code := range codes {

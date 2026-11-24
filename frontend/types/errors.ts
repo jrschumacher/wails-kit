@@ -1,4 +1,4 @@
-// Error types — mirrors errors/errors.go and updates/service.go
+// Error types — mirrors errors/errors.go, updates/service.go and settings/check.go
 // Kept in sync via Go reflection test in frontend/types_test.go
 
 export type ErrorCode =
@@ -22,7 +22,11 @@ export type ErrorCode =
   | "update_check"
   | "update_download"
   | "update_apply"
-  | "update_verify";
+  | "update_verify"
+  // Settings check error codes (settings package)
+  | "settings_check_failed"
+  | "settings_check_timeout"
+  | "settings_unknown_setting";
 
 export interface UserError {
   code: ErrorCode;

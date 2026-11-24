@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"reflect"
 	"sync"
 	"time"
 
@@ -21,9 +22,11 @@ type Service struct {
 
 	emitter      *events.Emitter
 	checkTimeout time.Duration
-	checkMu      sync.Mutex
-	checkSeq     map[string]uint64
-	failures     map[string]ValidationError
+	// gen counts the changes to each key (guarded by mu): CheckValue bumps it
+	// when it starts, SetValues when it changes the key. A check saves only if
+	// its key's generation is still the one it started with.
+	gen      map[string]uint64
+	failures map[string]ValidationError // guarded by mu
 }
 
 type ServiceOption func(*Service)
@@ -87,7 +90,7 @@ func WithOnChange(fn func(values map[string]any)) ServiceOption {
 func NewService(opts ...ServiceOption) *Service {
 	s := &Service{
 		checkTimeout: DefaultCheckTimeout,
-		checkSeq:     make(map[string]uint64),
+		gen:          make(map[string]uint64),
 		failures:     make(map[string]ValidationError),
 	}
 	for _, opt := range opts {
@@ -157,6 +160,8 @@ func (s *Service) GetSecret(key string) (string, error) {
 
 // SetValues validates and saves settings. Password fields with the mask
 // sentinel are skipped (no change). Empty string clears a secret.
+// A key whose value it changes has its running check made out of date and
+// its recorded check failure dropped (see CheckValue).
 // This method is safe for concurrent use.
 func (s *Service) SetValues(values map[string]any) ([]ValidationError, error) {
 	s.mu.Lock()
@@ -164,6 +169,16 @@ func (s *Service) SetValues(values map[string]any) ([]ValidationError, error) {
 
 	if errs := Validate(s.schema, values); errs != nil {
 		return errs, nil
+	}
+
+	// The keys this call changes: their running checks are out of date and
+	// their recorded check failures no longer apply.
+	current, _ := s.store.Load()
+	for k, v := range values {
+		if s.changes(k, v, current) {
+			s.gen[k]++
+			delete(s.failures, k)
+		}
 	}
 
 	// Separate secrets from regular values
@@ -211,6 +226,26 @@ func (s *Service) SetValues(values map[string]any) ([]ValidationError, error) {
 	}
 
 	return nil, nil
+}
+
+// changes reports whether SetValues writing v to key changes it: a new secret
+// (not the mask), or a value other than the one saved.
+func (s *Service) changes(key string, v any, current map[string]any) bool {
+	if s.passwordKeys()[key] {
+		str, _ := v.(string)
+		if str == SecretMask {
+			return false
+		}
+		if str == "" {
+			return s.secrets.Has(key)
+		}
+		old, err := s.secrets.Get(key)
+		return err != nil || old != str
+	}
+	if s.computedKeys()[key] {
+		return false
+	}
+	return !reflect.DeepEqual(current[key], v)
 }
 
 func (s *Service) computedKeys() map[string]bool {
