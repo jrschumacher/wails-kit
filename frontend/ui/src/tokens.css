@@ -127,6 +127,16 @@
   --wk-dot-size-small: 8px;
   --wk-sidebar-width: 220px;
   --wk-inspector-width: 320px;
+  /* Motion (BEHAVIOUR.md, Motion): fast for state changes (hover, press, a
+     switch's thumb), base for things appearing or moving (a menu, a toast, a
+     row), slow for large surfaces (a sheet); nothing longer on a direct
+     response. Ease out for things entering, ease in for things leaving.
+     src/motion.js exports the same values to scripts (motion). */
+  --wk-duration-fast: 100ms;
+  --wk-duration-base: 200ms;
+  --wk-duration-slow: 300ms;
+  --wk-ease-out: cubic-bezier(.2, 0, 0, 1);
+  --wk-ease-in: cubic-bezier(.4, 0, 1, 1);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {

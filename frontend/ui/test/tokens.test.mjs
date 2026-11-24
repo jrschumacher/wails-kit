@@ -26,8 +26,9 @@ const kitTokens = () => tokens(read(path.join(src, 'tokens.css')));
 const kitSource = () => read(path.join(src, 'tokens.css'));
 const fixtures = path.join(root, 'test', 'fixtures');
 // Properties a component sets on itself for its variants to change, and
-// --wk-range-value, which the app sets on a wk-range.
-const LOCAL = new Set(['--wk-dot-color', '--wk-dot-ground', '--wk-chart-c', '--wk-range-value', '--wk-diff-digits', '--wk-diff-indent']);
+// --wk-range-value and --wk-progress-value, which the app sets on a wk-range
+// and a wk-progress.
+const LOCAL = new Set(['--wk-dot-color', '--wk-dot-ground', '--wk-chart-c', '--wk-range-value', '--wk-progress-value', '--wk-diff-digits', '--wk-diff-indent']);
 
 test('the colour check catches every kind of literal', () => {
   const component = { selector: '.wk-x', forced: false };
@@ -269,6 +270,9 @@ test('every selector is scoped to a wk- class or element, so linking the kit nev
   for (const file of [...kitCss, ...themes]) {
     for (const r of rules(read(file))) {
       if (r.selector.startsWith('@')) continue;
+      // A keyframe's from, to and percentages: its name must be wk- instead.
+      const keyframes = r.atRules.find(a => a.startsWith('@keyframes'));
+      if (keyframes) { assert.match(keyframes, /^@keyframes wk-[a-z-]+$/, `${rel(file)}: ${keyframes} is not named wk-`); continue; }
       for (const sel of selectors(r.selector)) {
         if (isTokenSelector(sel) || sel === CONTRAST_SELECTOR) {
           for (const [prop] of r.decls) assert.ok(prop.startsWith('--wk-'), `${rel(file)}: :root sets ${prop}; :root is for --wk-* tokens only`);
