@@ -16,12 +16,19 @@ wk-settings .wk-settings-row > .wk-error { flex: 1 0 100%; margin: 0; }
 .wk-settings-control { width: min(240px, 100%); }
 .wk-settings-value { color: var(--wk-color-text-secondary); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 /* A back-end check's words beside its field ("Checking token…"), with a
-   working dot; empty (and gone) until the check has run for 400 ms. The
+   small spinner; empty (and gone) until the check has run for 400 ms. The
    window's Notice ("2 settings need attention.") sits above the panes. */
 wk-settings .wk-settings-row > .wk-settings-pending { display: flex; flex: 1 0 100%; align-items: center; gap: var(--wk-space-2); margin: 0; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
 wk-settings .wk-settings-pending:empty, wk-settings .wk-settings-status:empty { display: none; }
+wk-settings .wk-settings-pending > .wk-spinner { width: 12px; height: 12px; border-width: 1.5px; }
 /* Once the check ends, the region holds its outcome in words for screen
    readers ("Projects folder checked", or the error); the field shows it. */
 wk-settings .wk-settings-row { position: relative; }
 wk-settings .wk-settings-row > .wk-settings-pending[data-outcome] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 wk-settings > .wk-settings-window > .wk-settings-status { margin: var(--wk-space-4) var(--wk-space-5) 0; }
+/* Forced colours: the spinner keeps its own colours (forced-color-adjust:
+   none) and takes currentColor, which here is the secondary text token:
+   draw it in CanvasText, as the words around it are. */
+@media (forced-colors: active) {
+  wk-settings .wk-settings-pending > .wk-spinner { color: CanvasText; }
+}

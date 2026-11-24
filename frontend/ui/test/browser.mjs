@@ -2373,7 +2373,8 @@ try {
     assert.equal(await row(page, 'general.folder').getAttribute('data-pending'), '');
     const pending = row(page, 'general.folder').locator('.wk-settings-pending');
     assert.equal(await pending.getAttribute('role'), 'status');
-    assert.equal(await pending.locator('.wk-dot[data-tone=working][aria-hidden=true]').count(), 1);
+    assert.equal(await pending.locator('.wk-spinner[aria-hidden=true]').count(), 1);
+    assert.deepEqual(await pending.locator('.wk-spinner').evaluate(sp => [getComputedStyle(sp).width, getComputedStyle(sp).animationName]), ['12px', 'wk-spin'], 'small, and turning');
     assert.ok((await folder.getAttribute('aria-describedby')).split(' ').includes(await pending.getAttribute('id')));
     assert.equal(await folder.isEditable(), true, 'typing is never blocked');
     // The check passes 100 ms after the words appeared: they stay until 500 ms, then the value applies in the same step.
@@ -2594,7 +2595,7 @@ try {
     await page.close();
   });
 
-  await check('settings window: in forced colours, the pending words and their dot, and the Notice\'s outline and words, take system colours', async () => {
+  await check('settings window: in forced colours, the pending words and their spinner, and the Notice\'s outline and words, take system colours', async () => {
     const { page, problems } = await openSettings({ forcedColors: 'active', clock: true });
     await manualChecks(page);
     const folder = row(page, 'general.folder').locator('input');
@@ -2604,13 +2605,13 @@ try {
     await page.evaluate(() => { document.getElementById('demo-settings').errors = [{ field: 'general.copies', message: 'x', code: 'max' }]; });
     const look = await page.evaluate(() => {
       const probe = c => { const e = document.createElement('i'); e.style.forcedColorAdjust = 'none'; e.style.color = c; document.body.append(e); const v = getComputedStyle(e).color; e.remove(); return v; };
-      const dot = getComputedStyle(document.querySelector('[data-key="general.folder"] .wk-dot'));
+      const spinner = getComputedStyle(document.querySelector('[data-key="general.folder"] .wk-spinner'));
       const words = getComputedStyle(document.querySelector('[data-key="general.folder"] .wk-settings-pending'));
       const notice = getComputedStyle(document.querySelector('#demo-settings .wk-settings-status .wk-notice'));
       const bold = getComputedStyle(document.querySelector('#demo-settings .wk-settings-status b'));
       return {
         canvasText: probe('CanvasText'), canvas: probe('Canvas'),
-        dot: [dot.borderTopStyle, dot.borderTopWidth !== '0px', dot.borderTopColor, dot.backgroundColor],
+        spinner: [spinner.borderTopStyle, spinner.borderTopWidth !== '0px', spinner.borderTopColor, spinner.borderRightColor],
         words: words.color,
         // The system keeps a background's alpha: compare its colour channels.
         notice: [notice.borderTopStyle, notice.borderTopWidth !== '0px', notice.borderTopColor, notice.backgroundColor.match(/\d+/g).slice(0, 3).join()],
@@ -2620,7 +2621,7 @@ try {
     const { canvasText } = look;
     const canvas = look.canvas.match(/\d+/g).slice(0, 3).join();
     assert.notEqual(canvasText, look.canvas);
-    assert.deepEqual(look.dot, ['solid', true, canvasText, canvasText], 'the working dot is drawn in CanvasText');
+    assert.deepEqual(look.spinner, ['solid', true, canvasText, 'rgba(0, 0, 0, 0)'], 'the spinner is drawn with a CanvasText border, open on one side');
     assert.equal(look.words, canvasText, 'the pending words read as text');
     assert.deepEqual(look.notice, ['solid', true, canvasText, canvas], 'the Notice keeps a CanvasText outline on Canvas');
     assert.equal(look.bold, canvasText);

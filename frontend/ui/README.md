@@ -534,7 +534,7 @@ sets `errors`.
 - A field with a back-end check (`check: { pending }` in the schema, and the
   `check` property set) applies only once the check passes. The check runs on
   commit and, once the field shows an error, 500 ms after typing stops. Its words
-  (`pending`, else "Checking…") show beside the field with a working dot after
+  (`pending`, else "Checking…") show beside the field with a small `wk-spinner` after
   400 ms and stay at least 500 ms; the row has `data-pending` meanwhile, and the
   words are a polite status region. When the check ends, that region holds its
   outcome in words, visually hidden (`data-outcome`): "Projects folder checked",

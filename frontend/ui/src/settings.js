@@ -34,14 +34,10 @@
 // attention ("2 settings need attention.").
 import { SECRET_MASK, settingsModel, readValue, dependentResets } from './settings-model.js';
 import { syncSteppers } from './kit.js';
+import { timings } from './motion.js';
 
 let settingsSeq = 0;
 const SETTINGS_EVENT = 'wk-settings-change';
-// BEHAVIOUR.md's timings: the indicator delay, the indicator minimum and the
-// back-end re-check after typing stops.
-const INDICATOR_DELAY = 400;
-const INDICATOR_MIN = 500;
-const RECHECK_DELAY = 500;
 const CODE_CHECK = 'check';
 const CODE_REQUIRED = 'required';
 const TYPED = new Set(['text', 'password', 'number']);
@@ -275,7 +271,7 @@ class WkSettings extends HTMLElement {
     }
     if (TYPED.has(r.type)) control.addEventListener('input', () => this.typed(field, control.value));
     // A back-end check's words: a polite region, empty until the check has
-    // run for 400 ms. The working dot can become wk-spinner once the kit has one.
+    // run for timings.indicatorDelay, then a small spinner and the words.
     let pending = null;
     if (field?.check) {
       pending = make('p', 'wk-settings-pending');
@@ -338,12 +334,12 @@ class WkSettings extends HTMLElement {
     // until typing stops, so its count doesn't flicker or announce per key.
     this.sync({ notice: false });
     clearTimeout(this.noticeTimer);
-    this.noticeTimer = setTimeout(() => this.updateNotice(), RECHECK_DELAY);
+    this.noticeTimer = setTimeout(() => this.updateNotice(), timings.recheckDelay);
     clearTimeout(this.rechecks.get(key));
     this.rechecks.delete(key);
     const value = readValue(field, raw);
     if (field.check && this.state.check && !own.length && value != null && value !== '') {
-      this.rechecks.set(key, setTimeout(() => { this.rechecks.delete(key); this.runCheck(field, raw); }, RECHECK_DELAY));
+      this.rechecks.set(key, setTimeout(() => { this.rechecks.delete(key); this.runCheck(field, raw); }, timings.recheckDelay));
     }
   }
 
@@ -380,7 +376,7 @@ class WkSettings extends HTMLElement {
     this.checks.set(key, run);
     // Keep the indicator a run already shows; else show it after 400 ms.
     if (prior?.shownAt != null) run.shownAt = prior.shownAt;
-    else run.timer = setTimeout(() => { run.shownAt = Date.now(); this.showPending(key, field.check.pending || 'Checking…'); }, INDICATOR_DELAY);
+    else run.timer = setTimeout(() => { run.shownAt = Date.now(); this.showPending(key, field.check.pending || 'Checking…'); }, timings.indicatorDelay);
     this.sync();
     Promise.resolve()
       .then(() => this.state.check(key, values))
@@ -415,12 +411,12 @@ class WkSettings extends HTMLElement {
       this.apply(field, run.value, { checked: true });
     };
     // Once shown, the words stay at least 500 ms; the result waits and both change in one step.
-    const wait = run.shownAt == null ? 0 : run.shownAt + INDICATOR_MIN - Date.now();
+    const wait = run.shownAt == null ? 0 : run.shownAt + timings.indicatorMin - Date.now();
     if (wait > 0) run.timer = setTimeout(finish, wait);
     else finish();
   }
 
-  // The check's status region: the pending words with a working dot, or the
+  // The check's status region: the pending words with a small spinner, or the
   // outcome in words for screen readers (visually hidden: the field shows
   // its error or its value), or nothing.
   showPending(key, words, outcome, sync = true) {
@@ -432,11 +428,9 @@ class WkSettings extends HTMLElement {
       parts.pending.replaceChildren(make('span', null, outcome));
       delete parts.row.dataset.pending;
     } else if (words) {
-      const dot = make('span', 'wk-dot');
-      dot.dataset.tone = 'working';
-      dot.dataset.size = 'sm';
-      dot.setAttribute('aria-hidden', 'true');
-      parts.pending.replaceChildren(dot, make('span', null, words));
+      const spinner = make('span', 'wk-spinner');
+      spinner.setAttribute('aria-hidden', 'true');
+      parts.pending.replaceChildren(spinner, make('span', null, words));
       parts.row.dataset.pending = '';
     } else {
       parts.pending.replaceChildren();
