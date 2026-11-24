@@ -38,6 +38,11 @@ other palette. Keep the hue shift small (a warm or cool bias, not a colour).
 Then text and secondary text must reach 4.5:1 on all four grounds (`bg`,
 `sidebar`, `surface`, `control`), and the field border 3:1 on `bg` and `surface`.
 
+**Increased contrast comes free.** Under `prefers-contrast: more` the kit mixes the
+lines, outlines, secondary text and the fill tints from the theme's own `text` and
+`bg` (`tokens.css`, last block), and that block outweighs a theme's, so a theme sets
+no contrast values of its own.
+
 **Font fallbacks.** `--wk-font-family` may add fallbacks after the kit's first
 family, never replace it. A font the theme names is the app's to bundle: an
 `@font-face` in the theme pointing at a file the app ships. Never load a font

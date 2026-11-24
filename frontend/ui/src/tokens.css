@@ -251,3 +251,24 @@
     --wk-color-attention-fill: color-mix(in srgb, var(--wk-color-attention) 12%, transparent);
   }
 }
+/* Increased contrast (prefers-contrast: more, the system's setting), live
+   like the appearance. Lines, control outlines, secondary text and the
+   tints are mixed from the theme's own text and bg, so one block serves
+   light and dark and any theme. The selector is :root three times so it
+   outweighs a theme's dark blocks (two classes' worth), which a theme file
+   loaded after the kit would otherwise win with. Where color-mix() is
+   missing the kit's usual values stay. */
+@media (prefers-contrast: more) {
+  @supports (color: color-mix(in srgb, red, blue)) {
+    :root:root:root {
+      --wk-color-text-secondary: color-mix(in srgb, var(--wk-color-text) 82%, var(--wk-color-bg));
+      --wk-color-text-secondary-on-selected: color-mix(in srgb, var(--wk-color-text) 88%, var(--wk-color-bg));
+      --wk-color-hairline: color-mix(in srgb, var(--wk-color-text) 32%, var(--wk-color-bg));
+      --wk-color-hairline-strong: color-mix(in srgb, var(--wk-color-text) 45%, var(--wk-color-bg));
+      --wk-color-control-border: color-mix(in srgb, var(--wk-color-text) 55%, var(--wk-color-bg));
+      --wk-color-field-border: color-mix(in srgb, var(--wk-color-text) 70%, var(--wk-color-bg));
+      --wk-color-fill: color-mix(in srgb, var(--wk-color-text) 8%, transparent);
+      --wk-color-fill-strong: color-mix(in srgb, var(--wk-color-text) 14%, transparent);
+    }
+  }
+}

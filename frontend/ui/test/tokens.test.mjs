@@ -270,7 +270,7 @@ test('every selector is scoped to a wk- class or element, so linking the kit nev
     for (const r of rules(read(file))) {
       if (r.selector.startsWith('@')) continue;
       for (const sel of selectors(r.selector)) {
-        if (isTokenSelector(sel)) {
+        if (isTokenSelector(sel) || sel === CONTRAST_SELECTOR) {
           for (const [prop] of r.decls) assert.ok(prop.startsWith('--wk-'), `${rel(file)}: :root sets ${prop}; :root is for --wk-* tokens only`);
           continue;
         }
@@ -381,4 +381,58 @@ test('the design system\'s names: wk-code and wk-chip--access, not the old wk-co
   for (const file of files) assert.doesNotMatch(read(file), /wk-codeblock|wk-chip--lock/, `${rel(file)} uses an old name`);
   const css = read(path.join(src, 'components.css'));
   for (const selector of ['.wk-code {', '.wk-code--scroll > pre', '.wk-chip--access > svg', '.wk-chip--access[data-level="manage"]']) assert.ok(css.includes(selector), `components.css defines ${selector}`);
+});
+
+// Increased contrast: one block in tokens.css, under prefers-contrast: more
+// and @supports color-mix(), on :root:root:root so it outweighs a theme's
+// dark blocks. It mixes lines, outlines, secondary text and tints from the
+// theme's own text and bg.
+const CONTRAST_SELECTOR = ':root:root:root';
+const CONTRAST_MIX = {
+  '--wk-color-text-secondary': 82, '--wk-color-text-secondary-on-selected': 88, '--wk-color-hairline': 32,
+  '--wk-color-hairline-strong': 45, '--wk-color-control-border': 55, '--wk-color-field-border': 70,
+};
+const contrastBlock = () => {
+  const found = rules(kitSource()).filter(r => r.selector === CONTRAST_SELECTOR);
+  assert.equal(found.length, 1, 'one increased-contrast block');
+  return found[0];
+};
+
+test('increased contrast: one block under prefers-contrast: more, mixing only line, outline, secondary-text and tint tokens from text and bg', () => {
+  const r = contrastBlock();
+  assert.ok(r.atRules.some(a => /^@media\s*\(prefers-contrast:\s*more\)$/.test(a)), r.atRules.join(' '));
+  assert.ok(r.atRules.some(a => /^@supports\s*\(color:\s*color-mix\(/.test(a)), 'inside @supports color-mix()');
+  const declared = kitTokens().light;
+  const decls = new Map(r.decls);
+  for (const [name, pct] of Object.entries(CONTRAST_MIX)) {
+    assert.equal(decls.get(name), `color-mix(in srgb, var(--wk-color-text) ${pct}%, var(--wk-color-bg))`, name);
+  }
+  assert.equal(decls.get('--wk-color-fill'), 'color-mix(in srgb, var(--wk-color-text) 8%, transparent)');
+  assert.equal(decls.get('--wk-color-fill-strong'), 'color-mix(in srgb, var(--wk-color-text) 14%, transparent)');
+  assert.equal(decls.size, Object.keys(CONTRAST_MIX).length + 2, 'sets nothing else');
+  for (const name of decls.keys()) assert.ok(declared.has(name), `${name} is a kit token`);
+});
+
+test('increased contrast is stronger than the usual values and reaches 7:1 for secondary text, 4.5:1 for field borders, in the kit and the example theme', () => {
+  const rgba = (hex, a) => `rgba(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(', ')}, ${a})`;
+  const kit = kitTokens();
+  for (const file of [path.join(src, 'tokens.css'), path.join(themeDir, 'example.css')]) {
+    const t = tokens(read(file));
+    for (const mode of ['light', 'dark']) {
+      const g = n => t[mode].get(n) ?? kit[mode].get(n);
+      const mix = pct => over(rgba(g('--wk-color-text'), pct / 100), g('--wk-color-bg'));
+      const where = `${rel(file)} (${mode})`;
+      for (const [name, pct] of Object.entries(CONTRAST_MIX)) {
+        if (name.endsWith('on-selected')) continue; // it sits on a tint, not a ground
+        assert.ok(contrast(mix(pct), g('--wk-color-bg')) > contrast(g(name), g('--wk-color-bg')), `${where}: ${name} is no stronger`);
+      }
+      for (const ground of ['bg', 'sidebar', 'surface', 'control']) {
+        assert.ok(contrast(mix(82), g(`--wk-color-${ground}`)) >= 7, `${where}: secondary text under 7:1 on ${ground}`);
+        assert.ok(contrast(mix(55), g(`--wk-color-${ground}`)) >= 3, `${where}: control border under 3:1 on ${ground}`);
+      }
+      for (const ground of ['bg', 'surface']) {
+        assert.ok(contrast(mix(70), g(`--wk-color-${ground}`)) >= 4.5, `${where}: field border under 4.5:1 on ${ground}`);
+      }
+    }
+  }
 });
