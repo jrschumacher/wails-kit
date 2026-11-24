@@ -4296,6 +4296,41 @@ try {
     await page.close();
   });
 
+  await check('announcer: one element per window; removed with an open modal, it is put back at once with the words it was about to say; moving it clears what was said', async () => {
+    const { page, problems, run } = await openTasks();
+    const heard = async text => (await axTree(page)).some(n => String(n.name?.value ?? '').includes(text));
+    await page.evaluate(() => { window.firstHost = document.querySelector('[data-wk-announcer]'); });
+    // Said, then the sheet opens: it lands in the sheet empty, not saying the old words again.
+    await page.evaluate(() => kit.announce('Before the sheet'));
+    await run(600);
+    await page.evaluate(() => kit.wkTask.showList());
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => { const h = document.querySelector('[data-wk-announcer]'); return [document.querySelector('.wk-task-list').contains(h), h.textContent]; }), [true, '']);
+    await page.keyboard.press('Escape');
+    for (let i = 0; i < 100 && await page.evaluate(() => document.querySelector('.wk-task-list').open); i++) await new Promise(res => setTimeout(res, 20));
+    // A plain modal, words queued, then the modal removed inside the 500 ms.
+    await page.evaluate(() => { const d = document.createElement('dialog'); d.id = 't-rm'; document.body.append(d); d.showModal(); });
+    await run(10);
+    const back = await page.evaluate(async () => {
+      kit.announce('Comment posted');
+      document.getElementById('t-rm').remove();
+      await Promise.resolve();
+      const h = document.querySelector('[data-wk-announcer]');
+      return [h === window.firstHost, h?.parentNode === document.body, document.querySelectorAll('[data-wk-announcer]').length];
+    });
+    assert.deepEqual(back, [true, true, 1], 'the same element, back in <body> in the same task');
+    await run(600);
+    assert.equal(await heard('Comment posted'), true, 'the queued words reach a region in the tree');
+    // Words just said, then their modal removed: set again on the next frame in <body>.
+    await page.evaluate(() => { const d = document.createElement('dialog'); d.id = 't-rm2'; document.body.append(d); d.showModal(); kit.announce('Report exported'); });
+    await run(600);
+    await page.evaluate(async () => { document.getElementById('t-rm2').remove(); await Promise.resolve(); });
+    await run(100);
+    assert.equal(await heard('Report exported'), true);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
 
 if (failures.length) {

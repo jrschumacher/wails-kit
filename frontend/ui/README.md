@@ -367,10 +367,14 @@ data-wk-announcer>`). Messages within 500 ms of each other are joined into one
 and never more than 2 s after the first. Words the region already holds are
 said again (it is cleared and set on the next frame). Each window has one: a
 second copy of the kit (`src/` and `dist/` together) uses the same regions and
-joins into the same messages, and regions the app removed are put back. A
-modal `<dialog>` makes the rest of the page inert, live regions too, so while
-one is open the regions sit inside the top-most modal and go back to `<body>`
-when it closes. `wk-dialog` moves them, and so does any `<dialog>`'s `open`
+joins into the same messages. It is one element per window
+(`document.wkAnnouncer`): if it leaves the page (removed by the app, or with a
+modal it sat in), the same element is put back in `<body>` at once, keeping
+the words it was about to say; words it said in the last 2 s are set again on
+the next frame. A modal `<dialog>` makes the rest of the page inert, live
+regions too, so while one is open the regions sit inside the top-most modal
+and go back to `<body>` when it closes, cleared first so the last words aren't
+read again where they land. `wk-dialog` moves them, and so does any `<dialog>`'s `open`
 attribute changing (watched in the same task, not on the later `toggle` or
 `close` event); `placeAnnouncer(dialog, open)` does it by hand
 for a modal opened some other way. Never
@@ -461,7 +465,8 @@ theirs. Stop on the task
 stops every part (unless it has its own `onStop`). `summary(counts)` replaces
 the words; the `wk-task` detail carries `parts: [{ id, state, words }]`. The
 task ends a microtask after its last part, so parts added in the same step as
-one that ends at once still count.
+one that ends at once still count. Add every part before any `await`: once a
+microtask has passed with every part ended, the task is over.
 
 **Events.** Every change of state fires a bubbling `wk-task` on the target,
 else the first control, else the document (also when they have left the
