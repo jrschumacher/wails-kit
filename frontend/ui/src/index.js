@@ -5,6 +5,6 @@
 export { WkMenu, WkContextMenu, WkTabs, WkTooltip, WkDialog, syncSteppers, setProgress } from './kit.js';
 export { timings, motion, reducedMotion } from './motion.js';
 export { wkChart, niceTicks, labelStep, runs, roundedTop, roundedEnd, tableModel, readout } from './chart.js';
-export { wkDiff, parseUnifiedDiff, diffSplitRows, diffWordRanges } from './diff.js';
+export { wkDiff, parseUnifiedDiff, diffSplitRows, diffWordRanges, diffCommentPlaces } from './diff.js';
 export { SECRET_MASK, conditionMet, resolveOptions, fieldValue, readValue, displayValue, dependentResets, errorsByField, settingsModel } from './settings-model.js';
 export { WkSettings } from './settings.js';

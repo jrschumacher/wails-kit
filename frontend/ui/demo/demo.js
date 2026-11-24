@@ -407,6 +407,8 @@ ${section('chart', 'Chart (wk-chart)', `<div class="demo-charts" id="demo-charts
 
 ${section('diff', 'Diff (wk-diff)', `<div class="demo-diffs" id="demo-diffs"></div>`, 'A made-up change of five files, unified: two hunks with word marks and \u201cShow more\u201d context, a rename, a binary file, and a large generated file that starts collapsed. Below it, the first two files split, old beside new. Focus a diff and press n or p for the next or previous change, ] or [ for the next or previous file.')}
 
+${section('diff-comments', 'Diff review comments', `<div class="demo-diffs" id="demo-reviews"></div>`, 'The first two files again, with review threads: an open thread, a range, a resolved thread (collapsed), a comment the app has not confirmed (pending), one that failed (Retry), and an outdated thread at the top of the file. Hover a line for the + button, drag it or Shift-click line numbers for a range; on a focused line press c. A comment containing \u201cfail\u201d is refused. The unified diff uses the default box; the split one an injected box, as an app passes its Markdown editor.')}
+
 ${section('footer-bar', 'Footer bar', `
 <div class="demo-stack">
   <footer class="wk-footer-bar" id="demo-footer-bar"><button class="wk-link" type="button">Details</button><button class="wk-link" type="button">Open</button></footer>
@@ -749,4 +751,61 @@ for (const name of [...names].sort()) {
   host.append(wkDiff({
     id: 'demo-diff-split', label: 'The first two files, split', view: 'split', diff: text.split('diff --git a/assets/')[0], getContext,
   }));
+
+  // Review comments on the first two files: the app's threads, and a made-up
+  // server that confirms a comment after a moment (or refuses one with "fail").
+  const reviewed = text.split('diff --git a/assets/')[0];
+  const ago = minutes => new Date(Date.now() - minutes * 60000).toISOString();
+  const threadsFor = prefix => [
+    { id: `${prefix}-1`, path: 'server/server.go', side: 'new', line: 14, entries: [
+      { author: 'ana', time: ago(190), body: 'Should maxBytes have a default?\nA zero here rejects every body.' },
+      { author: 'sam', time: ago(42), body: 'Good catch: New will fall back to DefaultMaxBytes.' }] },
+    { id: `${prefix}-2`, path: 'server/server.go', side: 'new', line: 18, endLine: 20, entries: [
+      { author: 'sam', time: ago(30), body: 'The doc comment and the signature changed together; callers need updating.' }] },
+    { id: `${prefix}-3`, path: 'server/server.go', side: 'old', line: 17, resolved: true, entries: [
+      { author: 'ana', time: ago(60 * 26), body: 'Is five seconds enough?' }, { author: 'sam', time: ago(60 * 25), body: 'Raised to ten.' }, { author: 'ana', time: ago(60 * 24), body: 'Thanks.' }] },
+    { id: `${prefix}-4`, path: 'server/server.go', side: 'new', line: 30, entries: [
+      { author: 'You', time: ago(0), body: 'MaxBytesHandler wraps the whole mux; is that intended?', pending: true }] },
+    { id: `${prefix}-5`, path: 'docs/running.md', side: 'new', line: 1, entries: [
+      { author: 'You', time: ago(2), body: 'Maybe "Running" alone?', error: 'HTTP 502: bad gateway from the review server' }] },
+    { id: `${prefix}-6`, path: 'server/server.go', side: 'new', line: 5, entries: [
+      { author: 'ana', time: ago(60 * 24 * 3), body: 'Sort these imports.' }] },
+  ];
+  // An injected comment box: what an app passes to use its own editor. This
+  // one is a textarea with a caption; Ctrl or Cmd+Enter submits from inside.
+  const demoBox = ({ value, placeholder, label, onSubmit }) => {
+    const element = document.createElement('div');
+    element.className = 'demo-comment-box';
+    const area = document.createElement('textarea');
+    area.className = 'wk-field'; area.rows = 4; area.value = value; area.placeholder = placeholder;
+    area.setAttribute('aria-label', label);
+    area.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); onSubmit(); } });
+    const note = document.createElement('p');
+    note.className = 'wk-help'; note.textContent = 'An injected box (an app\u2019s editor goes here)';
+    element.append(area, note);
+    return { element, get value() { return area.value; }, focus: () => area.focus(), destroy() {} };
+  };
+  const reviews = document.getElementById('demo-reviews');
+  for (const [rid, view, commentBox] of [['demo-review', 'unified', undefined], ['demo-review-split', 'split', demoBox]]) {
+    let threads = threadsFor(rid);
+    let next = 0;
+    const update = list => { threads = list; diff.setComments(threads); };
+    const later = (fn, ms = 700) => new Promise((resolve, reject) => setTimeout(() => { try { resolve(fn()); } catch (e) { reject(e); } }, ms));
+    const refuse = body => { if (/fail/i.test(body)) throw new Error('HTTP 502: bad gateway from the review server'); };
+    const diff = wkDiff({
+      id: rid, label: view === 'split' ? 'Review, split' : 'Review', view, diff: reviewed, getContext, commentBox,
+      comments: threads, author: { name: 'You' },
+      oncomment: c => later(() => { refuse(c.body); update([...threads, { id: `${rid}-new-${++next}`, path: c.path, side: c.side, line: c.line, endLine: c.endLine, entries: [{ author: 'You', time: new Date().toISOString(), body: c.body }] }]); }),
+      onreply: (tid, body) => later(() => { refuse(body); update(threads.map(t => t.id === tid ? { ...t, entries: [...t.entries, { author: 'You', time: new Date().toISOString(), body }] } : t)); }),
+      onresolve: (tid, resolved) => update(threads.map(t => t.id === tid ? { ...t, resolved } : t)),
+      // The app's own pending and error states: Retry marks the entry pending, then confirms it.
+      onretry: (tid, entry) => {
+        const mark = (k, change) => update(threads.map(t => t.id === tid ? { ...t, entries: t.entries.map((e, j) => j === k ? { ...e, ...change } : e) } : t));
+        const k = threads.find(t => t.id === tid).entries.indexOf(entry);
+        mark(k, { error: undefined, pending: true });
+        later(() => mark(k, { pending: false }));
+      },
+    });
+    reviews.append(diff);
+  }
 }

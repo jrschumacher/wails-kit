@@ -1158,6 +1158,58 @@ wk-dialog { display: contents; }
 .wk-diff-eof { grid-column: -2; padding: 0 var(--wk-space-3) 2px 0; color: var(--wk-color-text-secondary); font-family: var(--wk-font-family); font-size: var(--wk-font-size-xs); }
 .wk-diff-sr { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
+/* Review comments on a diff (diff.js, the comments options). With
+   commenting on, line rows take focus (tabindex -1): a unified row, or a
+   split pair with data-focus-side naming the half the focus ring marks. One
+   wk-diff-add-comment button moves to the line under the pointer or with
+   focus; selected lines carry data-selected. Threads and open boxes sit in
+   a wk-diff-comments row after their line; in the split view under the
+   side they belong to (data-side). Outdated threads are listed in
+   wk-diff-outdated at the top of the file. The comments row stays the
+   width of the file while the code scrolls sideways (100cqi), so in review
+   mode (data-review, set when there are comments or commenting is on) the
+   body is an inline-size container and takes its width from its parent:
+   inside a shrink-to-fit parent (inline-block, float, auto grid track),
+   give the diff a width. Without review the body sizes as before. */
+.wk-diff[data-review] .wk-diff-body { container-type: inline-size; }
+.wk-diff-line, .wk-diff-half { position: relative; }
+.wk-diff-line:focus-visible { outline-offset: calc(-1 * var(--wk-focus-width)); }
+.wk-diff-pair:focus-visible { outline: none; }
+.wk-diff-pair[data-focus-side="old"]:focus-visible > .wk-diff-half[data-side="old"],
+.wk-diff-pair[data-focus-side="new"]:focus-visible > .wk-diff-half[data-side="new"] { outline: var(--wk-focus-width) solid var(--wk-color-accent); outline-offset: calc(-1 * var(--wk-focus-width)); }
+.wk-diff-line[data-selected], .wk-diff-half[data-selected] { background-image: linear-gradient(var(--wk-color-selection), var(--wk-color-selection)); }
+.wk-diff-add-comment { position: absolute; z-index: 1; top: 1px; left: 2px; display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: var(--wk-radius-small); background: var(--wk-color-accent); color: var(--wk-color-on-accent); font-family: var(--wk-font-family); font-size: var(--wk-font-size-base); font-weight: var(--wk-font-weight-semibold); line-height: 1; cursor: pointer; touch-action: none; -webkit-user-select: none; user-select: none; }
+.wk-diff-comment-count { color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wk-diff-comments, .wk-diff-outdated { display: grid; gap: var(--wk-space-2); padding: var(--wk-space-2) var(--wk-space-3); font-family: var(--wk-font-family); font-size: var(--wk-font-size-base); line-height: var(--wk-line-height); }
+.wk-diff-comments { position: sticky; left: 0; width: 100cqi; border-block: var(--wk-hairline-width) solid var(--wk-color-hairline); background: var(--wk-color-bg); }
+.wk-diff-body[data-view="split"] .wk-diff-comments { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-auto-flow: row dense; column-gap: var(--wk-space-3); }
+.wk-diff-body[data-view="split"] .wk-diff-comments > [data-side="old"] { grid-column: 1; }
+.wk-diff-body[data-view="split"] .wk-diff-comments > [data-side="new"] { grid-column: 2; }
+.wk-diff-outdated { border-bottom: var(--wk-hairline-width) solid var(--wk-color-hairline); background: var(--wk-color-fill); }
+.wk-diff-thread { min-width: 0; overflow: hidden; border: var(--wk-hairline-width) solid var(--wk-color-hairline-strong); border-radius: var(--wk-radius-group); background: var(--wk-color-surface); }
+.wk-diff-thread:focus-visible { outline-offset: 0; }
+.wk-diff-thread-head { margin: 0; padding: 6px var(--wk-space-3); border-bottom: var(--wk-hairline-width) solid var(--wk-color-hairline); color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+.wk-diff-thread-toggle.wk-link { display: flex; width: 100%; padding: 6px var(--wk-space-3); color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+.wk-diff-thread[data-resolved] > .wk-diff-thread-body:not([hidden]) { border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+.wk-diff-comment-list { margin: 0; padding: 0; list-style: none; }
+.wk-diff-comment { padding: var(--wk-space-2) var(--wk-space-3); }
+.wk-diff-comment + .wk-diff-comment { border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+.wk-diff-comment-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--wk-space-2); margin: 0 0 2px; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+.wk-diff-avatar { flex: none; width: 20px; height: 20px; border-radius: var(--wk-radius-pill); object-fit: cover; }
+.wk-diff-author { color: var(--wk-color-text); font-weight: var(--wk-font-weight-semibold); }
+.wk-diff-comment-body { min-width: 0; overflow-wrap: anywhere; }
+.wk-diff-comment-body[data-plain] { white-space: pre-wrap; }
+.wk-diff-comment[data-state="pending"] .wk-diff-comment-body { color: var(--wk-color-text-secondary); }
+.wk-diff-comment-state { font-size: var(--wk-font-size-sm); }
+.wk-diff-errorbox { margin-top: var(--wk-space-2); }
+.wk-diff-comment-actions, .wk-diff-thread-actions, .wk-diff-compose-actions { display: flex; flex-wrap: wrap; gap: var(--wk-space-2); }
+.wk-diff-comment-actions { margin-top: var(--wk-space-2); }
+.wk-diff-thread-actions { padding: 0 var(--wk-space-3) var(--wk-space-2); }
+.wk-diff-compose { display: grid; gap: var(--wk-space-2); min-width: 0; }
+.wk-diff-thread .wk-diff-compose { padding: var(--wk-space-2) var(--wk-space-3); border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+.wk-diff-compose-field { width: 100%; }
+.wk-diff-compose-actions { justify-content: flex-end; }
+
 /* ---- Forced colours (Windows High Contrast) ---------------------------
    The system replaces backgrounds, shadows and most border colours with its
    own. Where a state is drawn only with those, these rules redraw it with
@@ -1217,6 +1269,12 @@ wk-dialog { display: contents; }
   .wk-diff-line[data-kind="del"], .wk-diff-half[data-kind="del"] { border-inline-start: 4px dashed CanvasText; }
   .wk-diff-word, [data-kind="add"] .wk-diff-word, [data-kind="del"] .wk-diff-word { forced-color-adjust: none; background: Canvas; color: CanvasText; text-decoration: underline; text-decoration-thickness: 2px; }
   .wk-diff-hunk { border-color: GrayText; }
+  /* Review comments: the selection and the + button are drawn with
+     backgrounds, which the system drops; a pending comment is GrayText. */
+  .wk-diff-line[data-selected], .wk-diff-half[data-selected] { forced-color-adjust: none; outline: 2px solid Highlight; outline-offset: -2px; }
+  .wk-diff-add-comment { forced-color-adjust: none; border: 1px solid ButtonText; background: ButtonFace; color: ButtonText; }
+  .wk-diff-comment[data-state="pending"] .wk-diff-comment-body { color: GrayText; }
+  .wk-diff-thread, .wk-diff-comments { border-color: CanvasText; }
 }
 
 /* ---- settings.css ---- */

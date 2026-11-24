@@ -578,6 +578,9 @@ Where shipped code doesn't yet follow this page:
 
 - The diff view's "Show more" button sets `disabled` while loading, which drops focus,
   and each hunk has its own `aria-live` note instead of the shared announcer.
+- The diff's review comments announce outcomes ("Comment posted", "Couldn't post the
+  comment") through a polite region of their own, not the shared announcer, and Escape
+  in a comment box discards its draft with no Undo.
 - `wk-copy` is styling only: the app copies, and nothing gives feedback.
 - The Markdown editor (`@wails-kit/editor/markdown`) marks its submit button busy at
   once while `onsubmit`'s promise is pending, with no 400 ms indicator and nothing sent
