@@ -10,6 +10,6 @@
     "test:browser": "node test/run.mjs"
   },
   "devDependencies": {
-    "playwright-core": "1.63.0"
+    "playwright-core": "1.65.1"
   }
 }
