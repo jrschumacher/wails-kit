@@ -62,10 +62,10 @@ Minified, then gzipped, as built from this tree:
 |---|---|---|---|
 | `chunk-*.js` (CodeMirror, Lezer, the theme, the nine languages) | 601 KiB | 208 KiB | both entries |
 | `code.js` | under 1 KiB | under 1 KiB | |
-| `markdown.js` (the editor, the renderer, marked) | 70 KiB | 22 KiB | |
+| `markdown.js` (the editor, the renderer, marked) | 71 KiB | 23 KiB | |
 
 So the code editor costs about 601 KiB (208 KiB gzipped), the Markdown editor
-about 671 KiB (230 KiB), and both together the same 671 KiB: the second editor
+about 672 KiB (231 KiB), and both together the same 672 KiB: the second editor
 adds only its own entry. These are loaded from the app's own files, never the
 network.
 
@@ -446,16 +446,25 @@ the parser:
 |---|---|---|
 | `MAX_MARKDOWN_LENGTH` | characters (UTF-16 code units) in the text | 100,000 |
 | `MAX_MARKDOWN_DEPTH` | nesting of quotes and lists on a line: the quote and list markers it starts with, plus its list indentation at two columns a level | 32 |
-| `MAX_MARKDOWN_DELIMITERS` | emphasis and link delimiters (`*`, `_`, `~`, `[`, `]`) in one paragraph | 2,000 |
+| `MAX_MARKDOWN_DELIMITERS` | emphasis and link delimiters (`*`, `_`, `~`, `[`, `]`) in one run of inline text: a run ends where emphasis cannot carry on, at a blank line, a heading, a new list item or a table row, so a long list or table counts each item or row on its own | 2,000 |
 
 The scan reads fences as CommonMark does (a backtick fence's info string has
 no backtick; `\r\n`, `\r` and `\n` end lines) and errs on the high side: a
-fence in a list item or quote stops hiding its lines at the first line less
-indented than the fence. Text the parser still fails on renders as its source
-too. The limits are exported. The editor's Write tab drops Markdown
-highlighting while the text is past the depth or delimiter limit, since
-CodeMirror's Markdown parser and highlighter recurse too (without this,
-building the editor with such text, setting it or pasting it would throw).
+fence in a quote or list item stops hiding its lines at the first line that
+does not repeat the quote's markers or is less indented than the fence, and a
+list marker that might only continue a paragraph (a number other than 1 after
+a paragraph, a marker four columns past the item's content, a marker in a
+quote) does not end a run. A 700-item list of release notes or a 600-row
+table renders as Markdown. Text the parser still fails on renders as its
+source too. The limits are exported.
+
+The editor's Write tab drops Markdown highlighting while the text is past
+the depth or delimiter limit, since CodeMirror's Markdown parser and
+highlighter recurse too. Under that, a safety net for text the scan misses:
+a stack overflow (`RangeError`) while building the editor, setting `value`
+or applying an edit (typing, a paste) builds the state again with
+highlighting off for that text, so nothing throws and no edit is lost.
+Highlighting comes back when the app sets a new `value`.
 
 ## Layout
 

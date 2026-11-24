@@ -248,6 +248,19 @@ test('emphasis and bracket runs past MAX_MARKDOWN_DELIMITERS render as their sou
     assert.ok(f.html.startsWith(SOURCE), label);
     assert.equal(f.textContent, text);
   }
+  // Through a fence in a quote: a line that does not repeat the quote's
+  // markers ends the fence (code has no lazy continuation), so it is text.
+  const bomb = '*'.repeat(20000) + 'a' + '*'.repeat(20000);
+  for (const [label, text] of [
+    ['a fence in a quote, then a line without its marker', '> ```\n   ' + bomb],
+    ['a fence in a nested quote, then a line with one marker', '> > ```\n> ' + bomb],
+    ['a fence in a list in a quote, then a line without the quote', '> - ```\n    ' + bomb],
+  ]) {
+    assert.ok(markdownLimits(text).delimiters > MAX_MARKDOWN_DELIMITERS, label);
+    assert.ok(timed(250, label, () => render(text)).html.includes(SOURCE), label);
+  }
+  // A line that repeats the markers stays in the fence.
+  assert.equal(markdownLimits('> ```\n> ' + bomb + '\n> ```').delimiters, 0);
   // Under the limit, in one paragraph, it is still Markdown; the count is per paragraph.
   const under = '*a* '.repeat(MAX_MARKDOWN_DELIMITERS / 2);
   assert.equal(render(under).all(n => n.tag === 'em').length, MAX_MARKDOWN_DELIMITERS / 2);
@@ -269,7 +282,6 @@ test('the limits scan cannot be dodged by text the parser does not read as fence
     // A fence in a list item ends with the item: the quotes are top-level text.
     ['a fence in a list item', '- a\n  ```\n' + quotes],
     ['a fence after a list marker', '- ```\n' + quotes],
-    ['a fence in a quote', '> ```\n' + quotes],
   ]) {
     assert.ok(nestingDepth(text) > MAX_MARKDOWN_DEPTH, `${label}: depth ${nestingDepth(text)}`);
     const f = timed(500, label, () => render(text));
@@ -280,8 +292,60 @@ test('the limits scan cannot be dodged by text the parser does not read as fence
   for (const text of ['```\n' + quotes + '\n```', '~~~~\n' + quotes + '\n~~~~', '```js\r\n' + quotes + '\r\n```', '```\n```x\n' + quotes + '\n```']) {
     assert.equal(nestingDepth(text), 0, JSON.stringify(text.slice(0, 8)));
   }
+  // In a quote, the fence's lines repeat its marker: the quotes inside are code (the quote itself is one level).
+  assert.equal(nestingDepth('> ```\n> ' + quotes + '\n> ```'), 1);
+  assert.equal(nestingDepth('> ```\n' + quotes), 1);
   // Fenced code indented in a list item stays code while its lines keep the indent.
   assert.equal(nestingDepth('- a\n\n  ```yaml\n' + Array.from({ length: 40 }, (_, i) => `  ${'  '.repeat(i)}- k`).join('\n') + '\n  ```'), 1);
+});
+
+test('long ordinary documents render as Markdown: a 700-item release-notes list and a 600-row link table', async () => {
+  const { readFileSync } = await import('node:fs');
+  const fixture = name => readFileSync(new URL(`fixtures/${name}`, import.meta.url), 'utf8');
+  const notes = fixture('release-notes.md');
+  assert.ok(notes.length > 70000 && notes.length < MAX_MARKDOWN_LENGTH);
+  const list = timed(3000, 'release notes', () => render(notes));
+  assert.ok(!list.html.includes(SOURCE), 'the release notes rendered as source');
+  assert.equal(list.all(n => n.tag === 'li').length, 700);
+  assert.equal(list.all(n => n.tag === 'strong').length, 700);
+  assert.equal(list.all(n => n.tag === 'a').length, 700);
+  const table = timed(3000, 'link table', () => render(fixture('links-table.md')));
+  assert.ok(!table.html.includes(SOURCE), 'the table rendered as source');
+  assert.equal(table.all(n => n.tag === 'tr').length, 601);
+  assert.equal(table.all(n => n.tag === 'a').length, 600);
+  assert.equal(table.all(n => n.tag === 'del').length, 600);
+  // Headings one after another, each its own run.
+  const headings = Array.from({ length: 300 }, (_, i) => `### **${i}** _a_ [b](https://example.com/${i})`).join('\n');
+  assert.equal(render(headings).all(n => n.tag === 'h3').length, 300);
+  // A heading right after a long paragraph starts its own run.
+  const para = '*a* '.repeat(700) + '\n## ' + '*b* '.repeat(400);
+  assert.equal(render(para).all(n => n.tag === 'h2').length, 1);
+  // A numbered list: each number after an item starts a new item.
+  const numbered = Array.from({ length: 700 }, (_, i) => `${i + 1}. **fix** _a_ [#${i}](https://example.com/${i})`).join('\n');
+  const ol = render(numbered);
+  assert.ok(!ol.html.includes(SOURCE), 'the numbered list rendered as source');
+  assert.equal(ol.all(n => n.tag === 'li').length, 700);
+});
+
+test('the run resets cannot be used to smuggle a bomb: only lines that end inline content reset the count', () => {
+  for (const [label, text] of [
+    // Pipes without a delimiter row are a paragraph, not a table.
+    ['pipes without a table', '*a |\n'.repeat(15000)],
+    // A table's rows reset, but a row's own delimiters still count.
+    ['a bomb in a table row', '| a |\n|--|\n| ' + '*'.repeat(3000) + 'a' + '*'.repeat(3000) + ' |'],
+    // A number other than 1 cannot interrupt a paragraph: these lines continue it.
+    ['numbered lines in a paragraph', 'x\n' + '2. *a\n'.repeat(15000)],
+    // Four columns past the last item's content, a marker continues the paragraph.
+    ['deeply indented markers', 'x\n' + '     - *a\n'.repeat(9000)],
+    // Markers in a quote are not counted as items.
+    ['list markers in a quote', '> - *a\n'.repeat(12000)],
+    ['a bomb in a heading', '# ' + '*'.repeat(3000) + 'a' + '*'.repeat(3000)],
+    ['a bomb in a list item', '- ' + '*a '.repeat(3000)],
+  ]) {
+    assert.ok(text.length <= MAX_MARKDOWN_LENGTH, `${label}: too long to test the delimiter limit`);
+    assert.ok(markdownLimits(text).delimiters > MAX_MARKDOWN_DELIMITERS, `${label}: ${markdownLimits(text).delimiters}`);
+    assert.ok(timed(500, label, () => render(text)).html.startsWith(SOURCE), label);
+  }
 });
 
 test('text longer than MAX_MARKDOWN_LENGTH renders as its source', () => {

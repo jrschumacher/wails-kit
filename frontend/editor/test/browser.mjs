@@ -999,6 +999,8 @@ try {
       ['nested emphasis pairs', '*a '.repeat(20000)],
       ['nested strong pairs', '**a '.repeat(15000)],
       ['nested links', '[a '.repeat(5000) + 'b' + '](x)'.repeat(5000)],
+      // A fence in a quote ends at a line without the quote's marker: the scan must not read it as code.
+      ['after a fence in a quote', '> ```\n   ' + '*'.repeat(20000) + 'a' + '*'.repeat(20000)],
     ];
     for (const [label, text] of cases) {
       for (const how of ['spec', 'setter', 'paste']) {
@@ -1065,6 +1067,44 @@ try {
     await page.keyboard.press(`${mod}+Enter`);
     await until(page, () => window.seen.length >= 2);
     assert.deepEqual(await page.evaluate(() => window.seen), ['', 'Write something first.']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('markdown: a stack overflow the scan misses (forced in the parser) leaves the text, without highlighting, when built, set or pasted; a new value highlights again', async () => {
+    const { page, problems } = await open(MD);
+    for (const how of ['spec', 'setter', 'paste']) {
+      const r = await page.evaluate(async how => {
+        const { wkMarkdownEditor } = await import('/editor/dist/markdown.js');
+        // The first charCodeAt on a string holding the marker throws a RangeError,
+        // as an overflow would. The scan uses no charCodeAt; Lezer's parser does.
+        const mark = '\u2063overflow\u2063', text = `# Title ${mark} *x*`;
+        const native = String.prototype.charCodeAt;
+        let fired = false;
+        const arm = () => { String.prototype.charCodeAt = function (i) { if (!fired && this.includes(mark)) { fired = true; throw new RangeError('forced overflow'); } return native.call(this, i); }; };
+        try {
+          let ed;
+          if (how === 'spec') { arm(); ed = wkMarkdownEditor({ label: 'Forced', value: text }); document.getElementById('demo').replaceChildren(ed); }
+          else { ed = wkMarkdownEditor({ label: 'Forced', value: '' }); document.getElementById('demo').replaceChildren(ed); arm(); }
+          if (how === 'setter') ed.value = text;
+          if (how === 'paste') {
+            const c = ed.querySelector('.cm-content');
+            c.focus();
+            const dt = new DataTransfer();
+            dt.setData('text/plain', text);
+            c.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+          }
+          String.prototype.charCodeAt = native;
+          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+          const out = { fired, kept: ed.value === text, spans: ed.querySelectorAll('.cm-line span').length };
+          ed.value = '# Fine *now*';
+          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+          out.again = ed.querySelectorAll('.cm-line span').length > 0;
+          return out;
+        } catch (e) { String.prototype.charCodeAt = native; return { threw: String(e), fired }; }
+      }, how);
+      assert.deepEqual(r, { fired: true, kept: true, spans: 0, again: true }, how);
+    }
     assert.deepEqual(problems, []);
     await page.close();
   });

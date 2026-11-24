@@ -39,6 +39,9 @@ const forcedColors = () => typeof matchMedia === 'function' && matchMedia('(forc
  *   extensions()  more CodeMirror extensions, called each time the state is
  *                 (re)built, so they can read the caller's current settings
  *   onedit(value) called after each edit instead of the event and onchange
+ *   dispatchTransactions(transactions, view)
+ *                 CodeMirror's hook for applying transactions (default
+ *                 view.update(transactions))
  */
 export function createCodeEditor(spec = {}, internal = {}) {
   const name = internal.name || 'wkCodeEditor';
@@ -93,7 +96,11 @@ export function createCodeEditor(spec = {}, internal = {}) {
     }),
   ];
 
-  const view = new EditorView({ parent: el, state: EditorState.create({ doc: String(spec.value ?? ''), extensions: extensions() }) });
+  const view = new EditorView({
+    parent: el,
+    state: EditorState.create({ doc: String(spec.value ?? ''), extensions: extensions() }),
+    ...(internal.dispatchTransactions ? { dispatchTransactions: internal.dispatchTransactions } : {}),
+  });
 
   const media = typeof matchMedia === 'function' ? matchMedia('(forced-colors: active)') : null;
   const onForced = e => view.dispatch({ effects: selection.reconfigure(selectionFor(e.matches)) });
