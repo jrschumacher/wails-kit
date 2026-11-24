@@ -145,12 +145,19 @@ test('the theme check holds increased contrast to the contract: a low-contrast t
   assert.deepEqual([...new Set(problems.map(p => p.rule))], ['contrast-more/light', 'contrast-more/dark']);
   assert.ok(problems.some(p => /secondary text on sidebar is 3\.14:1, under 4\.5:1/.test(p.message)), problems.map(p => p.message).join('\n'));
   assert.ok(problems.some(p => /field border on bg is 2\.78:1, under 3:1/.test(p.message)));
-  // Weaker than the theme's own value, though over the minimum: dark text
-  // with even darker secondary text.
-  const weaker = low.replace('--wk-color-text:#707070;--wk-color-text-secondary:#707070;', '--wk-color-text:#333333;--wk-color-text-secondary:#000000;')
-    .replace('--wk-color-field-border:#707070;', '--wk-color-field-border:#000000;');
-  const w = checkTheme(weaker, kit).filter(p => p.rule === 'contrast-more/light');
-  assert.ok(w.length && w.every(p => /weaker than the usual/.test(p.message)), w.map(p => p.message).join('\n'));
+  // Over the minimum but weaker than the theme's own value, which is under
+  // the 7:1 ceiling: the mix may not come down.
+  const weaker = low.replace('--wk-color-text:#707070;--wk-color-text-secondary:#707070;', '--wk-color-text:#4a4a4a;--wk-color-text-secondary:#606060;');
+  const w = checkTheme(weaker, kit).filter(p => p.rule === 'contrast-more/light' && /secondary text on bg /.test(p.message));
+  assert.equal(w.length, 1, checkTheme(weaker, kit).map(p => p.message).join('\n'));
+  assert.match(w[0].message, /is 5\.33:1, under 6\.\d\d:1 \(the usual 6\.\d\d:1/, 'the floor is the usual value, under the ceiling');
+  // A theme already stronger than the ceiling may come down to it: 11.37:1
+  // secondary text in light becomes 8.86:1, over 7:1.
+  assert.deepEqual(checkTheme(read(path.join(fixtures, 'strong-secondary.css')), kit), []);
+  // The kit's secondary text on a selection is checked too: a dark accent's
+  // selection under the mixed on-selected text.
+  const onSelected = checkTheme(low, kit).filter(p => /on a selection/.test(p.message));
+  assert.ok(onSelected.length > 0, 'secondary text on a selection is not checked under increased contrast');
   assert.deepEqual(contrastMore(kit), new Map(Object.entries(CONTRAST_MIX)), 'the check reads the mixes from tokens.css');
 });
 

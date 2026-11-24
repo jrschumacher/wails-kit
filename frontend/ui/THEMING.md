@@ -44,9 +44,12 @@ outlines, secondary text and the fill tints from the theme's own `text` and `bg`
 contrast values of its own. The mixes are only as strong as the theme's `text`: a
 pale text can make them weaker than the theme's own values. So the check works them
 out for the theme, in each appearance, and holds them to the same minimums (secondary
-text 4.5:1 on all four grounds, the field border 3:1 on `bg` and `surface`), and to no
-less than the theme's own value without the setting. A theme that fails darkens its
-`text` (lightens it in dark).
+text 4.5:1 on all four grounds and on a selected row or count chip, the field border
+3:1 on `bg` and `surface`). Each must also reach the theme's own value without the
+setting, or a ceiling if that is lower: 7:1 for secondary text, 4.5:1 for the field
+border. So a weaker theme never gets weaker, and a theme already stronger than the
+ceiling may come down to it (`test/fixtures/strong-secondary.css`: 11.37:1 secondary
+text becomes 8.86:1). A theme that fails darkens its `text` (lightens it in dark).
 
 **Font fallbacks.** `--wk-font-family` may add fallbacks after the kit's first
 family, never replace it. A font the theme names is the app's to bundle: an
@@ -174,8 +177,9 @@ when a theme:
   appearance;
 - has a field border under 3:1 on `bg` or `surface`;
 - under increased contrast (rule `contrast-more/<appearance>`), has the kit's mixed
-  secondary text under 4.5:1 on any ground or the mixed field border under 3:1 on
-  `bg` or `surface`, or either weaker than the theme's own value
+  secondary text under 4.5:1 on any ground or selection or the mixed field border
+  under 3:1 on `bg` or `surface`, or either under the theme's own value where that
+  is below 7:1 (secondary text) or 4.5:1 (field border)
   (`test/fixtures/low-text.css` is one: grey text that passes at 4.5:1 without the
   setting drops to 3.14:1 with it);
 - has working and attention closer than 1.5:1 to each other, or either under

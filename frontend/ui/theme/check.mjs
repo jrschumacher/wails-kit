@@ -166,6 +166,19 @@ export function contrastMore(kitCss) {
   return out;
 }
 
+// The share of --wk-color-text in the increased-contrast fill-strong tint
+// (color-mix(in srgb, var(--wk-color-text) N%, transparent)).
+function fillShare(kitCss) {
+  for (const r of rules(kitCss)) {
+    if (r.selector !== CONTRAST_MORE_SELECTOR) continue;
+    for (const [name, value] of r.decls) {
+      const m = name === '--wk-color-fill-strong' && value.match(/^color-mix\(in srgb, var\(--wk-color-text\) ([\d.]+)%, transparent\)$/);
+      if (m) return +m[1];
+    }
+  }
+  return undefined;
+}
+
 export function checkTheme(themeCss, kitCss, { exceptions = {}, requireIdentity = true } = {}) {
   const problems = [];
   const add = (rule, message) => problems.push({ rule, message });
@@ -266,29 +279,45 @@ export function checkTheme(themeCss, kitCss, { exceptions = {}, requireIdentity 
   }
 
   // Increased contrast: under prefers-contrast: more the kit mixes
-  // secondary text and the field border from the theme's text and bg (the
-  // last block of tokens.css). The mixes must still pass, and must not be
-  // weaker than the theme's own values without the setting.
+  // secondary text, the field border and the fill tints from the theme's
+  // text and bg (the last block of tokens.css). Each mix must pass the
+  // usual minimum, and must reach the theme's own value without the setting
+  // or a ceiling, whichever is lower: a theme already stronger than the
+  // ceiling may come down to it, a weaker one may not get weaker.
   const mixes = contrastMore(kitCss);
   for (const mode of MODES) {
     if (malformed.has(mode) || !mixes.size) continue;
-    const get = resolve(mode);
-    const mixed = name => {
-      const pct = mixes.get(name);
-      return pct === undefined ? undefined : over(`rgba(${rgb(get(c('text')))}, ${pct / 100})`, get(c('bg')));
-    };
-    const check = (name, grounds, min, what) => {
+    const raw = resolve(mode);
+    const d = derive(raw, mode);
+    const get = name => d[name] ?? raw(name);
+    const share = name => mixes.get(name);
+    const mixed = name => share(name) === undefined ? undefined : over(`rgba(${rgb(get(c('text')))}, ${share(name) / 100})`, get(c('bg')));
+    const check = (name, pairs, min, ceiling, what) => {
       const more = mixed(name);
       if (!more) return;
-      for (const ground of grounds) {
-        const g = get(c(ground));
-        const r = contrast(more, g), usual = contrast(get(name), g);
-        if (r < min) add(`contrast-more/${mode}`, `${mode}, increased contrast: ${what} on ${ground} is ${r.toFixed(2)}:1, under ${min}:1`);
-        else if (r < usual) add(`contrast-more/${mode}`, `${mode}, increased contrast: ${what} on ${ground} is ${r.toFixed(2)}:1, weaker than the usual ${usual.toFixed(2)}:1`);
+      for (const [where, usualGround, moreGround] of pairs) {
+        const r = contrast(more, moreGround), usual = contrast(get(name), usualGround);
+        const floor = Math.min(usual, ceiling);
+        if (r < min) add(`contrast-more/${mode}`, `${mode}, increased contrast: ${what} on ${where} is ${r.toFixed(2)}:1, under ${min}:1`);
+        else if (r < floor) add(`contrast-more/${mode}`, `${mode}, increased contrast: ${what} on ${where} is ${r.toFixed(2)}:1, under ${floor.toFixed(2)}:1 (the usual ${usual.toFixed(2)}:1, or ${ceiling}:1 if that is lower)`);
       }
     };
-    check(c('text-secondary'), ['bg', 'sidebar', 'surface', 'control'], 4.5, 'secondary text');
-    check(c('field-border'), ['bg', 'surface'], 3, 'the field border');
+    const plain = grounds => grounds.map(g => [g, get(c(g)), get(c(g))]);
+    check(c('text-secondary'), plain(['bg', 'sidebar', 'surface', 'control']), 4.5, 7, 'secondary text');
+    check(c('field-border'), plain(['bg', 'surface']), 3, 4.5, 'the field border');
+    // Secondary text on a selected row or a count chip: the chip's tint is
+    // mixed too under increased contrast.
+    const fill = fillShare(kitCss);
+    const moreTint = fill === undefined ? get(c('fill-strong')) : `rgba(${rgb(get(c('text')))}, ${fill / 100})`;
+    const pairs = [];
+    for (const ground of ['bg', 'sidebar', 'surface']) {
+      const g = get(c(ground));
+      const selected = over(get(c('selection')), g);
+      pairs.push([`selected over ${ground}`, selected, selected]);
+      pairs.push([`chip over ${ground}`, over(get(c('fill-strong')), g), over(moreTint, g)]);
+      pairs.push([`chip on selected over ${ground}`, over(get(c('fill-strong')), selected), over(moreTint, selected)]);
+    }
+    check(c('text-secondary-on-selected'), pairs, 4.5, 7, 'secondary text on a selection');
   }
 
   const left = problems.filter(p => !(p.rule in exceptions));

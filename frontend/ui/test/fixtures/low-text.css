@@ -1,7 +1,8 @@
-/* An example theme for @wails-kit/ui (THEMING.md is the contract): a green
-   accent, an amber working tone, a deeper red for attention and rounder
-   corners. It keeps the kit's grounds and font, so it bundles nothing. The
-   demo's themed page (demo/themed.html) shows the kit with it. */
+/* A test theme for the theme check (THEMING.md): grey text that reaches
+   4.5:1 on every ground as it is, so it passes without increased contrast,
+   but whose increased-contrast mixes (text mixed into bg, tokens.css) drop
+   under 4.5:1 for secondary text and 3:1 for the field border. The check
+   must fail it under contrast-more/light and contrast-more/dark. */
 :root {--wk-color-bg:#ffffff;--wk-color-sidebar:#f4f4f4;--wk-color-surface:#ffffff;--wk-color-control:#ffffff;--wk-color-hairline:#888888;--wk-color-hairline-strong:#777777;--wk-color-control-border:#777777;--wk-color-field-border:#707070;--wk-color-text:#707070;--wk-color-text-secondary:#707070;
   --wk-color-accent: #1f6b55;
   --wk-color-on-accent: #ffffff;
