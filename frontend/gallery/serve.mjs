@@ -4,7 +4,7 @@
 // the same server.
 //
 //   /gallery/…            frontend/gallery/
-//   /ui/…                 frontend/ui/       (@wails-kit/ui: src/, dist/, theme/, fonts/, test fixtures)
+//   /ui/…                 frontend/ui/       (@wails-kit/ui: src/, dist/, theme/, test fixtures)
 //   /editor/…             frontend/editor/   (@wails-kit/editor: dist/ and its demo pages)
 //   /diagram/…            frontend/diagram/  (@wails-kit/diagram: dist/ and its demo pages)
 //   /design-system/<Name>/README.md   docs/design-system/components/<Name>/README.md
@@ -24,7 +24,7 @@ const frontend = fileURLToPath(new URL('../', import.meta.url));
 const cards = fileURLToPath(new URL('../../docs/design-system/components/', import.meta.url));
 const types = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.woff2': 'font/woff2', '.svg': 'image/svg+xml',
+  '.css': 'text/css; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.svg': 'image/svg+xml',
   '.png': 'image/png', '.txt': 'text/plain; charset=utf-8',
 };
 

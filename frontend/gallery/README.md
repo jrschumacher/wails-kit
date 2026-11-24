@@ -123,4 +123,4 @@ them with `page.clock.runFor`):
   contrast, the chart, the diff and its review comments, the settings window,
   `wkTask`, the announcer, the task list, the toast, app undo, copy feedback
   and skeleton rows. `@wails-kit/ui` keeps only what must stay in the package
-  (its files on their own, the fonts, `dist/`'s exports).
+  (its files on their own, the system font, `dist/`'s exports).

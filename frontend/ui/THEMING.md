@@ -13,7 +13,7 @@ One small stylesheet, linked after the kit's. It sets custom properties on
 `:root` (light), again under `@media (prefers-color-scheme: dark)` on
 `:root:not([data-theme="light"])`, and again on `:root[data-theme="dark"]`, with
 the same values in the two dark blocks. Nothing else: no component selectors, no
-new classes, no other rules; only an `@font-face` for a font the app bundles. [`theme/theme.css`](theme/theme.css) lists every token a theme may
+new classes, no other rules; only an `@font-face` for a fallback font the app bundles. [`theme/theme.css`](theme/theme.css) lists every token a theme may
 set, holding the kit's defaults; copy it and change the values.
 [`theme/example.css`](theme/example.css) is a worked example.
 
@@ -51,10 +51,11 @@ border. So a weaker theme never gets weaker, and a theme already stronger than t
 ceiling may come down to it (`test/fixtures/strong-secondary.css`: 11.37:1 secondary
 text becomes 8.86:1). A theme that fails darkens its `text` (lightens it in dark).
 
-**Font fallbacks.** `--wk-font-family` may add fallbacks after the kit's first
-family, never replace it. A font the theme names is the app's to bundle: an
-`@font-face` in the theme pointing at a file the app ships. Never load a font
-from the network.
+**Font fallbacks.** The kit uses the platform's own UI font: `--wk-font-family`
+starts with `system-ui`. A theme keeps `system-ui` first and may only add
+fallbacks after it, such as a font for a script the system font lacks. A font
+the theme names is the app's to bundle: an `@font-face` in the theme pointing
+at a file the app ships. Never load a font from the network.
 
 **Radii.** `--wk-radius-control`, `--wk-radius-group` and `--wk-radius-window`,
 each within 2px of the kit's (6, 8 and 10px, the design system's values).
@@ -172,7 +173,7 @@ when a theme:
   dark value, or leaves out an identity colour;
 - writes an identity or ground colour as anything but opaque `#rrggbb`;
 - sets some grounds but not all ten;
-- has a radius more than 2px from the kit's, or replaces the kit's first font;
+- has a radius more than 2px from the kit's, or puts a font before `system-ui`;
 - has text or secondary text under 4.5:1 on any of the four grounds, in either
   appearance;
 - has a field border under 3:1 on `bg` or `surface`;

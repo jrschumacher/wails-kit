@@ -124,7 +124,8 @@ const c = n => `--wk-color-${n}`;
 export const IDENTITY = ['accent', 'on-accent', 'working', 'attention', 'attention-text'].map(c);
 // May set, all ten or none: the grounds.
 export const GROUNDS = ['bg', 'sidebar', 'surface', 'control', 'hairline', 'hairline-strong', 'control-border', 'field-border', 'text', 'text-secondary'].map(c);
-// May set: fallbacks after the kit's font, and radii within 2px of the kit's.
+// May set: fallbacks after the kit's first font (system-ui, the platform's UI
+// font, which a theme keeps), and radii within 2px of the kit's.
 export const FONT = '--wk-font-family';
 export const RADII = ['--wk-radius-control', '--wk-radius-group', '--wk-radius-window'];
 // Must not set: the kit derives these from accent and attention.
