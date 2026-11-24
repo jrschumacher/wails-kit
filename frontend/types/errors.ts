@@ -32,7 +32,9 @@ export type ErrorCode =
   | "tasks_duplicate_id"
   | "tasks_invalid_spec"
   | "tasks_invalid_state"
-  | "tasks_unsupported";
+  | "tasks_unsupported"
+  // Desktop error codes (desktop package)
+  | "desktop_invalid_colour";
 
 export interface UserError {
   code: ErrorCode;

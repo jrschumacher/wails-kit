@@ -18,6 +18,8 @@ export {
   UpdateReady,
   UpdateError,
   TasksChanged,
+  DesktopShowTasks,
+  DesktopQuitPending,
 } from "./events";
 
 export type {
@@ -28,6 +30,8 @@ export type {
   UpdateReadyPayload,
   UpdateErrorPayload,
   TasksChangedPayload,
+  DesktopShowTasksPayload,
+  DesktopQuitPendingPayload,
   EventMap,
 } from "./events";
 
