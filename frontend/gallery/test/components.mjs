@@ -79,8 +79,9 @@ try {
       for (const scheme of ['light', 'dark']) {
         const { page, problems } = await open(url, { colorScheme: scheme });
         const font = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
-        // The example theme keeps the kit's font.
-        assert.match(font, /^Inter,/);
+        // The platform's UI font, which the example theme keeps; no font file loads.
+        assert.match(font, /^system-ui,/);
+        assert.equal(await page.evaluate(() => document.fonts.size), 0, 'no @font-face');
         const bg = await page.evaluate(() => getComputedStyle(document.querySelector('.wk-root')).backgroundColor);
         assert.equal(bg, scheme === 'light' ? 'rgb(252, 252, 251)' : 'rgb(24, 26, 31)');
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);

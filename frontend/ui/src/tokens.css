@@ -87,11 +87,10 @@
   --wk-shadow-dialog: 0 24px 48px -22px rgba(15, 20, 30, .45), 0 0 0 1px rgba(15, 20, 30, .1);
 
   /* Type */
-  --wk-font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* The platform's own UI font: San Francisco on macOS, Segoe UI on
+     Windows, the desktop's font on Linux. Nothing is bundled or loaded. */
+  --wk-font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Cantarell, Ubuntu, "Helvetica Neue", Arial, sans-serif;
   --wk-font-family-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
-  /* Inter's single-storey a (cv11) and round quotes and commas (ss03);
-     base.css turns them on. */
-  --wk-font-features: "cv11", "ss03";
   --wk-font-size-xs: 11px;
   --wk-font-size-sm: 12px;
   --wk-font-size-base: 13px;

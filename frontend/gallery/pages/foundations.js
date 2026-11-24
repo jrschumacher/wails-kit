@@ -2,7 +2,7 @@
 export default [
   {
     id: 'type', title: 'Type scale', group: 'foundations',
-    intro: 'Inter, bundled with the kit; the classes set size, weight and colour. Numbers that change in place use tabular numerals.',
+    intro: 'The platform\'s own UI font (system-ui), so text matches the system and nothing is bundled; sizes may render slightly differently on each system. The classes set size, weight and colour. Numbers that change in place use tabular numerals.',
     examples: [{
       title: 'Every style',
       html: `<div class="g-stack">

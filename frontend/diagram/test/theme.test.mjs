@@ -79,7 +79,7 @@ test('the theme follows the tokens: ground, text, lines, accent, chart series, f
   const ground = parseColour(get('--wk-color-surface'));
   for (let i = 1; i <= 5; i++) assert.equal(v[`cScale${i - 1}`], hex(mix(parseColour(get(`--wk-color-chart-${i}`)), ground, 0.16)));
   assert.equal(fontFamily, get('--wk-font-family'));
-  assert.match(fontFamily, /^Inter,/);
+  assert.match(fontFamily, /^system-ui,/);
   assert.equal(fontSize, 13);
   assert.equal(v.fontSize, '13px');
 });

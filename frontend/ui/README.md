@@ -35,16 +35,14 @@ Run this from the app's frontend directory, replacing the tag placeholder:
 tag='REPLACE_WITH_RELEASE_TAG'
 checkout=$(mktemp -d)
 git clone --depth 1 --branch "$tag" https://github.com/jrschumacher/wails-kit.git "$checkout"
-mkdir -p vendor/wails-kit-ui/fonts
+mkdir -p vendor/wails-kit-ui
 cp "$checkout/frontend/ui/dist/wails-kit-ui.css" vendor/wails-kit-ui/
 cp "$checkout/frontend/ui/dist/wails-kit-ui.js" vendor/wails-kit-ui/
-# Inter and its licence: the stylesheet loads them from fonts/ beside it.
-cp "$checkout/frontend/ui/dist/fonts/"* vendor/wails-kit-ui/fonts/
 # Optional TypeScript declarations, named to match the vendored JS module.
 cp "$checkout/frontend/ui/src/index.d.ts" vendor/wails-kit-ui/wails-kit-ui.d.ts
 printf 'Source: https://github.com/jrschumacher/wails-kit\nTag: %s\nCommit: %s\n' \
   "$tag" "$(git -C "$checkout" rev-parse HEAD)" > vendor/wails-kit-ui/SOURCES.md
-(cd vendor/wails-kit-ui && shasum -a 256 wails-kit-ui.css wails-kit-ui.js wails-kit-ui.d.ts fonts/* > SHA256SUMS)
+(cd vendor/wails-kit-ui && shasum -a 256 wails-kit-ui.css wails-kit-ui.js wails-kit-ui.d.ts > SHA256SUMS)
 ```
 
 Commit the vendored files, `SOURCES.md` and `SHA256SUMS` with the app. To update,
@@ -84,62 +82,40 @@ import { wkChart } from './vendor/wails-kit-ui/wails-kit-ui.js';
 
 `dist/wails-kit-ui.js` exports exactly what the package entry exports, and
 `dist/wails-kit-ui.css` is `src/ui.css` with its imports inlined. Neither loads
-anything else, except the stylesheet's two font files from `fonts/` beside
-it. The first line of each file names the package version; the tag, commit and
-checksums recorded above identify the exact vendored release.
+anything else, fonts included. The first line of each file names the package
+version; the tag, commit and checksums recorded above identify the exact
+vendored release.
 
 ## Font
 
-The kit sets everything in [Inter](https://rsms.me/inter/), and the package
-includes it: two variable woff2 files (weights 100 to 900), one for Latin
-(`Inter-latin.woff2`, 67 KB) and one for the rest of the Latin script
-(`Inter-latin-ext.woff2`, 87 KB). Each has an `@font-face` with a
-`unicode-range`, so a file loads only when the page shows one of its
-characters, and `font-display: swap`. Nothing comes from the network: desktop
-apps can't rely on a font CDN at run time. The faces are in `src/base.css`,
-pointing at the package's `fonts/` folder; `dist/wails-kit-ui.css` points at
-its own copy in `dist/fonts/`. A bundler copies whichever the stylesheet you
-import names. `--wk-font-features` turns on Inter's `cv11` (single-storey a)
-and `ss03` (round quotes and commas), and the base rule applies it. The files
-are subset from upstream Inter 4.1 with its OpenType features kept; see
-[Rebuilding the font files](#rebuilding-the-font-files).
+The kit sets text in the platform's own UI font and bundles none:
+`--wk-font-family` is `system-ui`, then the named system fonts for engines
+that lack it (`-apple-system`, `BlinkMacSystemFont`, `"Segoe UI"`,
+`"Noto Sans"`, `Cantarell`, `Ubuntu`, `"Helvetica Neue"`, `Arial`), then
+`sans-serif`. That is San Francisco on macOS, Segoe UI on Windows and the
+desktop's font on Linux, so a kit app reads like the other apps on the
+machine, and no font file is shipped, licensed or loaded. On a Windows CJK
+locale, `system-ui` is the locale's UI font (such as Yu Gothic UI or
+Microsoft YaHei UI), which also draws Latin text; that is intended. Code,
+keys and other monospace text use `--wk-font-family-mono` (`ui-monospace`
+first), as before.
 
-Inter is © The Inter Project Authors, under the SIL Open Font License 1.1
-(`fonts/OFL-Inter.txt`, also in `dist/fonts/`). The licence lets an app bundle
-and ship the font; keep the licence file with it.
+System fonts differ in their metrics, so the same size can render slightly
+wider or narrower, and wrap differently, on each system. The type scale (11
+to 24px) and the line heights are the same everywhere; leave room in fixed
+widths rather than fitting text to one system's font.
 
-Inter is part of the theme contract: a theme may add fallbacks after it but
-not replace it ([THEMING.md](THEMING.md)). An app that still needs another
-font sets `--wk-font-family` to a stack without Inter in its own stylesheet,
-outside its theme, and sets `--wk-font-features: normal` too, since `cv11`
-and `ss03` are Inter's and may mean something else, or nothing, in another
-font. An `@font-face` that no element uses downloads nothing, so the files
-then never load, and when vendoring you can leave out `fonts/`. The kit is
-designed and tested in Inter, so expect small differences in widths.
+The font is part of the theme contract: a theme keeps `system-ui` first and
+may only add fallbacks after it, such as a font for a script the system font
+lacks, which the app bundles with an `@font-face` in its theme
+([THEMING.md](THEMING.md)). An app that needs another font sets
+`--wk-font-family` in its own stylesheet, outside its theme, ships the font
+itself and never loads it from the network.
 
-### Rebuilding the font files
-
-The files come from `InterVariable.ttf` (the roman variable font) in
-[Inter 4.1](https://github.com/rsms/inter/releases/download/v4.1/Inter-4.1.zip),
-with fontTools 4.68 and brotli. The optical-size axis is pinned at 14, its
-default, leaving the weight axis (100 to 900); each file keeps every OpenType
-layout feature and drops hinting. The unicode ranges are the ones in the
-`@font-face` rules in `src/base.css`.
-
-```sh
-fonttools varLib.instancer InterVariable.ttf opsz=14 -o Inter-opsz14.ttf
-latin='U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD'
-ext='U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF'
-pyftsubset Inter-opsz14.ttf --unicodes="$latin" --layout-features='*' \
-  --flavor=woff2 --no-hinting --output-file=fonts/Inter-latin.woff2
-pyftsubset Inter-opsz14.ttf --unicodes="$ext" --layout-features='*' \
-  --flavor=woff2 --no-hinting --output-file=fonts/Inter-latin-ext.woff2
-cp LICENSE.txt fonts/OFL-Inter.txt  # from the same zip
-npm run build                       # copies them to dist/fonts/
-```
-
-The browser checks confirm that `cv11` and `ss03` change what the bundled file
-renders.
+**Differs from the design system.** The design system (`docs/design-system/`,
+a read-only export) names Inter with its `cv11` and `ss03` features. The kit
+deliberately uses the system UI font instead, and has no `--wk-font-features`
+token.
 
 ## Light and dark
 
@@ -1156,8 +1132,7 @@ The gallery's Settings window page shows the window on a sample schema.
 | `theme/check.mjs` | the theme check, shipped: checks a theme against `THEMING.md` |
 | `THEMING.md` | the theme contract |
 | `BEHAVIOUR.md` | how components behave over time: the action lifecycle and its timings, feedback, undo and confirm, loading, retries, motion, accessibility and desktop behaviour |
-| `fonts/` | Inter (two variable woff2 files) and its licence, SIL OFL 1.1 |
-| `dist/wails-kit-ui.css`, `dist/wails-kit-ui.js`, `dist/fonts/` | the prebuilt files and a copy of the fonts, committed and checked against `src/` and `fonts/` |
+| `dist/wails-kit-ui.css`, `dist/wails-kit-ui.js` | the prebuilt files, committed and checked against `src/` |
 | `scripts/build.mjs` | builds `dist/` with no dependencies |
 | `test/` | the checks |
 
@@ -1184,8 +1159,8 @@ vendors them, with `playwright-core` and Chrome (set `CHROME_PATH`, or have it
 at `/usr/bin/google-chrome` or the macOS default; without Chrome it skips,
 unless `CI` is set). Its server serves this folder and nothing else, so it
 checks what must stay in the package: that `src/` and `dist/` load nothing
-from outside it, the bundled Inter (from `fonts/` and `dist/fonts/`, with
-`cv11` and `ss03`), and that the prebuilt module exports what `src/index.js`
+from outside it and load no font file, that their text is in `system-ui`,
+and that the prebuilt module exports what `src/index.js`
 exports and defines the same elements.
 
 The components are checked in the [component gallery](../gallery/README.md)'s

@@ -22,8 +22,7 @@
     "./theme/check": "./theme/check.mjs",
     "./dist/wails-kit-ui.css": "./dist/wails-kit-ui.css",
     "./dist/wails-kit-ui.js": "./dist/wails-kit-ui.js",
-    "./package.json": "./package.json",
-    "./fonts/*": "./fonts/*"
+    "./package.json": "./package.json"
   },
   "sideEffects": [
     "./src/index.js",
@@ -39,7 +38,6 @@
     "src",
     "theme",
     "dist",
-    "fonts",
     "README.md",
     "THEMING.md",
     "BEHAVIOUR.md"

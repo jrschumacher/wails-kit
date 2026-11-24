@@ -27,7 +27,7 @@ if (!chrome) {
   console.log('test/browser.mjs: Chrome not found; set CHROME_PATH. Browser checks skipped.');
   process.exit(process.env.CI ? 1 : 0);
 }
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css' };
 const server = http.createServer(async (req, res) => {
   try {
     const pathname = new URL(req.url, 'http://localhost').pathname;
@@ -143,7 +143,7 @@ try {
         assert.equal(look.errors, 2);
         assert.equal(look.styleTags, 0, 'a <style> element is in the page');
         assert.ok(look.adopted >= 7, 'the frame sheet and one sheet per diagram are adopted');
-        assert.match(look.font, /^Inter,/);
+        assert.match(look.font, /^system-ui,/);
         assert.equal(look.overflow, false);
         await done();
       }
