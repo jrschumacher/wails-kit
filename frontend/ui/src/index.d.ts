@@ -34,6 +34,98 @@ export const timings: Readonly<{
 export const motion: Readonly<{ durationFast: number; durationBase: number; durationSlow: number; easeOut: string; easeIn: string }>;
 export function reducedMotion(): boolean;
 
+// ---- Announcer (announce.js) ----
+/** Says words through the window's polite (or assertive) live region; messages within 500 ms are joined. */
+export function announce(words: string, options?: { assertive?: boolean }): void;
+/** Moves the announcer into the top-most open modal dialog (or back to <body>); wk-dialog and the dialog toggle/close events call it. */
+export function placeAnnouncer(dialog?: HTMLDialogElement | null, open?: boolean): void;
+
+// ---- Tasks (task.js) ----
+export type TaskState = 'queued' | 'running' | 'waiting' | 'paused' | 'stalled' | 'done' | 'failed' | 'cancelled' | 'stopped';
+export type TaskStopMode = 'cancel' | 'stop' | 'stop-asks' | 'pause' | 'unsafe' | false;
+/** A tasks:changed snapshot, as @wails-kit/types' TaskSnapshot. */
+export interface TaskSnapshotLike {
+  id: string; parent: string; subject: string; kind: string; state: TaskState;
+  done: number; total: number; unit: string; step: number; steps: number; stage: string; words: string;
+  stop: TaskStopMode; error: { code: string; userMsg: string; message: string } | null;
+  retry: 'auto' | 'manual' | 'unsafe'; nextTry: number | null; startedAt: number | null; updatedAt: number;
+}
+export interface TaskProgress { done?: number; total?: number; unit?: string; step?: number; steps?: number; stage?: string }
+export interface TaskSpec {
+  /** The element (or elements) that started it: busy (aria-disabled, data-busy) until it ends. */
+  control?: Element | Element[] | null;
+  /** The element that shows the state (a row's state cell): a dot and the words replace its content while it runs. */
+  target?: Element | null;
+  /** A .wk-progress the app placed where the work shows: hidden until the indicator, then moved by progress(). */
+  bar?: HTMLElement | null;
+  words: string;
+  subject?: string; kind?: string; id?: string;
+  expect?: 'short' | 'maybe-long' | 'long';
+  stop?: TaskStopMode;
+  /** The app stops the work; resolve false to leave the task running (the person said no, or the app reports the end). */
+  onStop?: (task: TaskHandle) => unknown;
+  onPause?: (task: TaskHandle) => unknown;
+  onResume?: (task: TaskHandle) => unknown;
+  onTimeout?: (task: TaskHandle) => void;
+  onEnd?: (detail: TaskEventDetail) => void;
+  /** ms without a report before it fails; false for none. Default timings.timeout. */
+  timeout?: number | false;
+  timeoutWords?: string;
+  /** Words for the switch to Waiting after 30 s without a report. */
+  waitingWords?: string;
+  /** Start Queued, with these words. */
+  queued?: string;
+  /** Where Esc applies and a failure is assertive: default the Sheet it is in, else the control and the target's row. */
+  scope?: Element;
+  /** Esc and ⌘. cancel it while focus is in scope. Default: stop is 'cancel' and expect isn't 'long'. */
+  esc?: boolean;
+  /** Where the Stop button goes; default after the last control, else in the target. */
+  stopIn?: Element;
+  /** Work in parts: the unit the summary counts ("reviewers"), and its words. */
+  unit?: string;
+  summary?: (counts: { finished: number; failed: number; stopped: number; cancelled: number; total: number; unit: string }) => string;
+}
+export interface TaskEventDetail { id: string; state: TaskState; words: string; [key: string]: unknown }
+export interface TaskEnd { words: string; error?: unknown; retry?: () => void; visible?: boolean; show?: () => void; showLabel?: string; [key: string]: unknown }
+export interface TaskHandle {
+  readonly id: string;
+  readonly state: TaskState;
+  /** Aborts on Cancel, Stop, a timeout or a failure. */
+  readonly signal: AbortSignal;
+  progress(p: TaskProgress): void;
+  setWords(words: string): void;
+  queued(words?: string): void;
+  running(words?: string): void;
+  waiting(words?: string, options?: { timeout?: number | false }): void;
+  paused(words?: string): void;
+  resumed(words?: string): void;
+  stalled(words: string): void;
+  /** Resolve in the step the indicator goes (at least 500 ms after it showed): draw the result there. */
+  done(end: TaskEnd | string): Promise<TaskEventDetail | null>;
+  fail(end: TaskEnd | string): Promise<TaskEventDetail | null>;
+  stopped(words?: string): Promise<TaskEventDetail | null>;
+  cancelled(): Promise<TaskEventDetail | null>;
+  /** As the Cancel or Stop button. */
+  stop(): Promise<void>;
+  /** A part of the task, with its own target; the task ends, with one summary, when every part has. */
+  part(spec: Omit<TaskSpec, 'control'>): TaskHandle;
+}
+export interface TaskBindings {
+  Tasks?(): Promise<TaskSnapshotLike[]>; Get?(id: string): Promise<TaskSnapshotLike>;
+  Stop?(id: string): Promise<void>; Pause?(id: string): Promise<void>; Resume?(id: string): Promise<void>;
+  Retry?(id: string): Promise<void>; Dismiss?(id: string): Promise<void>; DismissFinished?(): Promise<number>;
+}
+export interface TaskFollower { readonly id: string; readonly state: TaskState | null; stop(): Promise<void> | undefined; unfollow(): void }
+export const wkTask: {
+  (spec: TaskSpec): TaskHandle;
+  connect(options: { subscribe: (listener: (payload: { tasks: TaskSnapshotLike[] }) => void) => (() => void) | void; bindings?: TaskBindings; confirmStop?: (snapshot: TaskSnapshotLike) => boolean | Promise<boolean> }): () => void;
+  follow(id: string, options?: { control?: Element | Element[]; target?: Element; bar?: HTMLElement; scope?: Element; stopIn?: Element; expect?: 'short' | 'maybe-long' | 'long' }): TaskFollower;
+  /** The summary button; dispose() stops it updating. */
+  summary(): HTMLButtonElement & { dispose(): void };
+  showList(options?: { opener?: Element }): WkDialog;
+  words: Record<string, string | ((...args: any[]) => string)>;
+};
+
 // ---- Chart (chart.js) ----
 export interface ChartCategory { label: string; name?: string; shaded?: boolean }
 export interface ChartSeries { key?: string; label: string; tone?: number | string; values: (number | null)[] }
@@ -82,8 +174,37 @@ export interface DiffSpec {
   contextStep?: number;
   /** Called after a file's rows are built: when it is first expanded, and on every rebuild (a view switch) or added context. */
   onrender?: (fileElement: HTMLElement, file: DiffFile) => void;
+  /** Review threads, drawn under their lines (see README, "Review comments"). */
+  comments?: DiffThread[];
+  /** Whether a line takes a new comment; needs oncomment. Default true. */
+  canComment?: boolean | ((file: DiffFile, side: DiffSide, line: number) => boolean);
+  /** The comment box's factory; the default is a wk-field textarea. */
+  commentBox?: (spec: DiffCommentBoxSpec) => DiffCommentBox | HTMLElement;
+  commentPlaceholder?: string;
+  /** A comment's body as a node; the default is its plain text. */
+  renderBody?: (entry: DiffCommentEntry) => Node | null | undefined;
+  /** A promise shows the comment as pending until it settles; a rejection shows the error with Retry. */
+  oncomment?: (comment: DiffNewComment) => unknown;
+  onreply?: (threadId: string, body: string) => unknown;
+  /** A promise makes Resolve busy until it settles. */
+  onresolve?: (threadId: string, resolved: boolean) => unknown;
+  /** Retry on an entry the app marked with error. */
+  onretry?: (threadId: string, entry: DiffCommentEntry) => void;
+  /** Who a comment being posted shows as. Default "You". */
+  author?: { name?: string; avatar?: string };
+  /** The clock relative times are measured from, in ms. Default Date.now. */
+  now?: () => number;
 }
-export function wkDiff(spec: DiffSpec): HTMLElement;
+export type DiffSide = 'old' | 'new';
+export interface DiffCommentEntry { author: string; avatar?: string; time: Date | string | number; body: string; bodyHtml?: string; pending?: boolean; error?: string }
+export interface DiffThread { id: string; path: string; side: DiffSide; line: number; endLine?: number; entries: DiffCommentEntry[]; resolved?: boolean; outdated?: boolean }
+export interface DiffNewComment { path: string; side: DiffSide; line: number; endLine: number; body: string }
+export interface DiffCommentBoxSpec { value: string; placeholder: string; label: string; onSubmit: () => void; onCancel: () => void }
+/** value may also be settable: Edit then adds a failed comment's text to a box already open. */
+export interface DiffCommentBox { element: HTMLElement; value: string; focus?: () => void; destroy?: () => void }
+export interface DiffCommentPlace { thread: DiffThread; side: DiffSide; line: number; endLine: number; hunk?: number; outdated?: true }
+export function wkDiff(spec: DiffSpec): HTMLElement & { setComments(threads: DiffThread[]): void; destroy(): void };
+export function diffCommentPlaces(file: DiffFile, threads: DiffThread[]): { placed: DiffCommentPlace[]; outdated: DiffCommentPlace[] };
 export function parseUnifiedDiff(text: string): DiffFile[];
 export function diffSplitRows(lines: DiffLine[]): { left: DiffLine | null; right: DiffLine | null }[];
 export function diffWordRanges(before: string, after: string, limit?: number): { del: [number, number][]; add: [number, number][] };
@@ -125,5 +246,5 @@ declare global {
     'wk-menu': WkMenu; 'wk-context-menu': WkContextMenu; 'wk-tabs': WkTabs; 'wk-tooltip': WkTooltip;
     'wk-dialog': WkDialog; 'wk-settings': WkSettings;
   }
-  interface HTMLElementEventMap { 'wk-settings-change': CustomEvent<SettingsChangeDetail> }
+  interface HTMLElementEventMap { 'wk-settings-change': CustomEvent<SettingsChangeDetail>; 'wk-task': CustomEvent<TaskEventDetail> }
 }

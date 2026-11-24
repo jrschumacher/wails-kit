@@ -57,6 +57,8 @@
 :where(.wk-root) .demo-charts > .demo-chart:first-child { grid-column: 1 / -1; }
 :where(.wk-root) .demo-chart { min-width: 0; }
 :where(.wk-root) .demo-diffs { display: flex; flex-direction: column; gap: var(--wk-space-5); }
+:where(.wk-root) .demo-comment-box { display: grid; gap: var(--wk-space-1); }
+:where(.wk-root) .demo-comment-box > .wk-help { margin: 0; }
 
 :where(.wk-root) .demo-window { max-width: 640px; margin: 0 auto; padding: var(--wk-space-5) var(--wk-space-4); }
 :where(.wk-root) .demo-settings-window { height: 460px; margin-bottom: var(--wk-space-4); border: var(--wk-hairline-width) solid var(--wk-color-hairline-strong); border-radius: var(--wk-radius-window); overflow: hidden; display: flex; flex-direction: column; }

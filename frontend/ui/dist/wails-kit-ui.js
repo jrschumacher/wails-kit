@@ -42,6 +42,178 @@ const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(pre
 
 export { timings, motion, reducedMotion };
 
+// ---- announce.js ----
+// The window's announcer (BEHAVIOUR.md, "Announcer"): one polite and one
+// assertive live region, visually hidden, in the page from load, because a
+// region added together with its text often goes unread.
+//
+//   announce(words, { assertive = false })
+//
+// Messages within 500 ms of each other are joined into one ("Link copied.
+// Comment posted"), so a screen reader reads them once, in order, instead
+// of cutting one off with the next. A message goes out 500 ms after the
+// last one, and never more than 2 s after the first. Words the region
+// already holds are announced again: it is cleared and set on the next
+// frame. Each window (each document) has one announcer, shared by every copy
+// of the kit in it (src/ and dist/). Nothing that ticks (a countdown, a
+// progress value, streamed output) belongs here.
+//
+// A modal <dialog> makes everything outside it inert, live regions too, so
+// while one is open the regions live inside the top-most modal, and go back
+// to <body> when it closes (or is removed). They move when a dialog opens or
+// closes, not while words wait to be said.
+
+const JOIN_WINDOW = 500;
+const JOIN_MAX = 2_000;
+const ANNOUNCER = 'data-wk-announcer';
+
+// The regions' element: one per document, kept on the document so every
+// copy of the kit (and a re-home after the app removed it) uses the same
+// element, with the words it was about to say.
+function hostOf() {
+  let host = document.wkAnnouncer || document.querySelector(`[${ANNOUNCER}]`);
+  if (!host) {
+    host = document.createElement('div');
+    host.setAttribute(ANNOUNCER, '');
+    host.className = 'wk-announcer wk-visually-hidden';
+    for (const live of ['polite', 'assertive']) {
+      const r = document.createElement('div');
+      r.setAttribute('aria-live', live);
+      r.setAttribute('aria-atomic', 'true');
+      r.dataset.wkLive = live;
+      host.append(r);
+    }
+  }
+  document.wkAnnouncer = host;
+  return host;
+}
+const regionOf = (host, kind) => host.querySelector(`[data-wk-live="${kind}"]`);
+// The messages waiting to go out live on the regions' element, so every
+// copy of the kit in the window joins into the same ones.
+const queuesOf = host => (host.wkQueues ??= { polite: null, assertive: null });
+
+// The open modal dialogs, in the order they opened (shared on the regions'
+// element by every copy of the kit); the last one still open is on top.
+function topModal(host) {
+  const stack = (host.wkModals ??= []);
+  for (let i = stack.length - 1; i >= 0; i--) {
+    if (stack[i].isConnected && stack[i].matches(':modal')) return stack[i];
+    stack.splice(i, 1);
+  }
+  // A modal opened without an event the kit saw: the last in the document.
+  return [...document.querySelectorAll('dialog')].filter(d => d.matches(':modal')).pop() || null;
+}
+
+// Sets a region's words on the next frame, after clearing it, so the change
+// is heard: for the same words again, and for a region just put back in the
+// page. A hidden window may not run frames, so a timer backs the frame up;
+// whichever comes first sets them, unless newer words came in between.
+function setNextFrame(r, text) {
+  r.textContent = '';
+  const token = (r.wkToken = {});
+  const set = () => { if (r.wkToken === token) { r.wkToken = null; r.textContent = text; } };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(set);
+  setTimeout(set, 100);
+}
+
+// Puts the element where a screen reader can hear it: in the top-most open
+// modal, else in <body>. Moving with a dialog opening or closing clears the
+// regions first, so the last words aren't read again where they land. If
+// the element left the page (removed with a modal, or by a framework that
+// owns <body>), it goes back at once, and words said in the last 2 s are set
+// again on the next frame, since they may not have been heard.
+function settle() {
+  const host = hostOf();
+  const home = topModal(host) || document.body || document.documentElement;
+  if (host.parentNode === home) return host;
+  const lost = !host.isConnected;
+  for (const kind of ['polite', 'assertive']) {
+    const r = regionOf(host, kind);
+    const text = r.wkToken ? null : r.textContent;
+    r.wkToken = null;
+    r.textContent = '';
+    if (lost && text && Date.now() - (r.wkSaidAt || 0) < JOIN_MAX) r.wkAgain = text;
+  }
+  home.append(host);
+  // Put back after leaving the page: the next words wait a frame. (Its first
+  // placement, at load, is long before anything is said.)
+  host.wkFresh = lost && Boolean(host.wkPlaced);
+  host.wkPlaced = true;
+  for (const kind of ['polite', 'assertive']) {
+    const r = regionOf(host, kind);
+    if (r.wkAgain) { setNextFrame(r, r.wkAgain); r.wkAgain = null; host.wkFresh = false; }
+  }
+  return host;
+}
+
+// Called when a dialog opens (open true) or closes. wk-dialog calls it; an
+// observer on every dialog's open attribute catches a plain <dialog>.
+function placeAnnouncer(dialog, open) {
+  if (typeof document === 'undefined') return;
+  const host = hostOf();
+  const stack = (host.wkModals ??= []);
+  if (dialog) {
+    const at = stack.indexOf(dialog);
+    if (at >= 0) stack.splice(at, 1);
+    if (open && dialog.matches(':modal')) stack.push(dialog);
+  }
+  settle();
+}
+
+const join = list => list.reduce((text, w) => (text ? `${text}${/[.!?…:]$/.test(text) ? ' ' : '. '}${w}` : w), '');
+
+function flush(kind) {
+  const host = settle();
+  const queues = queuesOf(host);
+  const q = queues[kind];
+  queues[kind] = null;
+  if (!q) return;
+  clearTimeout(q.timer);
+  const r = regionOf(host, kind);
+  const text = join(q.words);
+  r.wkSaidAt = Date.now();
+  // Just put back in the page, or the same words again: clear, then set
+  // them on the next frame.
+  if (host.wkFresh || r.textContent === text) { host.wkFresh = false; setNextFrame(r, text); return; }
+  r.wkToken = null;
+  r.textContent = text;
+}
+
+function announce(words, { assertive = false } = {}) {
+  const text = String(words ?? '').replace(/\s+/g, ' ').trim();
+  if (!text || typeof document === 'undefined') return;
+  const kind = assertive ? 'assertive' : 'polite';
+  const queues = queuesOf(settle());
+  const now = Date.now();
+  let q = queues[kind];
+  if (!q) q = queues[kind] = { words: [], first: now, timer: 0 };
+  if (q.words[q.words.length - 1] !== text) q.words.push(text);
+  clearTimeout(q.timer);
+  q.timer = setTimeout(() => flush(kind), Math.max(0, Math.min(JOIN_WINDOW, q.first + JOIN_MAX - now)));
+}
+
+// In the page from load: now if the body exists, else as soon as it does.
+if (typeof document !== 'undefined') {
+  if (document.body) settle();
+  else document.addEventListener('DOMContentLoaded', () => settle(), { once: true });
+  const onDialog = e => {
+    if (e.target instanceof HTMLDialogElement) placeAnnouncer(e.target, e.type === 'toggle' ? e.newState === 'open' : false);
+  };
+  document.addEventListener('toggle', onDialog, true);
+  document.addEventListener('close', onDialog, true);
+  // toggle and close are queued as tasks of their own, so something else can
+  // run while the regions still sit in a dialog that has closed (and hides
+  // them). A dialog's open attribute changes with it, and an observer hears
+  // that in the same task; it also hears the element leave the page with a
+  // modal that was removed, and puts it back at once.
+  new MutationObserver(records => {
+    for (const r of records) if (r.type === 'attributes' && r.target instanceof HTMLDialogElement) placeAnnouncer(r.target, r.target.open);
+    if (document.wkAnnouncer && !document.wkAnnouncer.isConnected) settle();
+  }).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['open'] });
+}
+
+export { announce, placeAnnouncer };
+
 // ---- kit.js ----
 // @wails-kit/ui custom elements for the components that need
 // behaviour a native element does not give. Light DOM only, no shadow DOM,
@@ -733,6 +905,7 @@ class WkDialog extends Wired {
     const back = this.opener;
     this.opener = null;
     dialog.close();
+    placeAnnouncer(dialog, false);
     this.reflect(false);
     if (focusless()) focusEl(back);
   }
@@ -759,12 +932,14 @@ class WkDialog extends Wired {
     this.opener = focusless() ? opener || clicked : document.activeElement;
     this.dialog.returnValue = '';
     this.dialog.showModal();
+    // The page behind is inert now, live regions too: the announcer moves in.
+    placeAnnouncer(this.dialog, true);
     this.reflect(true);
     emit(this, 'wk-open', {});
   }
 
   close(returnValue = '') {
-    if (this.dialog?.open) this.dialog.close(returnValue);
+    if (this.dialog?.open) { this.dialog.close(returnValue); placeAnnouncer(this.dialog, false); }
   }
 }
 
@@ -875,6 +1050,1031 @@ define('wk-tooltip', WkTooltip);
 define('wk-dialog', WkDialog);
 
 export { WkMenu, WkContextMenu, WkTabs, WkTooltip, WkDialog, syncSteppers, setProgress };
+
+// ---- task.js ----
+// wkTask: the action lifecycle (BEHAVIOUR.md, "The action lifecycle" and
+// "Building blocks › wkTask"). The kit runs the clocks, the busy control,
+// the indicator and its ARIA, the space for Stop, Esc, announcements and the
+// task list; the app writes the words, reports progress and does (and
+// stops) the work.
+//
+//   wkTask(spec)                  a task the page runs itself
+//   wkTask.connect({ subscribe, bindings })
+//                                 the Go tasks service: its tasks:changed
+//                                 snapshots and its Bindings()
+//   wkTask.follow(id, options)    draw a task the Go side runs
+//   wkTask.summary()              "3 tasks running · 1 failed": a button
+//                                 that opens the task list
+//   wkTask.showList()             opens the task list (Window > Tasks)
+//   wkTask.words                  the kit's own words, for localising
+//
+// Every state change fires a bubbling wk-task event on the target, else the
+// first control, else the document: detail { id, state, words, ...payload }.
+
+const ACTIVE = new Set(['queued', 'running', 'waiting', 'paused', 'stalled']);
+const FINAL = new Set(['done', 'failed', 'cancelled', 'stopped']);
+const STOP_MODES = new Set(['cancel', 'stop', 'stop-asks', 'pause', 'unsafe']);
+
+const taskPlural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+// "34 s", "3 min", "3 h 12 m" (BEHAVIOUR.md, "Writing the words").
+function duration(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60), rest = m % 60;
+  return rest ? `${h} h ${rest} m` : `${h} h`;
+}
+
+// The kit's own words. An app that writes another language replaces them.
+const words = {
+  cancel: 'Cancel',
+  stop: 'Stop',
+  stopAsks: 'Stop…',
+  pause: 'Pause',
+  resume: 'Resume',
+  paused: 'Paused',
+  stopped: 'Stopped',
+  cancelled: 'Cancelled',
+  failedState: 'Failed',
+  unsafe: 'This can’t be stopped',
+  timedOut: ms => `Timed out after ${duration(ms)}`,
+  count: (done, total, unit) => `${done} of ${total}${unit ? ` ${unit}` : ''}`,
+  step: (step, steps) => `Step ${step} of ${steps}`,
+  summary: ({ finished, failed, total, unit }) => `${finished} of ${total}${unit ? ` ${unit}` : ''} finished${failed ? ` · ${failed} failed` : ''}`,
+  retryInTasks: 'Retry is in Tasks.',
+  tasks: 'Tasks',
+  noTasks: 'No tasks',
+  running: n => taskPlural(n, 'task running', 'tasks running'),
+  queuedCount: n => `${n} queued`,
+  pausedCount: n => `${n} paused`,
+  stalledCount: n => `${n} need${n === 1 ? 's' : ''} you`,
+  failed: n => `${n} failed`,
+  // When a call to the Go side fails, by binding.
+  couldNot: {
+    Stop: 'Couldn\u2019t stop the task',
+    Pause: 'Couldn\u2019t pause the task',
+    Resume: 'Couldn\u2019t resume the task',
+    Retry: 'Couldn\u2019t retry the task',
+    Dismiss: 'Couldn\u2019t dismiss the task',
+    DismissFinished: 'Couldn\u2019t clear finished tasks',
+  },
+  retry: 'Retry',
+  retryNow: 'Retry now',
+  dismiss: 'Dismiss',
+  clearFinished: 'Clear finished',
+  close: 'Done',
+  nextTry: at => {
+    const ms = at - Date.now();
+    if (ms < 60_000) return `Next try in ${Math.max(1, Math.ceil(ms / 1000))} s`;
+    return `Next try ${new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toLowerCase()}`;
+  },
+};
+
+const isMac = () => /^mac|^ip(hone|ad|od)/i.test(navigator.userAgentData?.platform || navigator.platform || '');
+const taskEl = (tag, className, text) => {
+  const e = document.createElement(tag);
+  if (className) e.className = className;
+  if (text != null) e.textContent = text;
+  return e;
+};
+const dot = tone => {
+  const d = taskEl('span', 'wk-dot');
+  if (tone) d.dataset.tone = tone;
+  d.setAttribute('aria-hidden', 'true');
+  return d;
+};
+const emitTask = (node, detail) => {
+  const at = node?.isConnected ? node : document;
+  at.dispatchEvent(new CustomEvent('wk-task', { bubbles: true, detail }));
+};
+
+// Makes parent's children exactly nodes, in order, moving only what is out
+// of place, so the element with focus keeps it (a removed and reinserted
+// element loses focus). If focus was lost all the same, it goes back.
+function syncChildren(parent, nodes) {
+  const had = document.activeElement;
+  const want = new Set(nodes);
+  for (const n of [...parent.childNodes]) if (!want.has(n)) n.remove();
+  let ref = parent.firstChild;
+  for (const n of nodes) {
+    if (n === ref) { ref = ref.nextSibling; continue; }
+    parent.insertBefore(n, ref);
+  }
+  if (had && had !== document.activeElement && parent.contains(had)) had.focus({ preventScroll: true });
+}
+
+// ---- Busy controls -------------------------------------------------------
+// A control may be busy for more than one task; it goes back to rest, with
+// the aria-disabled it had before (a locked control stays locked), when
+// the last of them ends.
+const busy = new WeakMap();
+function makeBusy(control) {
+  const b = busy.get(control);
+  if (b) { b.count++; return; }
+  busy.set(control, { count: 1, aria: control.getAttribute('aria-disabled'), data: control.getAttribute('data-busy') });
+  control.setAttribute('aria-disabled', 'true');
+  control.setAttribute('data-busy', '');
+}
+// The spinner in a button, shared like the busy state: it goes when the
+// last task that showed it ends.
+const spinners = new WeakMap();
+function addSpinner(button) {
+  const sp = spinners.get(button);
+  if (sp) { sp.count++; return; }
+  const el = taskEl('span', 'wk-spinner');
+  el.setAttribute('aria-hidden', 'true');
+  button.prepend(el);
+  spinners.set(button, { count: 1, el });
+}
+function dropSpinner(button) {
+  const sp = spinners.get(button);
+  if (!sp || --sp.count > 0) return;
+  spinners.delete(button);
+  sp.el.remove();
+}
+function release(control) {
+  const b = busy.get(control);
+  if (!b || --b.count > 0) return;
+  busy.delete(control);
+  if (b.aria === null) control.removeAttribute('aria-disabled'); else control.setAttribute('aria-disabled', b.aria);
+  if (b.data === null) control.removeAttribute('data-busy'); else control.setAttribute('data-busy', b.data);
+}
+
+// ---- The list of tasks ---------------------------------------------------
+// The page's tasks (top-level wkTask tasks, while they run or once failed)
+// and the Go side's (from wkTask.connect). The summary and the task list
+// draw from it.
+const local = new Map();       // id -> Task
+let remote = [];               // the latest Go snapshots
+let connection = null;         // { bindings, confirmStop, unsubscribe, seen }
+const followers = new Map();   // id -> Set<Task>
+const watchers = new Set();
+const summaries = new Set();   // summary buttons in use
+let list = null;               // the task list, once built
+// Whether the window has somewhere to find a failed task: a task list.
+const hasTaskList = () => Boolean(list) || [...summaries].some(b => b.isConnected);
+let notifyQueued = false;
+function changed() {
+  if (notifyQueued) return;
+  notifyQueued = true;
+  queueMicrotask(() => { notifyQueued = false; for (const w of watchers) w(); });
+}
+// Every task, as snapshots: the Go side's in its order, then the page's.
+function entries() {
+  const out = remote.map(s => ({ ...s, source: 'go' }));
+  for (const task of local.values()) {
+    // Work that ends in the quiet wait never shows here.
+    if (task.shownAt == null && task.state === 'running') continue;
+    out.push({ ...task.snapshot(), source: 'kit' });
+    for (const part of task.parts) out.push({ ...part.snapshot(), source: 'kit' });
+  }
+  return out;
+}
+
+let taskUid = 0;
+
+class Task {
+  constructor(spec = {}, { external = false, listed = true, parent = null } = {}) {
+    if (spec.stop != null && spec.stop !== false && !STOP_MODES.has(spec.stop)) throw new TypeError(`wkTask: stop must be one of ${[...STOP_MODES].join(', ')} or false, not ${spec.stop}`);
+    this.spec = spec;
+    this.id = String(spec.id ?? `wk-task-${++taskUid}`);
+    this.external = external;
+    this.parent = parent;
+    this.parts = [];
+    this.controls = [].concat(spec.control ?? []).filter(Boolean);
+    this.target = spec.target || null;
+    this.bar = spec.bar || null;
+    this.stopMode = spec.stop || false;
+    this.expect = spec.expect || 'short';
+    this.words = String(spec.words ?? '');
+    this.progressState = {};
+    this.state = null;
+    this.timers = {};
+    this.ended = false;
+    this.abort = new AbortController();
+    this.signal = this.abort.signal;
+    this.shownAt = null;
+    this.saved = null;
+    this.stopEl = null;
+    this.created = performance.now();
+    for (const c of this.controls) makeBusy(c);
+    if (this.bar) this.bar.hidden = true;
+    if (this.target) this.target.setAttribute('data-wk-task', this.id);
+    this.reserveStop();
+    this.listenKeys();
+    if (listed && !parent) { local.set(this.id, this); changed(); }
+    if (spec.queued) this.queue(String(spec.queued));
+    else this.start(undefined, spec.elapsed || 0);
+  }
+
+  // ---- what others read ----
+  get stage() {
+    const p = this.progressState;
+    return [p.steps ? words.step(p.step, p.steps) : '', p.stage || ''].filter(Boolean).join(' · ');
+  }
+  get count() {
+    const p = this.progressState;
+    return p.total > 0 ? words.count(p.done ?? 0, p.total, p.unit || '') : '';
+  }
+  // What is announced: the words and the stage, never a count (a value
+  // that ticks stays out of the live regions).
+  get said() { return [this.words, this.stage].filter(Boolean).join(' · '); }
+  get text() {
+    if (FINAL.has(this.state)) return this.words;
+    const unsafe = this.stopMode === 'unsafe' && this.stopShown && ACTIVE.has(this.state) ? words.unsafe : '';
+    return [this.words, this.stage, this.count, unsafe].filter(Boolean).join(' · ');
+  }
+  snapshot() {
+    const p = this.progressState;
+    return {
+      id: this.id, parent: this.parent?.id ?? '', subject: String(this.spec.subject ?? ''), kind: String(this.spec.kind ?? ''),
+      state: this.state, done: p.done ?? 0, total: p.total ?? 0, unit: p.unit ?? '', step: p.step ?? 0, steps: p.steps ?? 0, stage: p.stage ?? '',
+      words: this.words, stop: this.stopMode, error: this.error ?? null, retry: this.retryFn ? 'manual' : 'unsafe', nextTry: null,
+      startedAt: null, updatedAt: Date.now(),
+    };
+  }
+
+  fire(state, payload = {}) {
+    emitTask(this.target || this.controls[0], { id: this.id, state, words: this.words, ...payload });
+    if (!this.parent) changed();
+    else this.parent.partChanged();
+  }
+
+  // ---- clocks ----
+  timer(name, ms, fn) {
+    clearTimeout(this.timers[name]);
+    this.timers[name] = ms == null ? 0 : setTimeout(() => { this.timers[name] = 0; fn(); }, Math.max(0, ms));
+  }
+  clearTimers() { for (const name of Object.keys(this.timers)) clearTimeout(this.timers[name]); this.timers = {}; }
+
+  // The waiting switch (30 s) and the timeout (2 min) count from the last
+  // report. Off while queued, paused or stalled, and when the Go side runs
+  // them (follow).
+  quiet({ restart = true } = {}) {
+    if (this.external || this.ended) return;
+    // A task in parts is as quiet as its parts: each has its own clocks.
+    if (this.parts.length) { this.timer('waiting', null); this.timer('timeout', null); return; }
+    const counting = this.state === 'running' || this.state === 'waiting';
+    const timeout = this.ownTimeout === undefined ? (this.spec.timeout ?? timings.timeout) : this.ownTimeout;
+    this.timer('waiting', counting && this.state === 'running' ? timings.waiting : null, () => this.kitWaiting());
+    // The kit's own switch to Waiting is no report: the timeout runs on.
+    if (restart || !counting) this.timer('timeout', counting && timeout !== false ? timeout : null, () => this.timedOut(timeout));
+  }
+
+  queue(text) {
+    this.state = 'queued';
+    this.words = text;
+    this.showStop();
+    this.draw();
+    this.quiet();
+    this.fire('queued');
+  }
+
+  // Running, from the press or from Queued. elapsed: how long it has already
+  // run (a Go task drawn after a reload), so the indicator and Stop come no
+  // later than they would have.
+  start(text, elapsed = 0) {
+    if (this.ended) return;
+    const from = this.state;
+    this.state = 'running';
+    if (text) this.words = text;
+    this.startedAt = performance.now() - elapsed;
+    this.timer('indicator', timings.indicatorDelay - elapsed, () => this.showIndicator());
+    if (this.expect === 'long' || from === 'queued') this.showStop();
+    else if (this.expect === 'maybe-long') this.timer('stop', timings.stopDelay - elapsed, () => this.showStop());
+    this.draw();
+    this.quiet();
+    this.fire('running');
+  }
+
+  // ---- the indicator ----
+  showIndicator() {
+    if (this.ended || this.shownAt != null) return;
+    this.shownAt = performance.now();
+    if (this.target) this.draw();
+    else {
+      const button = this.controls.find(c => c.classList.contains('wk-button'));
+      if (button) { addSpinner(button); this.spinner = button; }
+    }
+    if (this.bar) {
+      this.bar.hidden = false;
+      if (this.progressState.total > 0) this.moveBar('now');
+    }
+    if (!this.parent && !this.quietStart) announce(this.said);
+    if (!this.parent) changed();
+  }
+
+  moveBar(aria = true) {
+    const p = this.progressState;
+    if (!this.bar || this.shownAt == null || !(p.total > 0)) return;
+    const count = words.count(Math.min(p.done ?? 0, p.total), p.total, p.unit || '');
+    setProgress(this.bar, { done: p.done ?? 0, total: p.total, unit: p.unit || '', text: this.stage ? `${this.stage} · ${count}` : count }, { aria });
+  }
+
+  // The target shows the state while the indicator does, in place of its
+  // own content: a dot and the words, then the Stop button if it has one.
+  draw() {
+    const t = this.target;
+    if (!t) return;
+    if (this.shownAt == null && (this.state === 'running' || this.state === 'waiting')) return;
+    if (!this.saved) this.saved = [...t.childNodes].filter(n => n !== this.stopEl);
+    // One line, changed in place; the Stop button stays where it is, so
+    // focus on it survives every redraw.
+    if (!this.line) {
+      this.line = taskEl('span', 'wk-task-state');
+      this.lineDot = dot(null);
+      this.lineWords = taskEl('span', 'wk-task-words');
+    }
+    const tone = this.state === 'running' ? 'working' : this.state === 'stalled' || this.state === 'failed' ? 'attention' : null;
+    this.line.dataset.state = this.state;
+    if (tone) this.lineDot.dataset.tone = tone; else delete this.lineDot.dataset.tone;
+    const withDot = this.state !== 'queued' && !(FINAL.has(this.state) && this.state !== 'failed');
+    syncChildren(this.line, withDot ? [this.lineDot, this.lineWords] : [this.lineWords]);
+    if (this.lineWords.textContent !== this.text) this.lineWords.textContent = this.text;
+    syncChildren(t, [this.line, ...(this.stopEl && ACTIVE.has(this.state) ? [this.stopEl] : [])]);
+  }
+
+  // ---- Stop, Cancel, Pause ----
+  get stopLabel() {
+    if (this.stopMode === 'pause') return this.state === 'paused' ? words.resume : words.pause;
+    return this.stopMode === 'cancel' || this.state === 'queued' ? words.cancel : this.stopMode === 'stop-asks' ? words.stopAsks : words.stop;
+  }
+  // Work that may be long keeps the button's space from the start, hidden,
+  // and shows it at 10 s, so nothing moves under the pointer.
+  reserveStop() {
+    const mode = this.stopMode;
+    if (!mode || mode === 'unsafe' || (this.expect === 'short' && !this.spec.queued)) return;
+    const b = taskEl('button', 'wk-button wk-button--small wk-task-stop');
+    b.type = 'button';
+    b.dataset.reserved = '';
+    b.dataset.wkTask = this.id;
+    b.textContent = this.stopLabel;
+    b.addEventListener('click', () => (this.stopMode === 'pause' ? this.togglePause() : this.stop()));
+    this.stopEl = b;
+    const where = this.spec.stopIn;
+    if (where) where.append(b);
+    else if (this.controls.length) this.controls[this.controls.length - 1].after(b);
+    else if (this.target) this.target.append(b);
+    else this.stopEl = null;
+  }
+  showStop() {
+    if (this.ended || this.stopShown) return;
+    this.stopShown = true;
+    if (this.stopEl) this.stopEl.removeAttribute('data-reserved');
+    if (this.stopMode === 'unsafe') this.draw();
+  }
+  relabel() { if (this.stopEl) this.stopEl.textContent = this.stopLabel; }
+
+  // Cancel or Stop: the app stops the work in onStop (or the kit aborts
+  // task.signal). onStop returning false (the person said no, or the app
+  // will report the end itself) leaves the task as it is.
+  async stop() {
+    if (this.ended || this.stopping || !this.stopMode || this.stopMode === 'unsafe') return;
+    if (this.stopMode === 'pause' && this.state !== 'queued') return this.togglePause();
+    if (this.parts.length && !this.spec.onStop) { for (const p of this.parts) p.stop(); return; }
+    this.stopping = true;
+    if (this.stopEl) makeBusy(this.stopEl);
+    let r;
+    try { r = this.spec.onStop ? await this.spec.onStop(this) : undefined; } catch { r = false; }
+    this.stopping = false;
+    if (this.stopEl) release(this.stopEl);
+    if (r === false || this.ended) return;
+    this.abort.abort(new DOMException('Stopped', 'AbortError'));
+    if (this.state === 'queued' || this.stopMode === 'cancel') this.cancelled();
+    else this.stopped();
+  }
+  async togglePause() {
+    if (this.ended || this.stopping) return;
+    const resuming = this.state === 'paused';
+    this.stopping = true;
+    if (this.stopEl) makeBusy(this.stopEl);
+    let r;
+    try { r = await (resuming ? this.spec.onResume : this.spec.onPause)?.(this); } catch { r = false; }
+    this.stopping = false;
+    if (this.stopEl) release(this.stopEl);
+    if (r === false || this.ended) return;
+    if (resuming && this.state === 'paused') this.resumed();
+    else if (!resuming && (this.state === 'running' || this.state === 'waiting')) this.paused();
+  }
+
+  // Esc (and ⌘. on macOS) cancels short work the person is waiting for in
+  // that place: focus in the scope. In a Sheet the first Esc cancels the
+  // work, and the Sheet stays open.
+  get scope() {
+    if (this.spec.scope) return [this.spec.scope];
+    const anchor = this.controls[0] || this.target;
+    const dialog = anchor?.closest?.('dialog');
+    if (dialog) return [dialog];
+    return [...this.controls, this.target?.closest('tr, [role="row"], .wk-list-row') || this.target, this.stopEl].filter(Boolean);
+  }
+  inScope() {
+    const a = document.activeElement;
+    return Boolean(a && a !== document.body && this.scope.some(s => s.contains(a)));
+  }
+  listenKeys() {
+    const esc = this.spec.esc ?? (this.stopMode === 'cancel' && this.expect !== 'long');
+    if (!esc || this.external) return;
+    this.keys = new AbortController();
+    // In the bubble phase, after the page: an Escape a menu, a tooltip or
+    // the app already used (and prevented) is left alone. ⌘. only on macOS.
+    window.addEventListener('keydown', e => {
+      const key = (e.key === 'Escape' && !e.ctrlKey && !e.metaKey && !e.altKey) || (e.metaKey && e.key === '.' && isMac());
+      if (!key || e.defaultPrevented || e.isComposing || this.stopping || !this.inScope()) return;
+      // Prevented, the key doesn't close the Sheet it's in either.
+      e.preventDefault();
+      e.stopPropagation();
+      this.stop();
+    }, { signal: this.keys.signal });
+  }
+
+  // ---- reports from the app ----
+  progress(p = {}) {
+    if (this.ended) return;
+    const before = this.stage;
+    const s = this.progressState;
+    for (const k of ['done', 'total', 'unit', 'step', 'steps', 'stage']) if (p[k] !== undefined) s[k] = p[k];
+    if (this.state === 'waiting' || this.state === 'stalled') this.back('running');
+    else if (this.state === 'queued') this.start();
+    const stageChanged = this.stage !== before;
+    if (stageChanged && this.shownAt != null && !this.parent) announce(this.stage);
+    this.moveBar(stageChanged ? 'now' : true);
+    this.draw();
+    this.quiet();
+    if (!this.parent) changed(); else this.parent.partChanged();
+  }
+  setWords(text) {
+    if (this.ended || !text) return;
+    this.words = String(text);
+    if (this.kitWaited) { this.kitWaited = null; this.back('running'); }
+    this.draw();
+    this.quiet();
+    changed();
+  }
+  // Back to running from waiting or stalled: the words from before a
+  // switch the kit made.
+  back(state) {
+    if (this.kitWaited) this.words = this.kitWaited;
+    this.kitWaited = null;
+    this.ownTimeout = undefined;
+    this.state = state;
+    this.draw();
+    this.fire(state);
+  }
+  kitWaiting() {
+    if (this.ended || this.state !== 'running') return;
+    this.kitWaited = this.words;
+    this.enter('waiting', this.spec.waitingWords, { restart: false });
+  }
+  waiting(text, { timeout } = {}) {
+    if (this.ended) return;
+    this.kitWaited = null;
+    if (timeout !== undefined) this.ownTimeout = timeout;
+    this.enter('waiting', text);
+  }
+  // A neutral state that stands still: the words change, the bar's value
+  // catches up with its fill at once, and the new words are announced.
+  enter(state, text, { restart = true } = {}) {
+    if (this.state === 'queued' && state !== 'queued') this.start();
+    const changedWords = text && text !== this.words;
+    if (text) this.words = String(text);
+    this.state = state;
+    this.moveBar('now');
+    this.relabel();
+    this.draw();
+    if (changedWords && this.shownAt != null && !this.parent) announce(this.said);
+    this.quiet({ restart });
+    this.fire(state);
+  }
+  paused(text) {
+    if (this.ended) return;
+    this.pausedFrom = this.words;
+    this.enter('paused', text || words.paused);
+  }
+  resumed(text) {
+    if (this.ended || this.state !== 'paused') return;
+    this.words = text || this.pausedFrom || this.words;
+    this.state = 'running';
+    this.moveBar('now');
+    this.relabel();
+    this.draw();
+    if (this.shownAt != null && !this.parent) announce(this.said);
+    this.quiet();
+    this.fire('running');
+  }
+  stalled(text) { if (!this.ended) this.enter('stalled', text); }
+  queued(text) { if (!this.ended) this.queue(text || this.words); }
+  running(text) {
+    if (this.ended) return;
+    if (this.state === 'queued') this.start(text);
+    else if (this.state !== 'running') { this.back('running'); if (text) this.setWords(text); }
+    else if (text && text !== this.words) this.setWords(text);
+  }
+  timedOut(ms) {
+    if (this.ended) return;
+    this.abort.abort(new DOMException('Timed out', 'TimeoutError'));
+    this.spec.onTimeout?.(this);
+    this.fail({ words: this.spec.timeoutWords || words.timedOut(ms), reason: 'timeout' });
+  }
+
+  // ---- the end ----
+  done(arg) {
+    const o = typeof arg === 'string' ? { words: arg } : arg || {};
+    if (!o.words) throw new TypeError('wkTask: done() needs words; they are always announced');
+    return this.finish('done', o);
+  }
+  fail(arg) {
+    const o = typeof arg === 'string' ? { words: arg } : arg || {};
+    if (!o.words) throw new TypeError('wkTask: fail() needs words');
+    return this.finish('failed', o);
+  }
+  stopped(text) {
+    const o = typeof text === 'object' && text ? text : { words: text };
+    return this.finish('stopped', { ...o, words: o.words || [words.stopped, this.count].filter(Boolean).join(' · ') });
+  }
+  cancelled(o = {}) { return this.finish('cancelled', { ...o, words: words.cancelled }); }
+
+  // The indicator stays at least 500 ms once shown: the end waits for it,
+  // then the indicator goes, the control returns to rest, the words are
+  // announced and wk-task fires, in one step. The promise resolves in that
+  // step: draw the result there.
+  finish(state, o) {
+    if (this.ended) return Promise.resolve(null);
+    this.ended = true;
+    this.clearTimers();
+    this.keys?.abort();
+    if (state !== 'done') this.abort.abort(new DOMException(state, 'AbortError'));
+    const hold = this.shownAt == null ? 0 : this.shownAt + timings.indicatorMin - performance.now();
+    return new Promise(resolve => {
+      const swap = () => resolve(this.swap(state, o));
+      if (hold > 0) setTimeout(swap, hold); else swap();
+    });
+  }
+
+  swap(state, o) {
+    const assertive = state === 'failed' && !o.quiet && this.inScope();
+    const stopHadFocus = this.stopEl && this.stopEl.contains(document.activeElement);
+    this.state = state;
+    this.words = String(o.words);
+    if (o.error !== undefined) this.error = o.error;
+    if (o.retry) this.retryFn = o.retry;
+    if (this.spinner) dropSpinner(this.spinner);
+    this.spinner = null;
+    for (const c of this.controls) release(c);
+    this.stopEl?.remove();
+    if (stopHadFocus) {
+      // Focus goes to the control, else the row (or the target), made
+      // focusable for it if it isn't; never to the page.
+      const row = this.target?.closest('tr, [role="row"], .wk-list-row') || this.target;
+      const moved = [...this.controls, row].some(n => { n?.focus?.({ preventScroll: true }); return n && document.activeElement === n; });
+      if (!moved && row) { if (!row.hasAttribute('tabindex')) row.tabIndex = -1; row.focus({ preventScroll: true }); }
+    }
+    if (this.bar) this.bar.hidden = true;
+    const t = this.target;
+    if (t) {
+      t.removeAttribute('data-wk-task');
+      // Done and Cancelled put the target back as it was; words stay only
+      // when the result isn't visible. Failed and Stopped say what happened.
+      const back = state === 'cancelled' || (state === 'done' && o.visible !== false);
+      if (back) { if (this.saved) t.replaceChildren(...this.saved); }
+      else {
+        if (!this.saved) this.saved = [...t.childNodes];
+        this.draw();
+        if (state === 'done' && o.show) {
+          const show = taskEl('button', 'wk-link wk-task-show', o.showLabel || 'Show');
+          show.type = 'button';
+          show.addEventListener('click', () => o.show());
+          t.append(' ', show);
+        }
+      }
+    }
+    const announced = !this.parent && !o.quiet && (state !== 'cancelled' || this.shownAt != null);
+    if (announced) {
+      let text = this.words;
+      if (state === 'failed' && !assertive && this.retryFn && hasTaskList()) text = `${text}${/[.!?]$/.test(text) ? '' : '.'} ${words.retryInTasks}`;
+      announce(text, { assertive });
+    }
+    const { words: _, quiet: __, ...payload } = o;
+    const detail = { id: this.id, state, words: this.words, ...payload };
+    // The task list keeps a failed task until it is retried or dismissed.
+    if (!this.parent && state !== 'failed') local.delete(this.id);
+    this.fire(state, payload);
+    this.spec.onEnd?.(detail);
+    return detail;
+  }
+
+  // ---- work in parts ----
+  part(spec = {}) {
+    if (this.ended) throw new Error('wkTask: part() after the task ended');
+    const p = new Task({ timeout: this.spec.timeout, stop: this.stopMode, esc: false, ...spec, id: spec.id ?? `${this.id}-${this.parts.length + 1}` }, { parent: this, listed: false });
+    this.parts.push(p);
+    this.quiet();
+    this.partChanged();
+    return p;
+  }
+  partChanged() {
+    if (this.ended || !this.parts.length) return;
+    const ended = this.parts.filter(p => p.ended);
+    if (this.progressState.total === undefined) this.partProgress = true;
+    if (this.partProgress) { this.progressState.done = ended.length; this.progressState.total = this.parts.length; this.progressState.unit = this.spec.unit || ''; this.moveBar(); this.draw(); }
+    changed();
+    if (ended.length < this.parts.length || this.closing) return;
+    // Settle in a microtask: a part that ends at once, before the next is
+    // added, doesn't end the task.
+    this.closing = true;
+    queueMicrotask(() => { this.closing = false; this.settleParts(); });
+  }
+  settleParts() {
+    if (this.ended || this.parts.some(p => !p.ended)) return;
+    const count = s => this.parts.filter(p => p.state === s).length;
+    const n = this.parts.length, finished = count('done'), failed = count('failed');
+    const summary = (this.spec.summary || words.summary)({ finished, failed, stopped: count('stopped'), cancelled: count('cancelled'), total: n, unit: this.spec.unit || '' });
+    const parts = this.parts.map(p => ({ id: p.id, state: p.state, words: p.words }));
+    if (failed) this.finish('failed', { words: summary, parts });
+    else if (finished === n) this.finish('done', { words: summary, parts });
+    else if (count('cancelled') === n) this.finish('cancelled', { parts });
+    else this.finish('stopped', { words: summary, parts });
+  }
+}
+
+// The handle the app holds: the lifecycle's verbs, and nothing else.
+function handle(task) {
+  return {
+    get id() { return task.id; },
+    get state() { return task.state; },
+    get signal() { return task.signal; },
+    progress: p => task.progress(p),
+    setWords: w => task.setWords(w),
+    queued: w => task.queued(w),
+    running: w => task.running(w),
+    waiting: (w, o) => task.waiting(w, o),
+    paused: w => task.paused(w),
+    resumed: w => task.resumed(w),
+    stalled: w => task.stalled(w),
+    done: o => task.done(o),
+    fail: o => task.fail(o),
+    stopped: w => task.stopped(w),
+    cancelled: () => task.cancelled(),
+    stop: () => task.stop(),
+    part: spec => handle(task.part(spec)),
+  };
+}
+
+function wkTask(spec = {}) {
+  return handle(new Task(spec));
+}
+
+// ---- The Go side ---------------------------------------------------------
+// subscribe(listener) calls listener with each tasks:changed payload
+// ({ tasks }) and may return a function that stops it; bindings is the
+// tasks service's Bindings() (Tasks, Get, Stop, Pause, Resume, Retry,
+// Dismiss, DismissFinished). confirmStop(snapshot) is asked before a
+// "stop-asks" task is stopped; it resolves to true to stop.
+function connect({ subscribe, bindings = {}, confirmStop } = {}) {
+  if (typeof subscribe !== 'function') throw new TypeError('wkTask.connect: subscribe must be a function');
+  connection?.disconnect();
+  const conn = { bindings, confirmStop, seen: false };
+  const take = list => { remote = Array.isArray(list) ? list.slice() : []; for (const [id, set] of followers) for (const f of set) f.apply(remote.find(s => s.id === id)); changed(); };
+  const off = subscribe(payload => { conn.seen = true; take(payload?.tasks); });
+  conn.disconnect = () => {
+    if (typeof off === 'function') off();
+    if (connection !== conn) return;
+    connection = null;
+    remote = [];
+    // Followed tasks end quietly: their controls go back to rest.
+    const all = [...followers.values()].flatMap(set => [...set]);
+    followers.clear();
+    for (const f of all) f.end();
+    changed();
+  };
+  connection = conn;
+  // A reloaded window asks for the tasks as they are, unless an event has
+  // already brought them.
+  Promise.resolve(bindings.Tasks?.()).then(list => { if (!conn.seen && connection === conn && list) take(list); }, () => {});
+  return conn.disconnect;
+}
+
+// Calls a binding. A failure is said in words (the raw error stays out):
+// assertive while focus is in the task list, where the person pressed it.
+const call = (name, ...args) => Promise.resolve().then(() => connection?.bindings?.[name]?.(...args)).catch(() => {
+  const said = words.couldNot?.[name];
+  if (said) announce(said, { assertive: Boolean(list?.host.open && list.dialog.contains(document.activeElement)) });
+});
+
+async function stopRemote(snapshot) {
+  if (snapshot.stop === 'stop-asks' && connection?.confirmStop && !(await connection.confirmStop(snapshot))) return false;
+  await call('Stop', snapshot.id);
+  return false;
+}
+
+// Draws a Go task on the control and target, from its snapshots. The kit
+// keeps the delays, the indicator, Stop and announcements; the Go side keeps
+// the waiting and timeout clocks and the words. A task already finished
+// when it is first seen is drawn without being announced.
+function follow(id, { control, target, bar, scope, stopIn, expect } = {}) {
+  if (!connection) throw new Error('wkTask.follow: call wkTask.connect first');
+  id = String(id);
+  let task = null, last = null;
+  const f = {
+    end() { if (task && !task.ended) task.finish('cancelled', { words: words.cancelled, quiet: true }); },
+    apply(snap) {
+      if (!snap) {
+        // Gone from the list (dismissed): put things back, quietly.
+        if (task && !task.ended) task.finish('cancelled', { words: words.cancelled, quiet: true });
+        if (task || connection?.seen) unfollow();
+        return;
+      }
+      if (!task) {
+        const elapsed = snap.startedAt ? Math.max(0, Date.now() - snap.startedAt) : 0;
+        const stop = snap.stop || false;
+        task = new Task({
+          id, control, target, bar, scope, stopIn, words: snap.words, subject: snap.subject, kind: snap.kind, stop,
+          expect: expect || (stop && stop !== 'unsafe' ? 'maybe-long' : 'short'),
+          queued: snap.state === 'queued' ? snap.words : undefined, elapsed,
+          onStop: () => stopRemote(snap),
+          onPause: () => call('Pause', id).then(() => false),
+          onResume: () => call('Resume', id).then(() => false),
+        }, { external: true, listed: false });
+        task.follower = true;
+        if (FINAL.has(snap.state)) { task.quietStart = true; task.timers.indicator && clearTimeout(task.timers.indicator); }
+      }
+      const prev = last;
+      last = snap;
+      if (task.ended) return;
+      const quiet = !prev && FINAL.has(snap.state);
+      task.stopMode = snap.stop || false;
+      if (snap.total > 0 || snap.steps > 0) {
+        const p = task.progressState;
+        if (p.done !== snap.done || p.total !== snap.total || p.unit !== snap.unit || p.step !== snap.step || p.steps !== snap.steps || p.stage !== snap.stage) {
+          task.progress({ done: snap.done, total: snap.total, unit: snap.unit, step: snap.step, steps: snap.steps, stage: snap.stage });
+        }
+      }
+      switch (snap.state) {
+        case 'queued': if (task.state !== 'queued') task.queued(snap.words); break;
+        case 'running': if (task.state === 'paused') task.resumed(snap.words); else task.running(snap.words); break;
+        case 'waiting': if (task.state !== 'waiting' || task.words !== snap.words) task.waiting(snap.words); break;
+        case 'paused': if (task.state !== 'paused' || task.words !== snap.words) task.paused(snap.words); break;
+        case 'stalled': if (task.state !== 'stalled' || task.words !== snap.words) task.stalled(snap.words); break;
+        case 'done': task.finish('done', { words: snap.words, quiet }); break;
+        case 'failed': task.finish('failed', { words: snap.words || snap.error?.userMsg || words.failedState, error: snap.error, ...(snap.retry !== 'unsafe' ? { retry: () => call('Retry', id) } : {}), quiet }); break;
+        case 'cancelled': task.finish('cancelled', { words: words.cancelled, quiet }); break;
+        case 'stopped': task.finish('stopped', { words: snap.words || words.stopped, quiet }); break;
+      }
+    },
+  };
+  const unfollow = () => {
+    const set = followers.get(id);
+    set?.delete(f);
+    if (set && !set.size) followers.delete(id);
+  };
+  if (!followers.has(id)) followers.set(id, new Set());
+  followers.get(id).add(f);
+  const now = remote.find(s => s.id === id);
+  if (now) f.apply(now);
+  else if (connection.seen || remote.length) {
+    // Not in the list we have: ask once; a task that isn't there is gone.
+    Promise.resolve().then(() => connection?.bindings?.Get?.(id)).then(s => { if (s && !task) f.apply(s); }, () => { if (!task) unfollow(); });
+  }
+  return {
+    get id() { return id; },
+    get state() { return task?.state ?? null; },
+    stop: () => task?.stop(),
+    unfollow: () => { unfollow(); if (task && !task.ended) task.finish('cancelled', { words: words.cancelled, quiet: true }); },
+  };
+}
+
+// ---- The summary and the task list -----------------------------------------
+// Top-level tasks by what the person can tell apart: running (Waiting
+// counts: it may finish by itself), queued, paused, stalled and failed.
+function counts(all = entries()) {
+  const top = all.filter(s => !s.parent);
+  const n = (...states) => top.filter(s => states.includes(s.state)).length;
+  const c = { running: n('running', 'waiting'), queued: n('queued'), paused: n('paused'), stalled: n('stalled'), failed: n('failed') };
+  c.active = c.running + c.queued + c.paused + c.stalled;
+  c.attention = c.failed > 0 || c.stalled > 0;
+  return c;
+}
+
+// The summary shows while two or more tasks run, or any has failed: one
+// button for the toolbar or the footer bar. Not a live region: each task
+// announces its own changes.
+function summary() {
+  const b = taskEl('button', 'wk-task-summary');
+  b.type = 'button';
+  b.setAttribute('aria-haspopup', 'dialog');
+  const d = taskEl('span', 'wk-dot');
+  d.dataset.size = 'sm';
+  d.setAttribute('aria-hidden', 'true');
+  const text = taskEl('span', 'wk-task-summary-words');
+  b.append(d, text);
+  const draw = () => {
+    const c = counts();
+    // It stays while the list it opened is open, or while it has focus,
+    // so focus never goes with it; it hides once focus leaves.
+    if (!b.isConnected && b.wasConnected) { dispose(); return; }
+    if (b.isConnected) b.wasConnected = true;
+    b.hidden = !(c.active >= 2 || c.attention || list?.host.open || document.activeElement === b);
+    text.textContent = [
+      c.running ? words.running(c.running) : '', c.queued ? words.queuedCount(c.queued) : '', c.paused ? words.pausedCount(c.paused) : '',
+      c.stalled ? words.stalledCount(c.stalled) : '', c.failed ? words.failed(c.failed) : '',
+    ].filter(Boolean).join(' · ');
+    if (c.attention) d.dataset.tone = 'attention';
+    else if (c.running) d.dataset.tone = 'working';
+    else delete d.dataset.tone;
+  };
+  // dispose(): stop updating it. A summary taken out of the page stops by
+  // itself at the next change; make a new one to put back.
+  const dispose = () => { watchers.delete(draw); summaries.delete(b); };
+  b.dispose = dispose;
+  watchers.add(draw);
+  summaries.add(b);
+  draw();
+  b.addEventListener('click', () => showList({ opener: b }));
+  b.addEventListener('focusout', draw);
+  return b;
+}
+
+function buildList() {
+  const host = document.createElement('wk-dialog');
+  host.className = 'wk-task-list-host';
+  const dialog = taskEl('dialog', 'wk-dialog wk-dialog--sheet wk-task-list');
+  const head = taskEl('div', 'wk-dialog-header');
+  const title = taskEl('h2', 'wk-dialog-title', words.tasks);
+  title.id = 'wk-task-list-title';
+  dialog.setAttribute('aria-labelledby', title.id);
+  head.append(title);
+  const scroll = taskEl('div', 'wk-dialog-scroll');
+  scroll.tabIndex = 0;
+  scroll.setAttribute('aria-labelledby', title.id);
+  scroll.autofocus = true;
+  const rows = taskEl('ul', 'wk-task-rows');
+  const none = taskEl('p', 'wk-task-none', words.noTasks);
+  scroll.append(rows, none);
+  const foot = taskEl('div', 'wk-dialog-footer');
+  const clear = taskEl('button', 'wk-button wk-dialog-start', words.clearFinished);
+  clear.type = 'button';
+  clear.dataset.action = 'clear';
+  const close = taskEl('button', 'wk-button wk-button--primary', words.close);
+  close.type = 'button';
+  close.dataset.wkClose = '';
+  foot.append(clear, close);
+  dialog.append(head, scroll, foot);
+  host.append(dialog);
+  document.body.append(host);
+  list = { host, dialog, rows, none, clear, scroll, ticker: 0 };
+  dialog.addEventListener('click', e => {
+    const b = e.target.closest?.('button[data-action]');
+    if (!b || !dialog.contains(b) || b.getAttribute('aria-disabled') === 'true') return;
+    act(b.dataset.action, b.closest('[data-id]')?.dataset.id);
+  });
+  watchers.add(() => { if (host.open) drawList(); });
+  host.addEventListener('wk-close', () => { clearInterval(list.ticker); list.ticker = 0; changed(); });
+}
+
+function act(action, id) {
+  const all = entries();
+  const s = all.find(e => e.id === id);
+  const kit = id && (local.get(id) || [...local.values()].flatMap(t => t.parts).find(p => p.id === id));
+  switch (action) {
+    case 'clear':
+      call('DismissFinished');
+      for (const [k, t] of local) if (t.ended) local.delete(k);
+      changed();
+      break;
+    case 'dismiss':
+      if (s?.source === 'go') call('Dismiss', id); else { local.delete(id); changed(); }
+      break;
+    case 'retry':
+      if (s?.source === 'go') call('Retry', id);
+      else if (kit?.retryFn) { local.delete(id); changed(); kit.retryFn(); }
+      break;
+    case 'stop': case 'pause': case 'resume':
+      if (s?.source === 'go') {
+        if (action === 'stop') stopRemote(s);
+        else call(action === 'pause' ? 'Pause' : 'Resume', id);
+      } else if (kit) { if (action === 'stop') kit.stop(); else kit.togglePause(); }
+      break;
+  }
+}
+
+function rowActions(s) {
+  const out = [];
+  if (ACTIVE.has(s.state)) {
+    if (s.state === 'waiting' && s.error && s.source === 'go') out.push(['retry', words.retryNow]);
+    if (s.stop === 'pause' && s.state !== 'queued') out.push([s.state === 'paused' ? 'resume' : 'pause', s.state === 'paused' ? words.resume : words.pause]);
+    else if (s.stop && s.stop !== 'unsafe') out.push(['stop', s.stop === 'cancel' || s.state === 'queued' ? words.cancel : s.stop === 'stop-asks' ? words.stopAsks : words.stop]);
+  } else if (!s.parent) {
+    if (s.state === 'failed' && s.retry !== 'unsafe') out.push(['retry', words.retry]);
+    out.push(['dismiss', words.dismiss]);
+  }
+  return out;
+}
+
+function rowText(s) {
+  const count = s.total > 0 ? words.count(s.done, s.total, s.unit) : '';
+  const stage = [s.steps ? words.step(s.step, s.steps) : '', s.stage].filter(Boolean).join(' · ');
+  const said = s.state === 'failed' ? s.words || s.error?.userMsg || '' : s.words;
+  const extra = s.nextTry && s.state === 'waiting' ? words.nextTry(s.nextTry) : s.stop === 'unsafe' && ACTIVE.has(s.state) ? words.unsafe : '';
+  const title = s.subject || said;
+  const line = [s.subject ? said : '', ACTIVE.has(s.state) ? stage : '', ACTIVE.has(s.state) ? count : '', extra].filter(Boolean).join(' · ');
+  return { title, line };
+}
+
+function drawRow(li, s) {
+  li.dataset.state = s.state;
+  const tone = s.state === 'running' ? 'working' : s.state === 'failed' || s.state === 'stalled' ? 'attention' : null;
+  let d = li.querySelector(':scope > .wk-dot');
+  if (!d) { d = dot(tone); li.prepend(d); }
+  if (tone) d.dataset.tone = tone; else delete d.dataset.tone;
+  d.dataset.shape = FINAL.has(s.state) && s.state !== 'failed' ? 'hollow' : 'filled';
+  let text = li.querySelector(':scope > .wk-task-text');
+  if (!text) { text = taskEl('div', 'wk-task-text'); text.append(taskEl('span', 'wk-task-title'), taskEl('span', 'wk-task-line')); d.after(text); }
+  const t = rowText(s);
+  text.children[0].textContent = t.title;
+  text.children[1].textContent = t.line;
+  text.children[1].hidden = !t.line;
+  let actions = li.querySelector(':scope > .wk-task-actions');
+  if (!actions) { actions = taskEl('div', 'wk-task-actions'); text.after(actions); }
+  const want = rowActions(s);
+  const had = document.activeElement;
+  const keep = new Map([...actions.children].map(b => [b.dataset.action, b]));
+  const next = want.map(([action, label]) => {
+    let b = keep.get(action);
+    if (!b) { b = taskEl('button', 'wk-button wk-button--small'); b.type = 'button'; b.dataset.action = action; }
+    b.textContent = label;
+    b.setAttribute('aria-describedby', li.dataset.titleId);
+    keep.delete(action);
+    return b;
+  });
+  syncChildren(actions, next);
+  if (had && [...keep.values()].includes(had)) (next[0] || li).focus({ preventScroll: true });
+}
+
+function drawList() {
+  const { rows, none, clear } = list;
+  const all = entries();
+  const byParent = new Map();
+  for (const s of all) if (s.parent) { if (!byParent.has(s.parent)) byParent.set(s.parent, []); byParent.get(s.parent).push(s); }
+  const top = all.filter(s => !s.parent);
+  const had = document.activeElement;
+  const old = new Map([...rows.querySelectorAll('li[data-id]')].map(li => [li.dataset.id, li]));
+  const fill = (ul, items) => {
+    const lis = items.map(s => {
+      let li = old.get(s.id);
+      old.delete(s.id);
+      if (!li) {
+        li = taskEl('li', 'wk-task-row');
+        li.dataset.id = s.id;
+        li.tabIndex = -1;
+        li.dataset.titleId = `wk-task-row-${++taskUid}`;
+      }
+      drawRow(li, s);
+      li.querySelector(':scope > .wk-task-text > .wk-task-title').id = li.dataset.titleId;
+      const parts = byParent.get(s.id);
+      let sub = li.querySelector(':scope > .wk-task-parts');
+      if (parts?.length) {
+        if (!sub) { sub = taskEl('ul', 'wk-task-parts'); li.append(sub); }
+        fill(sub, parts);
+      } else sub?.remove();
+      return li;
+    });
+    syncChildren(ul, lis);
+  };
+  // A row that goes while focus is in it hands focus to the next row.
+  const staying = new Set(all.map(s => s.id));
+  const sib = [...rows.querySelectorAll('li[data-id]')];
+  const lost = sib.find(li => !staying.has(li.dataset.id) && li.contains(had));
+  let after = null;
+  if (lost) {
+    const i = sib.indexOf(lost);
+    after = sib.slice(i + 1).find(li => staying.has(li.dataset.id)) || sib.slice(0, i).reverse().find(li => staying.has(li.dataset.id));
+  }
+  fill(rows, top);
+  none.hidden = top.length > 0;
+  rows.hidden = top.length === 0;
+  clear.setAttribute('aria-disabled', String(!all.some(s => FINAL.has(s.state) && !s.parent)));
+  if (lost) (after?.isConnected ? after : list.scroll).focus({ preventScroll: true });
+  // "Next try in 8 s" counts down while the list is open.
+  const ticking = all.some(s => s.nextTry && s.state === 'waiting');
+  if (ticking && !list.ticker) list.ticker = setInterval(() => { if (list.host.open) drawList(); }, 1000);
+  if (!ticking && list.ticker) { clearInterval(list.ticker); list.ticker = 0; }
+}
+
+// Opens the task list: from the summary, or from Window > Tasks.
+function showList({ opener } = {}) {
+  if (!list) buildList();
+  drawList();
+  list.host.show({ opener });
+  return list.host;
+}
+
+wkTask.connect = connect;
+wkTask.follow = follow;
+wkTask.summary = summary;
+wkTask.showList = showList;
+wkTask.words = words;
+
+export { wkTask };
 
 // ---- chart.js ----
 // wk-chart: bars, stacked bars, and a line with a band, drawn as
@@ -1326,10 +2526,26 @@ export function wkChart(spec) {
 //     emptyText: 'No changes',          // shown for a diff with no files
 //     onrender: (fileElement, file) => {},  // after a file's rows are built: when it is
 //                                       // first expanded and on every rebuild (a view switch)
-//   }) -> <section class="wk-diff">
+//     // Review comments (see README, "Review comments"):
+//     comments: [{ id, path, side: 'old'|'new', line, endLine?, resolved?, outdated?,
+//                  entries: [{ author, avatar?, time, body, bodyHtml?, pending?, error? }] }],
+//     canComment: true,                 // or (file, side, line) => boolean; needs oncomment
+//     commentBox: spec => box,          // the box's factory: { value, placeholder, label,
+//                                       // onSubmit, onCancel } -> { element, value, focus(),
+//                                       // destroy() }; defaults to a wk-field textarea
+//     renderBody: entry => node,        // a comment's body; defaults to its plain text
+//     oncomment: ({ path, side, line, endLine, body }) => promise?,
+//     onreply: (threadId, body) => promise?, onresolve: (threadId, resolved) => {},
+//     onretry: (threadId, entry) => {}, // Retry on an entry the app marked with error
+//     author: { name, avatar },         // who a pending comment shows as (default "You")
+//     now: () => Date.now(),            // the clock relative times are measured from
+//   }) -> <section class="wk-diff">, with setComments(threads) to replace the threads
 //
 // Keys, while focus is in the diff: n and p move to the next or previous hunk,
-// ] and [ to the next or previous file. Copying copies code only: the gutter,
+// ] and [ to the next or previous file, N and P to the next or previous thread.
+// With commenting on, lines take focus: the arrow keys move between them
+// (left and right change side in the split view), Shift with an arrow extends
+// a range, and c opens a comment box. Copying copies code only: the gutter,
 // the markers and the screen-reader labels are left out.
 
 // ---- Rules with no DOM ---------------------------------------------------
@@ -1545,6 +2761,33 @@ export function diffWordRanges(before, after, limit = 40000) {
   return { del: ranges(a, keepA), add: ranges(b, keepB) };
 }
 
+/**
+ * Where review threads go in a file: { placed, outdated }. A thread is placed
+ * when its line (and its endLine, for a range) is shown on its side ('old' or
+ * 'new'; anything else is 'new'), both in one hunk: { thread, side, line,
+ * endLine, hunk }, endLine being the line it is drawn under. Otherwise, or
+ * when the thread says it is outdated, it is outdated: { thread, side, line,
+ * endLine, outdated: true }. Threads for other paths (not the file's path or
+ * old path) are in neither list.
+ */
+export function diffCommentPlaces(file, threads) {
+  const placed = [], outdated = [];
+  const paths = new Set([file?.path, file?.oldPath].filter(Boolean));
+  // Each side's line numbers, indexed once: line -> its hunk.
+  const hunkOf = { old: new Map(), new: new Map() };
+  (file?.hunks || []).forEach((h, k) => { for (const l of h.lines) for (const s of ['old', 'new']) if (l[s] != null && !hunkOf[s].has(l[s])) hunkOf[s].set(l[s], k); });
+  for (const thread of threads || []) {
+    if (!thread || !paths.has(thread.path)) continue;
+    const side = thread.side === 'old' ? 'old' : 'new';
+    let line = Number(thread.line), endLine = thread.endLine == null ? line : Number(thread.endLine);
+    if (endLine < line) [line, endLine] = [endLine, line];
+    const hunk = !thread.outdated && Number.isInteger(line) && Number.isInteger(endLine) && hunkOf[side].has(line) && hunkOf[side].get(line) === hunkOf[side].get(endLine) ? hunkOf[side].get(line) : -1;
+    if (hunk < 0) outdated.push({ thread, side, line, endLine, outdated: true });
+    else placed.push({ thread, side, line, endLine, hunk });
+  }
+  return { placed, outdated };
+}
+
 // Files from a diff string or from the app, copied so the view can add the
 // context it fetches, with counts and line numbers filled in. A line of an
 // unknown kind becomes context.
@@ -1662,14 +2905,18 @@ export function wkDiff(spec) {
   const collapseCharsAbove = spec.collapseCharsAbove ?? 200000;
   const step = Math.max(1, spec.contextStep || 20);
   let view = spec.view === 'split' ? 'split' : 'unified';
+  // Review comments: on when the app can take a new comment or has threads.
+  const commenting = typeof spec.oncomment === 'function' && spec.canComment !== false;
+  const reviewing = commenting || Array.isArray(spec.comments);
 
   const root = el('section', 'wk-diff');
   root.id = id;
   root.setAttribute('aria-label', label);
   if (!files.length) { el('p', 'wk-diff-none', spec.emptyText || 'No changes', root); return root; }
   root.tabIndex = 0;
-  root.setAttribute('aria-keyshortcuts', 'n p ] [');
-  const keys = sr('Press n or p for the next or previous change, ] or [ for the next or previous file.', root);
+  if (reviewing) root.dataset.review = '';
+  root.setAttribute('aria-keyshortcuts', `n p ] [${reviewing ? ' N P' : ''}${commenting ? ' c' : ''}`);
+  const keys = sr(`Press n or p for the next or previous change, ] or [ for the next or previous file${reviewing ? ', N or P for the next or previous comment thread' : ''}.${commenting ? ' On a line, press c to comment; Shift with an arrow key selects lines.' : ''}`, root);
   keys.id = `${id}-keys`;
   root.setAttribute('aria-describedby', keys.id);
 
@@ -1700,6 +2947,719 @@ export function wkDiff(spec) {
     return box;
   }
 
+  // ---- Review comments -------------------------------------------------
+  // Threads come from the app (spec.comments, then setComments). The view
+  // keeps only what the app has not seen yet: open boxes (drafts, by line
+  // and by thread for replies), comments it is posting (a promise from
+  // oncomment or onreply), resolves in flight, which resolved threads are
+  // expanded, and the selected lines. Drafts are kept as elements and moved
+  // into the rows each time a file is rebuilt, so a view switch keeps what
+  // was typed. A change to one thread or box redraws only the row it is in.
+  let comments = Array.isArray(spec.comments) ? spec.comments : [];
+  const posting = [];                 // new threads being posted
+  const replying = new Map();         // thread id -> entries being posted
+  const drafts = new Map();           // `${path}\0${side}:${line}:${endLine}` -> draft
+  const replies = new Map();          // thread id -> draft
+  const expanded = new Set();         // resolved threads shown open
+  const resolving = new Map();        // thread id -> { shown, timer } while onresolve's promise runs
+  const timers = new Set();
+  const kept = new Map();             // thread id -> a gone thread kept, outdated, for its reply box with text
+  let localSequence = 0, threadSequence = 0, clock = null, destroyed = false;
+  const later = (fn, ms) => { const t = setTimeout(() => { timers.delete(t); if (!destroyed) fn(); }, ms); timers.add(t); return t; };
+  const now = () => (spec.now ? +spec.now() : Date.now());
+  const author = spec.author || {};
+  // Outcomes and selections are said by the window's announcer (announce.js),
+  // which also makes the same words twice read twice.
+  const allowed = (file, side, line) => commenting && Number.isInteger(line)
+    && (typeof spec.canComment !== 'function' || Boolean(spec.canComment(file, side, line)));
+  // A thread's file: the one whose path is the thread's, else the one whose old path is.
+  const byPath = new Map(), byOldPath = new Map();
+  files.forEach((f, i) => { if (!byPath.has(f.path)) byPath.set(f.path, i); if (!byOldPath.has(f.oldPath)) byOldPath.set(f.oldPath, i); });
+  const fileOf = thread => byPath.get(thread.path) ?? byOldPath.get(thread.path) ?? -1;
+  const threadsOf = state => [...comments, ...posting, ...kept.values()].filter(t => t && fileOf(t) === state.index);
+  const where = (side, line, endLine) => `${side === 'old' ? 'old ' : ''}${endLine !== line ? `lines ${line} to ${endLine}` : `line ${line}`}`;
+  const sameId = (a, b) => String(a) === String(b);
+
+  function countComments() {
+    for (const state of states) {
+      const n = comments.filter(t => t && fileOf(t) === state.index).reduce((m, t) => m + (t.entries?.length || 0), 0);
+      state.talk.textContent = n ? plural(n, 'comment', 'comments') : '';
+      state.talk.hidden = !n;
+    }
+  }
+
+  // A line row: the side a comment on it goes to (an added or context line
+  // on the new side, a removed one on the old; in the split view the side
+  // asked for, if that half has a line), its number there, and the cell that
+  // shows the + button and the selection.
+  const isPair = row => row.classList.contains('wk-diff-pair');
+  const half = (row, side) => { for (const c of row.children) if (c.dataset.side === side) return c; return null; };
+  function sideOf(row, wanted = 'new') {
+    if (!isPair(row)) return row.dataset.kind === 'del' ? 'old' : 'new';
+    const has = s => half(row, s)?.dataset[s] != null;
+    return has(wanted) ? wanted : has('old') ? 'old' : 'new';
+  }
+  const numberOf = (row, side) => { const n = Number((isPair(row) ? half(row, side) : row)?.dataset[side]); return Number.isInteger(n) && n > 0 ? n : null; };
+  const cellOf = (row, side) => (isPair(row) ? half(row, side) : row);
+  const stateOf = node => states.find(s => s.body.contains(node));
+  // The row showing a line, from an index built once per build of the rows.
+  function rowFor(state, side, line) {
+    if (!state.rows) {
+      state.rows = new Map();
+      for (const r of state.body.querySelectorAll('.wk-diff-rows > .wk-diff-line')) {
+        for (const s of ['old', 'new']) { const n = numberOf(r, s); if (n != null) state.rows.set(`${s}:${n}`, r); }
+      }
+    }
+    const row = state.rows.get(`${side}:${line}`);
+    return row && state.body.contains(row) ? row : null;
+  }
+  // The next line or hunk header after (dir 1) or before (dir -1) a row.
+  function nextStop(node, dir) {
+    for (let x = dir > 0 ? node.nextElementSibling : node.previousElementSibling; x; x = dir > 0 ? x.nextElementSibling : x.previousElementSibling) {
+      if (x.classList.contains('wk-diff-line') || x.classList.contains('wk-diff-hunk')) return x;
+    }
+    return null;
+  }
+  // The rows from a to b (either order) when no hunk header is between them.
+  function rowsBetween(a, b) {
+    if (a.parentNode !== b.parentNode) return null;
+    const [first, last] = a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING ? [b, a] : [a, b];
+    const out = [];
+    for (let n = first; n; n = n.nextElementSibling) {
+      if (n.classList.contains('wk-diff-hunk')) return null;
+      if (n.classList.contains('wk-diff-line')) out.push(n);
+      if (n === last) return out;
+    }
+    return null;
+  }
+  // A selection or a single line as { state, side, line, endLine }, or null.
+  function rangeOf(anchor, end, side) {
+    const rows = rowsBetween(anchor, end);
+    const state = stateOf(anchor);
+    if (!rows || !state) return null;
+    const nums = rows.map(r => numberOf(r, side)).filter(n => n != null);
+    if (!nums.length) return null;
+    const line = Math.min(...nums), endLine = Math.max(...nums);
+    return allowed(state.file, side, line) && allowed(state.file, side, endLine) ? { state, side, line, endLine } : null;
+  }
+
+  // ---- Selection: Shift with an arrow key, Shift-click on line numbers, or
+  // a drag on the + button. The selected cells carry data-selected.
+  let selection = null; // { anchor, end, side }
+  function select(next) {
+    for (const cell of root.querySelectorAll('[data-selected]')) delete cell.dataset.selected;
+    selection = next && rowsBetween(next.anchor, next.end) ? next : null;
+    if (!selection) return;
+    for (const row of rowsBetween(selection.anchor, selection.end)) {
+      const cell = cellOf(row, selection.side);
+      if (cell && (!isPair(row) || numberOf(row, selection.side) != null)) cell.dataset.selected = '';
+    }
+  }
+  const selected = row => selection && rowsBetween(selection.anchor, selection.end)?.includes(row) ? rangeOf(selection.anchor, selection.end, selection.side) : null;
+
+  // ---- The + button: one per diff, moved to the line under the pointer or
+  // with focus. It is not a tab stop; on a focused line, c does the same.
+  let plus = null, plusRow = null, plusSide = null, focusSide = 'new', drag = null;
+  if (commenting) {
+    plus = el('button', 'wk-diff-add-comment', '+');
+    plus.type = 'button'; plus.tabIndex = -1;
+    plus.addEventListener('pointerdown', e => {
+      if (e.button !== 0 || !plusRow) return;
+      e.preventDefault();
+      const at = plusRow, side = plusSide;
+      const from = e.shiftKey && selection && selection.side === side && rowsBetween(selection.anchor, at) ? selection.anchor : at;
+      drag = { anchor: from, end: at, side, moved: false, start: selected(at) };
+      select({ anchor: from, end: at, side });
+      try { plus.setPointerCapture(e.pointerId); } catch { /* a synthetic pointer */ }
+    });
+    plus.addEventListener('pointermove', e => {
+      if (!drag) return;
+      const row = document.elementFromPoint(e.clientX, e.clientY)?.closest('.wk-diff-line');
+      if (!row || row === drag.end || !rowsBetween(drag.anchor, row) || numberOf(row, drag.side) == null) return;
+      drag.end = row; drag.moved = true;
+      select({ anchor: drag.anchor, end: row, side: drag.side });
+    });
+    const finish = open => {
+      if (!drag) return;
+      const d = drag;
+      drag = null;
+      // A plain click inside a selection comments on the selection.
+      const range = !d.moved && d.anchor === d.end && d.start ? d.start : rangeOf(d.anchor, d.end, d.side);
+      select(null);
+      if (open && range) openDraft(range.state, range.side, range.line, range.endLine);
+    };
+    plus.addEventListener('pointerup', () => finish(true));
+    plus.addEventListener('pointercancel', () => finish(false));
+    // A click with no pointer (assistive technology).
+    plus.addEventListener('click', e => {
+      if (e.detail !== 0 || !plusRow) return;
+      const range = selected(plusRow) || rangeOf(plusRow, plusRow, plusSide);
+      if (range) openDraft(range.state, range.side, range.line, range.endLine);
+    });
+  }
+  function showPlus(row, side) {
+    if (!plus || drag) return;
+    const state = row && stateOf(row);
+    const s = row && sideOf(row, side);
+    const n = row && numberOf(row, s);
+    if (!state || !allowed(state.file, s, n)) { plus.remove(); plusRow = null; return; }
+    plusRow = row; plusSide = s;
+    plus.setAttribute('aria-label', `Comment on ${state.file.path}, ${where(s, n, n)}`);
+    const cell = cellOf(row, s);
+    if (plus.parentNode !== cell) cell.prepend(plus);
+  }
+  function focusRow(row, side) {
+    if (!row) return;
+    const s = sideOf(row, side);
+    focusSide = s;
+    if (isPair(row)) row.dataset.focusSide = s;
+    row.focus({ preventScroll: true });
+    row.scrollIntoView?.({ block: 'nearest' });
+    showPlus(row, s);
+  }
+  if (commenting) {
+    // Only a pointer that moved: the browser also reports one when what is
+    // under a still pointer changes, which would take the button from a
+    // line the keyboard just reached.
+    let pointer = '';
+    root.addEventListener('mousemove', e => {
+      const at = `${e.clientX},${e.clientY}`;
+      if (at === pointer) return;
+      pointer = at;
+      const row = e.target.closest?.('.wk-diff-rows > .wk-diff-line');
+      if (!row || !root.contains(row)) return;
+      const side = e.target.closest('.wk-diff-half')?.dataset.side || focusSide;
+      if (row !== plusRow || (isPair(row) && sideOf(row, side) !== plusSide)) showPlus(row, side);
+    });
+    root.addEventListener('mouseleave', () => {
+      const a = document.activeElement;
+      showPlus(a?.classList?.contains('wk-diff-line') && root.contains(a) ? a : null, focusSide);
+    });
+    root.addEventListener('focusin', e => {
+      if (e.target.classList?.contains('wk-diff-line')) {
+        const s = sideOf(e.target, focusSide);
+        if (isPair(e.target)) e.target.dataset.focusSide = s;
+        showPlus(e.target, s);
+      }
+    });
+    // A click on a line number focuses the line; with Shift, it selects
+    // from the line selected or focused before.
+    root.addEventListener('click', e => {
+      const num = e.target.closest?.('.wk-diff-num');
+      const row = num?.closest('.wk-diff-line');
+      if (!row || !root.contains(row)) return;
+      const side = isPair(row) ? num.closest('.wk-diff-half').dataset.side : sideOf(row);
+      if (numberOf(row, side) == null) return;
+      const from = selection?.anchor || (document.activeElement?.classList?.contains('wk-diff-line') ? document.activeElement : null);
+      if (e.shiftKey && from && rowsBetween(from, row) && (selection ? selection.side === side : true)) select({ anchor: from, end: row, side });
+      else select({ anchor: row, end: row, side });
+      focusRow(row, side);
+    });
+  }
+
+  // Keys on a focused line or hunk header: arrows move, Shift extends the
+  // selection, left and right change side (split), c comments, Escape
+  // clears the selection. True when the key was used.
+  function lineKey(e) {
+    const t = e.target;
+    const onLine = t.classList?.contains('wk-diff-line'), onHunk = t.classList?.contains('wk-diff-hunk');
+    if (!root.contains(t) || (!onLine && !onHunk)) return false;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const next = nextStop(t, e.key === 'ArrowDown' ? 1 : -1);
+      e.preventDefault();
+      if (!next) return true;
+      if (e.shiftKey && onLine && next.classList.contains('wk-diff-line')) {
+        const side = selection?.side || sideOf(t, focusSide);
+        const anchor = selection && rowsBetween(selection.anchor, t) ? selection.anchor : t;
+        if (!rowsBetween(anchor, next)) return true;
+        select({ anchor, end: next, side });
+        focusRow(next, side);
+        const range = rangeOf(anchor, next, side);
+        if (range) announce(`${side === 'old' ? 'Old l' : 'L'}${range.line === range.endLine ? `ine ${range.line}` : `ines ${range.line} to ${range.endLine}`} selected`);
+        return true;
+      }
+      if (e.shiftKey) return true;
+      select(null);
+      if (next.classList.contains('wk-diff-line')) focusRow(next, focusSide);
+      else { next.focus(); next.scrollIntoView?.({ block: 'nearest' }); }
+      return true;
+    }
+    if (!onLine) return false;
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && isPair(t) && !e.shiftKey) {
+      const side = e.key === 'ArrowLeft' ? 'old' : 'new';
+      if (numberOf(t, side) == null) return true;
+      e.preventDefault();
+      if (selection && selection.side !== side) select(null);
+      focusRow(t, side);
+      return true;
+    }
+    if (e.key === 'c' && !e.shiftKey) {
+      const range = selected(t) || rangeOf(t, t, sideOf(t, focusSide));
+      if (!range) return false;
+      e.preventDefault();
+      select(null);
+      openDraft(range.state, range.side, range.line, range.endLine);
+      return true;
+    }
+    if (e.key === 'Escape' && selection) { e.preventDefault(); select(null); return true; }
+    return false;
+  }
+
+  // ---- Comment boxes ---------------------------------------------------
+  // The box comes from spec.commentBox when given (an editor, say), else a
+  // textarea. The view draws Cancel and the submit button around it, and
+  // handles Escape and Ctrl or Cmd+Enter unless the box already did, or an
+  // input method is composing.
+  function textBox({ value, placeholder, label }) {
+    const area = document.createElement('textarea');
+    area.className = 'wk-field wk-diff-compose-field';
+    area.rows = 3;
+    area.value = value;
+    area.placeholder = placeholder;
+    area.setAttribute('aria-label', label);
+    return { element: area, get value() { return area.value; }, set value(v) { area.value = v; }, focus: () => area.focus(), destroy() {} };
+  }
+  function asBox(made) {
+    // A bare element (an editor element with value, focus() and destroy()).
+    if (made instanceof Node) return { element: made, get value() { return made.value ?? made.textContent; }, set value(v) { made.value = v; }, focus: () => made.focus?.(), destroy: () => made.destroy?.() };
+    return made && made.element instanceof Node ? made : null;
+  }
+  const textOf = draft => String(draft.box.value ?? '');
+  // draft: { state, path, side, line, endLine } for a new thread, or
+  // { state, thread } for a reply. Fills in frame and box.
+  function compose(draft, value, label, submitText) {
+    const frame = el('div', 'wk-diff-compose');
+    if (draft.side) frame.dataset.side = draft.side;
+    const boxSpec = { value: String(value ?? ''), placeholder: spec.commentPlaceholder || (draft.thread ? 'Reply' : 'Leave a comment'), label, onSubmit: () => submit(draft), onCancel: () => cancel(draft) };
+    let box = null;
+    if (typeof spec.commentBox === 'function') { try { box = asBox(spec.commentBox(boxSpec)); } catch { box = null; } }
+    box ||= textBox(boxSpec);
+    frame.append(box.element);
+    const actions = el('div', 'wk-diff-compose-actions', null, frame);
+    const no = el('button', 'wk-button wk-button--small', 'Cancel', actions);
+    no.type = 'button'; no.dataset.action = 'cancel';
+    no.addEventListener('click', () => cancel(draft));
+    const yes = el('button', 'wk-button wk-button--primary wk-button--small', submitText, actions);
+    yes.type = 'button'; yes.dataset.action = 'submit';
+    yes.addEventListener('click', () => submit(draft));
+    frame.addEventListener('keydown', e => {
+      if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(draft); }
+      else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(draft); }
+    });
+    Object.assign(draft, { frame, box });
+    return draft;
+  }
+  const focusBox = draft => { (draft.box.focus ? draft.box.focus() : draft.box.element.focus?.()); draft.frame.scrollIntoView?.({ block: 'nearest' }); };
+  function close(draft) {
+    if (draft.closed) return false;
+    draft.closed = true;
+    if (draft.thread) { replies.delete(draft.thread.id); kept.delete(String(draft.thread.id)); } else drafts.delete(draft.key);
+    try { draft.box.destroy?.(); } catch { /* the box's own clean-up failed */ }
+    draft.frame.remove();
+    return true;
+  }
+  // Puts text in a box already open: an empty box gives way to a new one
+  // holding it; one with text gets it added at the end, if the box takes a
+  // new value. True when the text is in the box; null when the empty box
+  // was closed for a new one.
+  function restore(draft, text) {
+    if (!text) return true;
+    if (!textOf(draft).trim()) { close(draft); return null; }
+    const before = textOf(draft);
+    try { draft.box.value = `${before.replace(/\s+$/, '')}\n\n${text}`; } catch { /* a box whose value can't be set */ }
+    return textOf(draft).includes(text);
+  }
+  // Opens a box under a line (or range), or focuses the one there. With
+  // value, the text goes in it (see restore). True when value is in a box.
+  function openDraft(state, side, line, endLine, value = '') {
+    const key = `${state.file.path}\0${side}:${line}:${endLine}`;
+    let draft = drafts.get(key), placed = true;
+    if (draft && value) { placed = restore(draft, value); if (placed === null) { draft = null; placed = true; } }
+    if (!draft) {
+      draft = compose({ key, state, path: state.file.path, side, line, endLine }, value, `Comment on ${state.file.path}, ${where(side, line, endLine)}`, 'Comment');
+      drafts.set(key, draft);
+    }
+    refreshAt(state, side, endLine);
+    focusBox(draft);
+    return placed;
+  }
+  function openReply(state, thread, value = '') {
+    let draft = replies.get(thread.id), placed = true;
+    if (draft && value) { placed = restore(draft, value); if (placed === null) { draft = null; placed = true; } }
+    if (!draft) {
+      draft = compose({ state, thread }, value, `Reply to the comments on ${state.file.path}`, 'Reply');
+      replies.set(thread.id, draft);
+    }
+    refreshThread(state, thread.id);
+    focusBox(draft);
+    return placed;
+  }
+  function cancel(draft) {
+    if (!close(draft)) return;
+    const { state } = draft;
+    if (draft.thread) {
+      refreshThread(state, draft.thread.id);
+      const reply = threadEl(state, draft.thread.id)?.querySelector('[data-action="reply"]');
+      // A kept thread goes with its box: focus moves to the file's toggle.
+      (reply || state.button).focus();
+    } else {
+      refreshAt(state, draft.side, draft.endLine);
+      focusRow(rowFor(state, draft.side, draft.endLine), draft.side);
+    }
+  }
+  function submit(draft) {
+    if (draft.closed) return;
+    const body = textOf(draft);
+    if (!body.trim()) { focusBox(draft); return; }
+    close(draft);
+    const { state } = draft;
+    if (draft.thread) send(state, draft.thread, { body });
+    else send(state, null, { path: draft.path, side: draft.side, line: draft.line, endLine: draft.endLine, body });
+  }
+
+  // Posts a new comment (thread null) or a reply. A promise from the app
+  // shows the comment as pending until it settles. When it resolves, the
+  // copy stays (as posted) until the app's comments hold it (a thread, or
+  // for a reply an entry, with the id the promise resolved with; else an
+  // entry with the same text and author), checked then and on each
+  // setComments, or for POSTED_KEEP at most. When it rejects, the copy shows the error with Retry and Edit. A
+  // shown working dot stays at least timings.indicatorMin. Anything else
+  // from the callback: the app shows the comment.
+  const POSTED_KEEP = 10_000;
+  function send(state, thread, info, entry) {
+    let result;
+    try { result = thread ? spec.onreply?.(thread.id, info.body) : spec.oncomment(info); } catch (err) { result = Promise.reject(err); }
+    if (!result || typeof result.then !== 'function') {
+      if (!thread) { refreshAt(state, info.side, info.endLine); focusRow(rowFor(state, info.side, info.endLine), info.side); }
+      else { refreshThread(state, thread.id); threadEl(state, thread.id)?.focus(); }
+      return;
+    }
+    entry ||= { author: author.name || 'You', avatar: author.avatar, time: new Date(now()), body: info.body };
+    Object.assign(entry, { pending: true, posted: false, error: undefined, since: Date.now(), shownAt: 0, landed: undefined });
+    let own = null;
+    if (!thread) {
+      own = posting.find(t => t.entries[0] === entry);
+      if (!own) { own = { id: `${id}-posting-${++localSequence}`, path: info.path, side: info.side, line: info.line, endLine: info.endLine, entries: [entry], local: info }; posting.push(own); }
+    } else if (!(replying.get(thread.id) || []).includes(entry)) replying.set(thread.id, [...(replying.get(thread.id) || []), entry]);
+    const redraw = () => (own ? refreshAt(state, info.side, info.endLine) : refreshThread(state, thread.id));
+    redraw();
+    threadEl(state, own ? own.id : thread.id)?.focus();
+    const drop = () => {
+      if (own) { const k = posting.indexOf(own); if (k >= 0) posting.splice(k, 1); }
+      else replying.set(thread.id, (replying.get(thread.id) || []).filter(x => x !== entry));
+    };
+    entry.drop = drop;
+    // Whether the app's comments hold this comment now.
+    const same = e => e && (entry.landed != null ? e.id != null && sameId(e.id, entry.landed) : e.body === entry.body && e.author === entry.author);
+    entry.covered = () => (own
+      ? comments.some(t => t && (entry.landed != null ? sameId(t.id, entry.landed) : t.path === info.path && (t.entries || []).some(same)))
+      : (comments.find(t => t && sameId(t.id, thread.id))?.entries || []).some(same));
+    // Once the dot has shown, it stays its minimum before the outcome replaces it.
+    const settle = fn => { const hold = entry.shownAt ? timings.indicatorMin - (Date.now() - entry.shownAt) : 0; if (hold > 0) later(fn, hold); else fn(); };
+    result.then(value => settle(() => {
+      const landed = value != null && typeof value === 'object' ? value.id : (typeof value === 'string' || typeof value === 'number' ? value : undefined);
+      Object.assign(entry, { pending: false, posted: true, landed });
+      announce(thread ? 'Reply posted' : 'Comment posted');
+      if (entry.covered()) drop();
+      else later(() => { if (entry.posted) { drop(); redraw(); } }, POSTED_KEEP);
+      redraw();
+    }), err => settle(() => {
+      Object.assign(entry, { pending: false, error: err?.message || String(err || 'Unknown error'), retry: () => send(state, thread, info, entry) });
+      // Edit puts the text back in a box: a new one, or added to the text of
+      // one already open there. The failed comment stays if that can't be done.
+      entry.edit = () => {
+        const placed = own ? openDraft(state, info.side, info.line, info.endLine, info.body) : openReply(state, thread, info.body);
+        if (placed) drop();
+        redraw();
+        const draft = own ? drafts.get(`${info.path}\0${info.side}:${info.line}:${info.endLine}`) : replies.get(thread.id);
+        if (draft) focusBox(draft);
+      };
+      announce(thread ? 'Couldn’t post the reply' : 'Couldn’t post the comment');
+      redraw();
+    }));
+  }
+
+  // Resolve and Unresolve: a promise from onresolve makes the button busy
+  // (data-busy, aria-disabled) until it settles, with a spinner after
+  // timings.indicatorDelay that stays at least timings.indicatorMin.
+  function resolve(state, thread, to) {
+    const tid = String(thread.id);
+    if (resolving.has(tid)) return;
+    let result;
+    try { result = spec.onresolve(thread.id, to); } catch (err) { result = Promise.reject(err); }
+    if (!result || typeof result.then !== 'function') return;
+    const job = { shown: 0, timer: 0 };
+    resolving.set(tid, job);
+    refreshThread(state, tid);
+    job.timer = later(() => { job.shown = Date.now(); refreshThread(state, tid); }, timings.indicatorDelay);
+    const end = failed => {
+      const finish = () => {
+        if (destroyed) return;
+        clearTimeout(job.timer); timers.delete(job.timer);
+        resolving.delete(tid);
+        if (failed) announce(to ? 'Couldn’t resolve the comments' : 'Couldn’t reopen the comments');
+        refreshThread(state, tid);
+      };
+      const hold = job.shown ? timings.indicatorMin - (Date.now() - job.shown) : 0;
+      if (hold > 0) later(finish, hold); else finish();
+    };
+    result.then(() => end(false), () => end(true));
+  }
+
+  // ---- Threads ---------------------------------------------------------
+  const threadEl = (state, tid) => [...state.body.querySelectorAll('.wk-diff-thread')].find(x => sameId(x.dataset.thread, tid));
+  function relative(ms) {
+    const s = (now() - ms) / 1000;
+    if (Math.abs(s) < 45) return 'just now';
+    const units = [['year', 31557600], ['month', 2629800], ['week', 604800], ['day', 86400], ['hour', 3600], ['minute', 60]];
+    const [unit, size] = units.find(([, n]) => Math.abs(s) >= n) || units.at(-1);
+    return new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }).format(-Math.round(s / size), unit);
+  }
+  // Relative times are redrawn each minute while the diff is on the page.
+  function tick() {
+    if (clock || destroyed) return;
+    clock = setInterval(() => {
+      if (!root.isConnected) { clearInterval(clock); clock = null; return; }
+      for (const t of root.querySelectorAll('time.wk-diff-time')) t.textContent = relative(Date.parse(t.dateTime));
+    }, 60_000);
+  }
+  // Avatars: http(s) or data:image URLs only. A redraw moves the same <img>,
+  // so the picture is not fetched again.
+  const avatars = new WeakMap();
+  const avatarURL = src => typeof src === 'string' && /^(https?:\/\/|data:image\/)/i.test(src.trim()) ? src.trim() : null;
+  function avatarOf(entry) {
+    const src = avatarURL(entry.avatar);
+    if (!src) return null;
+    let img = avatars.get(entry);
+    if (!img || img.getAttribute('src') !== src) {
+      img = el('img', 'wk-diff-avatar'); img.alt = ''; img.src = src;
+      avatars.set(entry, img);
+    }
+    return img;
+  }
+  function entryEl(state, thread, entry) {
+    const item = el('li', 'wk-diff-comment');
+    const head = el('p', 'wk-diff-comment-head', null, item);
+    const img = avatarOf(entry);
+    if (img) head.append(img);
+    el('span', 'wk-diff-author', entry.author || 'Unknown', head);
+    const at = entry.time instanceof Date ? entry.time : entry.time != null && entry.time !== '' ? new Date(entry.time) : null;
+    if (at && !Number.isNaN(at.getTime())) {
+      sr(', ', head);
+      const time = el('time', 'wk-diff-time', relative(at.getTime()), head);
+      time.dateTime = at.toISOString(); time.title = at.toLocaleString(undefined);
+      tick();
+    }
+    sr(': ', head);
+    const body = el('div', 'wk-diff-comment-body', null, item);
+    let made = null;
+    try { made = spec.renderBody?.(entry); } catch { made = null; }
+    if (made instanceof Node) body.append(made);
+    else { body.textContent = String(entry.body ?? ''); body.dataset.plain = ''; }
+    if (entry.pending) {
+      item.dataset.state = 'pending';
+      const work = el('span', 'wk-dot-label wk-diff-comment-state', null, head);
+      el('span', 'wk-dot', null, work).dataset.tone = 'working';
+      work.firstChild.dataset.size = 'sm';
+      work.firstChild.setAttribute('aria-hidden', 'true');
+      el('span', null, 'Posting…', work);
+      // Shown after timings.indicatorDelay (BEHAVIOUR.md); an app's own pending entry at once.
+      const wait = entry.since ? timings.indicatorDelay - (Date.now() - entry.since) : 0;
+      if (wait > 0) {
+        work.hidden = true;
+        later(() => { if (entry.pending) { entry.shownAt ||= Date.now(); work.hidden = false; } }, wait);
+      } else if (entry.since) entry.shownAt ||= Date.now();
+    } else if (entry.error) {
+      item.dataset.state = 'error';
+      const words = (replying.get(thread.id) || []).includes(entry) ? 'Couldn’t post the reply' : 'Couldn’t post the comment';
+      const boxEl = el('div', 'wk-errorbox wk-diff-errorbox', null, item);
+      boxEl.setAttribute('role', 'group'); boxEl.setAttribute('aria-label', words);
+      const top = el('div', 'wk-errorbox-head', null, boxEl);
+      el('span', null, words, top);
+      const copy = el('button', 'wk-copy', null, top);
+      copy.type = 'button'; copy.title = 'Copy'; copy.setAttribute('aria-label', 'Copy error details');
+      copy.append(copyGlyph());
+      copy.addEventListener('click', () => { navigator.clipboard?.writeText(`${words}\n${entry.error}`).catch(() => {}); });
+      el('pre', null, String(entry.error), boxEl);
+      const acts = el('div', 'wk-diff-comment-actions', null, item);
+      const retry = entry.retry || (spec.onretry && (() => spec.onretry(thread.id, entry)));
+      if (retry) { const b = el('button', 'wk-button wk-button--small', 'Retry', acts); b.type = 'button'; b.dataset.action = 'retry'; b.addEventListener('click', retry); }
+      if (entry.edit) { const b = el('button', 'wk-button wk-button--small', 'Edit', acts); b.type = 'button'; b.dataset.action = 'edit'; b.addEventListener('click', entry.edit); }
+      if (!acts.childElementCount) acts.remove();
+    }
+    return item;
+  }
+  function copyGlyph() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 16 16'); svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '1.5'); svg.setAttribute('aria-hidden', 'true');
+    for (const d of ['M5.5 7.1a1.6 1.6 0 0 1 1.6-1.6h4.8a1.6 1.6 0 0 1 1.6 1.6v4.8a1.6 1.6 0 0 1-1.6 1.6H7.1a1.6 1.6 0 0 1-1.6-1.6z', 'M10.5 3.5v-.2a1.3 1.3 0 0 0-1.3-1.3H3.8a1.3 1.3 0 0 0-1.3 1.3v5.4a1.3 1.3 0 0 0 1.3 1.3h.2']) {
+      const path = document.createElementNS(ns, 'path'); path.setAttribute('d', d); svg.append(path);
+    }
+    return svg;
+  }
+  function threadView(state, place) {
+    const { thread, side, line, endLine, outdated } = place;
+    const tid = String(thread.id);
+    const box = el('div', 'wk-diff-thread');
+    box.dataset.thread = tid; box.dataset.side = side;
+    box.tabIndex = -1; box.setAttribute('role', 'region');
+    const spot = Number.isInteger(line) ? where(side, line, endLine) : '';
+    box.setAttribute('aria-label', `${outdated ? 'Outdated comments' : 'Comments'} on ${state.file.path}${spot ? `, ${spot}` : ''}`);
+    if (outdated) { box.dataset.outdated = ''; el('p', 'wk-diff-thread-head', `Outdated${spot ? ` · ${spot}` : ''}`, box); }
+    if (thread.local) box.dataset.local = '';
+    const entries = [...(thread.entries || []), ...(replying.get(thread.id) || [])];
+    const resolved = Boolean(thread.resolved);
+    const inner = el('div', 'wk-diff-thread-body');
+    if (resolved) {
+      box.dataset.resolved = '';
+      const open = expanded.has(tid);
+      const toggle = el('button', 'wk-link wk-diff-thread-toggle', `Resolved · ${plural(entries.length, 'comment', 'comments')}`, box);
+      toggle.type = 'button'; toggle.dataset.action = 'toggle';
+      toggle.setAttribute('aria-expanded', String(open));
+      inner.id = `${id}-thread-${++threadSequence}`;
+      toggle.setAttribute('aria-controls', inner.id);
+      inner.hidden = !open;
+      toggle.addEventListener('click', () => {
+        if (expanded.has(tid)) expanded.delete(tid); else expanded.add(tid);
+        refreshThread(state, tid);
+      });
+    }
+    box.append(inner);
+    const list = el('ol', 'wk-diff-comment-list', null, inner);
+    for (const entry of entries) list.append(entryEl(state, thread, entry));
+    const draft = replies.get(thread.id);
+    if (!thread.local) {
+      const acts = el('div', 'wk-diff-thread-actions', null, inner);
+      if (spec.onreply && !draft) {
+        const b = el('button', 'wk-button wk-button--small', 'Reply', acts);
+        b.type = 'button'; b.dataset.action = 'reply';
+        b.addEventListener('click', () => openReply(state, thread));
+      }
+      if (spec.onresolve && !thread.gone) {
+        const b = el('button', 'wk-button wk-button--quiet wk-button--small', resolved ? 'Unresolve' : 'Resolve', acts);
+        b.type = 'button'; b.dataset.action = 'resolve';
+        const job = resolving.get(tid);
+        if (job) {
+          b.dataset.busy = ''; b.setAttribute('aria-disabled', 'true');
+          if (job.shown) { const spin = el('span', 'wk-spinner'); spin.setAttribute('aria-hidden', 'true'); b.prepend(spin); }
+        }
+        b.addEventListener('click', () => resolve(state, thread, !resolved));
+      }
+      if (!acts.childElementCount) acts.remove();
+      if (draft) inner.append(draft.frame);
+    }
+    return box;
+  }
+
+  // ---- Placing threads -------------------------------------------------
+  // Focus stays where it was across a redraw: on the same box, the same
+  // thread's same button (or its toggle, or the thread), a thread in the
+  // same place, the line, the next thread, the file's toggle, else the diff.
+  function keepFocus(state, redraw) {
+    const a = document.activeElement;
+    let had = null;
+    if (a && a !== state.body && state.body.contains(a)) {
+      const thread = a.closest('.wk-diff-thread');
+      had = { el: a, thread: thread?.dataset.thread, action: a.dataset?.action, anchor: a.closest('.wk-diff-comments')?.previousElementSibling, index: thread ? [...state.body.querySelectorAll('.wk-diff-thread')].indexOf(thread) : -1 };
+    }
+    redraw();
+    if (!had) return;
+    if (had.el.isConnected) { if (document.activeElement !== had.el) had.el.focus({ preventScroll: true }); return; }
+    const visible = x => x && x.isConnected && x.offsetParent !== null;
+    const thread = had.thread != null && threadEl(state, had.thread);
+    const threads = [...state.body.querySelectorAll('.wk-diff-thread')].filter(visible);
+    const target = (thread && [thread.querySelector(`[data-action="${had.action}"]`), thread.querySelector('[data-action="toggle"]'), thread].find(visible))
+      || (had.anchor?.isConnected && had.anchor.nextElementSibling?.classList.contains('wk-diff-comments') && had.anchor.nextElementSibling.querySelector('.wk-diff-thread'))
+      || (had.anchor?.isConnected && had.anchor.classList.contains('wk-diff-line') && had.anchor.hasAttribute('tabindex') && had.anchor)
+      || (had.index >= 0 && (threads[had.index] || threads.at(-1)))
+      || (visible(state.button) && state.button)
+      || root;
+    target.focus({ preventScroll: true });
+  }
+  // A row's threads and boxes: those whose line (the range's end) is in it.
+  function slotItems(state, row, placed) {
+    const items = [];
+    for (const place of placed) if (numberOf(row, place.side) === place.endLine) items.push(threadView(state, place));
+    for (const draft of drafts.values()) if (draft.state === state && numberOf(row, draft.side) === draft.endLine) items.push(draft.frame);
+    return items;
+  }
+  function fillSlot(row, items) {
+    let box = row.nextElementSibling?.classList.contains('wk-diff-comments') ? row.nextElementSibling : null;
+    if (!items.length) { box?.remove(); return; }
+    if (!box) { box = el('div', 'wk-diff-comments'); row.after(box); }
+    box.replaceChildren(...items);
+  }
+  // The outdated threads, and any box whose line is not shown, at the top.
+  function fillOutdated(state, outdated) {
+    const items = outdated.map(place => threadView(state, place));
+    for (const draft of drafts.values()) if (draft.state === state && !rowFor(state, draft.side, draft.endLine)) items.push(draft.frame);
+    let top = state.body.firstElementChild?.classList.contains('wk-diff-outdated') ? state.body.firstElementChild : null;
+    if (!items.length) { top?.remove(); return; }
+    if (!top) { top = el('div', 'wk-diff-outdated'); state.body.prepend(top); }
+    top.replaceChildren(...items);
+  }
+  // Every thread and box of a built file.
+  function placeThreads(state) {
+    if (!state.built) return;
+    keepFocus(state, () => {
+      const { placed, outdated } = diffCommentPlaces(state.file, threadsOf(state));
+      const rows = new Set();
+      for (const place of placed) { const row = rowFor(state, place.side, place.endLine); if (row) rows.add(row); }
+      for (const draft of drafts.values()) if (draft.state === state) { const row = rowFor(state, draft.side, draft.endLine); if (row) rows.add(row); }
+      for (const old of state.body.querySelectorAll('.wk-diff-comments')) if (!rows.has(old.previousElementSibling)) old.remove();
+      for (const row of rows) fillSlot(row, slotItems(state, row, placed));
+      fillOutdated(state, outdated);
+    });
+  }
+  // Only the row under one line, or the one holding a thread.
+  function refreshAt(state, side, line) {
+    if (!state.built) return;
+    const row = rowFor(state, side, line);
+    if (!row) { refreshOutdated(state); return; }
+    keepFocus(state, () => fillSlot(row, slotItems(state, row, diffCommentPlaces(state.file, threadsOf(state)).placed)));
+  }
+  function refreshOutdated(state) {
+    if (!state.built) return;
+    keepFocus(state, () => fillOutdated(state, diffCommentPlaces(state.file, threadsOf(state)).outdated));
+  }
+  function refreshThread(state, tid) {
+    const host = threadEl(state, tid)?.parentElement;
+    if (host?.classList.contains('wk-diff-comments')) keepFocus(state, () => fillSlot(host.previousElementSibling, slotItems(state, host.previousElementSibling, diffCommentPlaces(state.file, threadsOf(state)).placed)));
+    else if (host) refreshOutdated(state);
+    else placeThreads(state);
+  }
+
+  /** Replaces the threads (the app's comments) and redraws them. */
+  root.setComments = threads => {
+    if (destroyed) return;
+    comments = Array.isArray(threads) ? threads : [];
+    // Copies of comments that have landed go once the app's comments hold them.
+    for (const t of [...posting]) if (t.entries[0]?.posted && t.entries[0].covered()) t.entries[0].drop();
+    for (const list of replying.values()) for (const e of [...list]) if (e.posted && e.covered()) e.drop();
+    // A reply box for a thread that has gone goes with it, unless it has
+    // text: then the thread is kept, outdated, until the box is sent or
+    // cancelled (or the thread comes back).
+    for (const [tid, draft] of [...replies]) {
+      const key = String(tid);
+      if (comments.some(t => t && sameId(t.id, tid))) { kept.delete(key); continue; }
+      if (textOf(draft).trim()) { if (!kept.has(key)) kept.set(key, { ...draft.thread, outdated: true, gone: true }); }
+      else close(draft);
+    }
+    countComments();
+    for (const state of states) placeThreads(state);
+  };
+  /** Closes every open box (destroying injected editors) and stops the clocks. */
+  root.destroy = () => {
+    for (const draft of [...drafts.values(), ...replies.values()]) close(draft);
+    for (const t of timers) clearTimeout(t);
+    timers.clear();
+    if (clock) clearInterval(clock);
+    clock = null;
+    destroyed = true;
+  };
+
   const lineCount = f => f.hunks.reduce((n, h) => n + h.lines.length, 0);
   const charCount = f => f.hunks.reduce((n, h) => n + h.lines.reduce((m, l) => m + l.text.length, 0), 0);
   const states = files.map((file, index) => {
@@ -1725,15 +3685,19 @@ export function wkDiff(spec) {
     if (generated) chips.push('generated');
     for (const chip of chips) el('span', 'wk-chip wk-diff-chip', chip, header).dataset.status = chip;
     if (!file.binary) counts(file.additions, file.deletions, header);
+    const talk = el('span', 'wk-diff-comment-count', null, header);
+    talk.hidden = true;
     const body = el('div', 'wk-diff-body', null, box);
     body.id = `${fid}-body`;
     body.setAttribute('role', 'group'); body.setAttribute('aria-labelledby', button.id);
     const large = lineCount(file) > collapseAbove || charCount(file) > collapseCharsAbove;
-    const state = { file, index, box, button, body, open: file.collapsed != null ? !file.collapsed : !(large || generated || file.binary), built: false };
+    const state = { file, index, box, button, body, talk, open: file.collapsed != null ? !file.collapsed : !(large || generated || file.binary), built: false };
     button.addEventListener('click', () => { state.open = !state.open; paint(state); });
     paint(state);
     return state;
   });
+
+  countComments();
 
   function paint(state) {
     state.button.setAttribute('aria-expanded', String(state.open));
@@ -1748,6 +3712,8 @@ export function wkDiff(spec) {
     body.dataset.view = view;
     body.toggleAttribute('data-wrap', Boolean(spec.wrap) || view === 'split');
     fill(state);
+    state.rows = null;
+    placeThreads(state);
     spec.onrender?.(state.box, file);
   }
   function fill(state) {
@@ -1790,14 +3756,23 @@ export function wkDiff(spec) {
     if (canExpand) {
       const more = el('button', 'wk-link wk-diff-more', null, row);
       more.type = 'button';
-      more.disabled = Boolean(hunk.loading);
+      setBusy(more, hunk.loading);
       moreLabel(file, k, more);
-      const note = el('span', 'wk-diff-more-note', null, row);
-      note.setAttribute('aria-live', 'polite');
-      more.addEventListener('click', () => showMore(state, hunk, k));
+      // The note is not a live region: a failure goes to the window's
+      // announcer once (BEHAVIOUR.md, "Announcer").
+      el('span', 'wk-diff-more-note', null, row);
+      more.addEventListener('click', () => { if (!hunk.loading) showMore(state, hunk, k); });
     }
     el('span', 'wk-diff-hunk-text', hunk.header, row).setAttribute('aria-hidden', 'true');
     return row;
+  }
+
+  // Loading: busy, never disabled, so the button keeps focus (BEHAVIOUR.md,
+  // "Accessibility"); kit.js drops the presses a busy control gets.
+  function setBusy(more, on) {
+    if (!more) return;
+    if (on) { more.setAttribute('aria-disabled', 'true'); more.setAttribute('data-busy', ''); }
+    else { more.removeAttribute('aria-disabled'); more.removeAttribute('data-busy'); }
   }
 
   function moreLabel(file, k, more) {
@@ -1813,15 +3788,20 @@ export function wkDiff(spec) {
     const cur = gap(file, k);
     const from = Math.max(cur.from, cur.to - step + 1), to = cur.to;
     hunk.loading = true;
-    { const { more, note } = parts(header()); if (more) more.disabled = true; if (note) note.textContent = ''; }
+    { const { more, note } = parts(header()); setBusy(more, true); if (note) note.textContent = ''; }
     let got, failed = false;
     try { got = await spec.getContext(file, { oldStart: from, oldEnd: to, newStart: from + cur.shift, newEnd: to + cur.shift }); } catch { failed = true; }
     hunk.loading = false;
     const row = header();
     const { more, note } = parts(row);
     const hadFocus = more && document.activeElement === more;
-    if (more) more.disabled = false;
-    if (failed) { if (note) note.textContent = 'Couldn\u2019t load lines'; return; }
+    setBusy(more, false);
+    if (failed) {
+      if (note) note.textContent = 'Couldn\u2019t load lines';
+      // Assertive only while the person waits on it: focus still on the button.
+      announce('Couldn\u2019t load lines', { assertive: hadFocus });
+      return;
+    }
     const close = () => { more?.remove(); if (hadFocus) row.focus(); };
     if (!Array.isArray(got) || !got.length) { hunk.noMore = true; close(); return; }
     got = got.slice(-(to - from + 1));
@@ -1831,7 +3811,7 @@ export function wkDiff(spec) {
     hunk.oldStart = first; hunk.oldLines += added.length;
     hunk.newStart = first + cur.shift; hunk.newLines += added.length;
     // A file that is not built picks the lines up when it is.
-    if (row) row.after(...rowsFor(file, added));
+    if (row) { row.after(...rowsFor(file, added)); state.rows = null; placeThreads(state); }
     if (gap(file, k).to < gap(file, k).from) close(); else if (more) moreLabel(file, k, more);
     if (row) spec.onrender?.(state.box, file);
   }
@@ -1873,6 +3853,7 @@ export function wkDiff(spec) {
     if (view === 'unified') {
       for (const line of lines) {
         const row = el('div', 'wk-diff-line');
+        if (commenting) row.tabIndex = -1;
         row.dataset.kind = line.kind;
         if (line.old != null) row.dataset.old = String(line.old);
         if (line.new != null) row.dataset.new = String(line.new);
@@ -1883,15 +3864,17 @@ export function wkDiff(spec) {
     }
     for (const { left, right } of pairs) {
       const row = el('div', 'wk-diff-line wk-diff-pair');
+      if (commenting) row.tabIndex = -1;
       for (const [line, side] of [[left, 'old'], [right, 'new']]) {
         const half = el('div', 'wk-diff-half', null, row);
         half.dataset.side = side;
         if (!line) { half.dataset.kind = 'empty'; continue; }
         half.dataset.kind = line.kind;
         if (line[side] != null) half.dataset[side] = String(line[side]);
-        // A context line is on both sides: read it once.
-        if (line.kind === 'context' && side === 'new') half.setAttribute('aria-hidden', 'true');
         cells(file, line, words.get(line), half, side);
+        // A context line is on both sides: read it once. Its parts are hidden,
+        // not the half, which takes focus and the + button.
+        if (line.kind === 'context' && side === 'new') for (const part of half.children) part.setAttribute('aria-hidden', 'true');
       }
       out.push(row);
     }
@@ -1903,8 +3886,13 @@ export function wkDiff(spec) {
   root.addEventListener('keydown', e => {
     if (e.altKey || e.ctrlKey || e.metaKey || e.defaultPrevented) return;
     const t = e.target;
-    if (t.isContentEditable || /^(TEXTAREA|SELECT)$/.test(t.tagName) || (t.tagName === 'INPUT' && !/^(radio|checkbox|button)$/.test(t.type))) return;
-    const move = { n: ['.wk-diff-hunk', 1], p: ['.wk-diff-hunk', -1], ']': ['.wk-diff-toggle', 1], '[': ['.wk-diff-toggle', -1] }[e.key];
+    // Not while typing: in a field, in anything contenteditable (even a
+    // disabled editor, contenteditable="false"), a code editor, or a comment
+    // box and anything in it.
+    if (e.isComposing || e.keyCode === 229) return;
+    if (t.isContentEditable || t.closest?.('textarea, select, input:not([type="radio"], [type="checkbox"], [type="button"]), [contenteditable], .cm-editor, .wk-diff-compose')) return;
+    if (commenting && lineKey(e)) return;
+    const move = { n: ['.wk-diff-hunk', 1], p: ['.wk-diff-hunk', -1], ']': ['.wk-diff-toggle', 1], '[': ['.wk-diff-toggle', -1], N: ['.wk-diff-thread', 1], P: ['.wk-diff-thread', -1] }[e.key];
     if (!move) return;
     const [selector, dir] = move;
     let from = document.activeElement;
