@@ -63,7 +63,9 @@ test('nothing names an app, and nothing loads from the network', () => {
     const text = read(file);
     for (const [, ref] of text.matchAll(/^\s*(?:import|export)\s[^;]*?from\s*'([^']+)'/gm)) {
       assert.ok(!/^[a-z][a-z0-9+.-]*:|^\//i.test(ref), `${rel(file)} imports ${ref}`);
-      if (ref.startsWith('.')) assert.ok(path.resolve(path.dirname(file), ref).startsWith(path.join(root, 'src')), `${rel(file)} imports ${ref} from outside src/`);
+      // From outside src/, only @wails-kit/ui's timings (no DOM, no imports), bundled at build.
+      const target = path.resolve(path.dirname(file), ref);
+      if (ref.startsWith('.')) assert.ok(target.startsWith(path.join(root, 'src')) || target === path.join(root, '..', 'ui', 'src', 'motion.js'), `${rel(file)} imports ${ref} from outside src/`);
     }
     const dynamic = [...text.matchAll(/\bimport\s*\(\s*(['"`][^'"`]*['"`])\s*\)/g)].map(m => m[1]);
     assert.deepEqual(dynamic, rel(file) === 'src/index.js' ? ["'./mermaid.js'"] : [], `${rel(file)} imports at run time`);

@@ -5,14 +5,16 @@
 // the network.
 import css from './diagram.css';
 import { buildTheme, TOKENS } from './theme.js';
+// The lifecycle timings from @wails-kit/ui (BEHAVIOUR.md), bundled into
+// dist/diagram.js from the kit's source: no DOM, no imports.
+import { timings } from '../../ui/src/motion.js';
 
 export { buildTheme, TEXT_PAIRS, MARK_PAIRS, contrast } from './theme.js';
 
 /** The diagram types the kit draws (Mermaid's keywords in brackets). */
 export const diagramTypes = Object.freeze(['flowchart', 'sequence', 'state', 'class', 'er', 'gantt']);
 
-// Timings from @wails-kit/ui's BEHAVIOUR.md.
-export const TIMINGS = Object.freeze({ indicatorDelay: 400, indicatorMin: 500, loadingLine: 3000, copied: 2000 });
+export { timings };
 
 const MIN_ZOOM = 0.1, MAX_ZOOM = 8, STEP = 1.25, PAN = 40, PAD = 16;
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -197,11 +199,11 @@ export function wkDiagram(spec = {}) {
   const status = document.createElement('div');
   status.className = 'wk-diagram-status';
   status.hidden = true;
-  status.setAttribute('role', 'progressbar');
-  status.setAttribute('aria-label', 'Drawing the diagram');
+  // The kit's spinner (@wails-kit/ui's wk-spinner), on its own: a named progressbar.
   const spinner = document.createElement('span');
-  spinner.className = 'wk-diagram-spinner';
-  spinner.setAttribute('aria-hidden', 'true');
+  spinner.className = 'wk-spinner';
+  spinner.setAttribute('role', 'progressbar');
+  spinner.setAttribute('aria-label', 'Drawing the diagram');
   const loadingLine = document.createElement('span');
   loadingLine.hidden = true;
   status.append(spinner, loadingLine);
@@ -449,19 +451,19 @@ export function wkDiagram(spec = {}) {
       status.toggleAttribute('data-over', !!svg);
       status.hidden = false;
       announcer.textContent = 'Drawing the diagram';
-    }, TIMINGS.indicatorDelay);
+    }, timings.indicatorDelay);
     lineTimer = setTimeout(() => {
       lineTimer = 0;
       loadingLine.textContent = loaded ? 'Drawing the diagram\u2026' : 'Loading the diagram library\u2026';
       loadingLine.hidden = !!svg;
-    }, TIMINGS.loadingLine);
+    }, timings.loadingLine);
   }
   // Resolves when the indicator may go (now, if it never showed).
   async function indicatorMayEnd() {
     clearTimeout(showTimer);
     clearTimeout(lineTimer);
     showTimer = lineTimer = 0;
-    const wait = shownAt ? TIMINGS.indicatorMin - (performance.now() - shownAt) : 0;
+    const wait = shownAt ? timings.indicatorMin - (performance.now() - shownAt) : 0;
     if (wait > 0) await new Promise(r => setTimeout(r, wait));
   }
   function endIndicator(words) {
@@ -520,7 +522,7 @@ export function wkDiagram(spec = {}) {
   function say(text) {
     clearTimeout(noteTimer);
     note.textContent = text;
-    noteTimer = setTimeout(() => { note.textContent = ''; }, TIMINGS.copied);
+    noteTimer = setTimeout(() => { note.textContent = ''; }, timings.copied);
   }
   async function writeClipboard(text, done) {
     try {

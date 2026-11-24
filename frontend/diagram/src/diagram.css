@@ -22,22 +22,15 @@
 .wk-diagram-canvas { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
 .wk-diagram-canvas > svg { display: block; max-width: none; overflow: visible; }
 
-/* Working: after the quiet wait, a spinner in the middle of an empty
-   viewport, or in its corner over a diagram already shown. */
+/* Working: after the quiet wait, the kit's wk-spinner (in the text-secondary
+   colour) in the middle of an empty viewport, or in its corner over a
+   diagram already shown. */
 .wk-diagram-status {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--wk-space-2);
   color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); pointer-events: none;
 }
 .wk-diagram-status[hidden] { display: none; }
 .wk-diagram-status[data-over] { inset: var(--wk-space-2) var(--wk-space-2) auto auto; }
-.wk-diagram-spinner {
-  width: 16px; height: 16px; box-sizing: border-box; border-radius: 50%;
-  border: 2px solid var(--wk-color-hairline-strong); border-top-color: var(--wk-color-text-secondary);
-  animation: wk-diagram-spin .8s linear infinite;
-}
-@keyframes wk-diagram-spin { to { transform: rotate(360deg); } }
-/* A spinner keeps turning with reduced motion (a still one reads as frozen), more slowly. */
-@media (prefers-reduced-motion: reduce) { .wk-diagram-spinner { animation-duration: 1.6s; } }
 
 /* A failure: the kit's error box in place of the diagram. */
 .wk-diagram-error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: var(--wk-space-4); overflow: auto; cursor: auto; user-select: text; }
@@ -52,5 +45,4 @@
   .wk-diagram-viewport { border-color: CanvasText; background: Canvas; }
   .wk-diagram-viewport:focus-visible { outline-color: Highlight; }
   .wk-diagram-canvas text, .wk-diagram-canvas tspan { fill: CanvasText !important; }
-  .wk-diagram-spinner { border-color: GrayText; border-top-color: CanvasText; }
 }

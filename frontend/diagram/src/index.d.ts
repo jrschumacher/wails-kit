@@ -81,8 +81,8 @@ export function preloadDiagrams(): Promise<void>;
 /** The diagram types the kit draws. */
 export const diagramTypes: readonly DiagramType[];
 
-/** The indicator timings from @wails-kit/ui's BEHAVIOUR.md, in milliseconds. */
-export const TIMINGS: Readonly<{ indicatorDelay: number; indicatorMin: number; loadingLine: number; copied: number }>;
+/** @wails-kit/ui's lifecycle timings (BEHAVIOUR.md), in milliseconds; the diagram uses indicatorDelay, indicatorMin, loadingLine and copied. */
+export const timings: Readonly<{ indicatorDelay: number; indicatorMin: number; loadingLine: number; copied: number; [name: string]: number | readonly number[] }>;
 
 export interface DiagramTheme {
   themeVariables: Record<string, string | boolean>;

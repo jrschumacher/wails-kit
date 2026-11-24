@@ -767,14 +767,15 @@ try {
     await until(page, () => document.querySelectorAll('.wk-diagram').length === 8);
     const status = () => page.evaluate(() => {
       const s = document.querySelector('#demo-flowchart .wk-diagram-status');
-      return { hidden: s.hidden, role: s.getAttribute('role'), name: s.getAttribute('aria-label'), line: s.querySelector('span:not(.wk-diagram-spinner)').hidden ? '' : s.textContent, state: document.querySelector('#demo-flowchart .wk-diagram-viewport').dataset.state };
+      const spin = s.querySelector('.wk-spinner');
+      return { hidden: s.hidden, role: spin.getAttribute('role'), name: spin.getAttribute('aria-label'), turning: getComputedStyle(spin).animationName, line: s.querySelector('span:not(.wk-spinner)').hidden ? '' : s.textContent, state: document.querySelector('#demo-flowchart .wk-diagram-viewport').dataset.state };
     });
     // The quiet wait.
-    assert.deepEqual(await status(), { hidden: true, role: 'progressbar', name: 'Drawing the diagram', line: '', state: 'loading' });
+    assert.deepEqual(await status(), { hidden: true, role: 'progressbar', name: 'Drawing the diagram', turning: 'wk-spin', line: '', state: 'loading' });
     await until(page, () => !document.querySelector('#demo-flowchart .wk-diagram-status').hidden, null, 1000);
     const t = await page.evaluate(() => performance.now());
     assert.equal((await status()).line, '');
-    await until(page, () => !document.querySelector('#demo-flowchart .wk-diagram-status span:not(.wk-diagram-spinner)').hidden, null, 4000);
+    await until(page, () => !document.querySelector('#demo-flowchart .wk-diagram-status span:not(.wk-spinner)').hidden, null, 4000);
     assert.equal((await status()).line, 'Loading the diagram library…');
     await page.waitForFunction(() => window.demoReady === true, null, { timeout: 30000 });
     assert.equal((await status()).hidden, true);

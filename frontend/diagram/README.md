@@ -158,8 +158,8 @@ wherever you like.
 | `wk-error` | `{ message, line, kind }`: it couldn't be. `kind` is `'syntax'` (Mermaid's parse or draw failed; `line` is the source line when Mermaid gives one), `'unsupported'` (a type the kit doesn't draw, or no type) or `'load'` (`mermaid.js` didn't load). |
 
 Other exports: `preloadDiagrams()` loads Mermaid ahead of the first diagram;
-`diagramTypes`; `TIMINGS` (`indicatorDelay`, `indicatorMin`, `loadingLine`,
-`copied`, as BEHAVIOUR.md names them); and the theme builder, `buildTheme(get)`, with
+`diagramTypes`; `timings`, `@wails-kit/ui`'s lifecycle timings, which the
+diagram uses and bundles from the kit's `src/motion.js`; and the theme builder, `buildTheme(get)`, with
 `TEXT_PAIRS` and `MARK_PAIRS`, the pairs it holds to 4.5:1 and 3:1.
 
 ### Pan and zoom
@@ -184,7 +184,7 @@ scrolling while the pointer is over it.
 
 It follows [BEHAVIOUR.md](../ui/BEHAVIOUR.md). The frame shows at once.
 A render that ends within the quiet wait (400 ms) shows no indicator; a
-longer one shows a spinner in the viewport (`role="progressbar"`, "Drawing the
+longer one shows the kit's `wk-spinner` in the viewport (`role="progressbar"`, "Drawing the
 diagram"), kept for at least 500 ms, and after 3 s a line saying what is
 loading ("Loading the diagram library…" on first use). Re-rendering a diagram
 already shown (a new source or theme) keeps it until the new one replaces it,

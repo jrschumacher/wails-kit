@@ -30,6 +30,8 @@ test('diagram.js is small and loads only ./mermaid.js, lazily; mermaid.js import
   assert.deepEqual(built.imports['mermaid.js'], []);
   assert.ok(Buffer.byteLength(built.files['diagram.js']) < 40_000, 'diagram.js should stay small: Mermaid belongs in mermaid.js');
   assert.ok(!built.inputs['diagram.js'].some(f => f.includes('node_modules')), 'diagram.js bundles a package');
+  // @wails-kit/ui's timings are bundled from the kit's source, so the vendored module stands alone.
+  assert.ok(built.inputs['diagram.js'].includes('../ui/src/motion.js'), 'diagram.js does not bundle @wails-kit/ui\'s timings');
   assert.equal(built.files['diagram.js'].match(/\bimport\s*\(/g).length, 1);
   assert.ok(!/\bimport\s*\(/.test(built.files['mermaid.js']), 'mermaid.js has a dynamic import');
 });
