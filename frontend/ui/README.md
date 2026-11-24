@@ -385,6 +385,10 @@ their own.
 The first copy of the kit in the window also sets `document.wkAnnounce` and
 `document.wkTask` (its `announce` and `wkTask`), for opt-in packages that use
 them without bundling the kit, such as `@wails-kit/editor`'s busy submit.
+The announcer is shared by every copy; the task list is not: each copy of the
+kit keeps its own, and `document.wkTask` is the first copy's, so work started
+through it joins that copy's list (and summary). Load one copy of the kit's
+module per window.
 
 ### wkTask
 
@@ -419,6 +423,7 @@ button.addEventListener('click', async () => {
 | `esc` | `stop === 'cancel'` and `expect !== 'long'` | Esc (and ⌘. on macOS only) cancels it while focus is in `scope`. The kit listens after the page, so an Escape a menu, a tooltip or the app already used (and prevented) is left alone, and so is one while a Stop is under way. In a Sheet the first Esc cancels the work and the Sheet stays open; a second closes it. |
 | `stopIn` | after the last control, else in the target | Where the Stop button goes. |
 | `subject`, `kind`, `id` | | Shown in the task list (`subject`, else the words). `id` defaults to `wk-task-<n>`. |
+| `listed` | `true` | `false` keeps it out of the task list: work the window shows in place and never leaves waiting there (the settings window's checks). |
 | `unit`, `summary` | | Work in parts: see below. |
 
 The handle: `progress({ done, total, unit, step, steps, stage })`, `setWords(words)`,
@@ -426,10 +431,12 @@ The handle: `progress({ done, total, unit, step, steps, stage })`, `setWords(wor
 while it waits), `paused(words)`, `resumed(words)`, `stalled(words)`,
 `queued(words)`, `running(words)`, `done({ words, visible, show, showLabel })`
 (or `done(words)`), `fail({ words, error, retry })`, `stopped(words)` (default
-"Stopped · 12 of 40 files"), `cancelled()`, `stop()` (as the Stop button),
+"Stopped · 12 of 40 files"), `cancelled({ quiet })`, `stop()` (as the Stop button),
+`dismiss()` (takes an ended task, such as a failed one, out of the task list),
 `part(spec)`, and `id`, `state` and `signal` (aborted on Cancel, Stop, a
 timeout or a failure). `done` and `fail` need words (`TypeError` without):
-the outcome is always announced.
+the outcome is announced, unless `quiet: true` (for a caller that says it
+itself, or a cancel the person didn't ask for).
 
 **The clocks.** No indicator before 400 ms; once shown it stays at least
 500 ms, so `done`, `fail`, `stopped` and `cancelled` wait for that, then in one
@@ -954,11 +961,16 @@ sets `errors`.
   it ends, the words go and its outcome goes to the window's announcer, in the
   same step as the value applies or the field shows its error: "Projects folder
   checked", or the failure's message. The task ends Done either way (the field
-  shows a failure), so it doesn't wait in the task list. Typing is never
-  blocked, and the person's text stays after a failure. A check overtaken by a
-  newer one is ignored: before its words show, its task is cancelled (nothing is
-  said); once they show, the newer check keeps them, so they don't go and come
-  back. In a modal Sheet the announcer is inside it, so all this is heard. An error with
+  shows a failure), and checks are not in the task list (`listed: false`).
+  Typing is never blocked, and the person's text stays after a failure. A check
+  overtaken by a newer one is ignored, its answer neither applied nor said:
+  before its words show, its task is cancelled; once they show, the newer check
+  keeps them, so they don't go and come back; and once its answer is in (its
+  words held for their 500 ms), the newer check's words wait until they have
+  gone. A check abandoned because the window's own validation rejects the value,
+  or because a new `schema` or `icons` redraws the window, is cancelled without
+  saying "Cancelled". In a modal Sheet the announcer is inside it, so all this
+  is heard. An error with
   code `check` (a failure, or one from `CheckFailures()`) stays on its field until
   that field commits or is checked again, even when the app sets `errors` or
   another field changes; when the app sets `values` with a new value for that

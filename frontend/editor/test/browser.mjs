@@ -820,6 +820,140 @@ try {
     await page.close();
   });
 
+  // A Markdown editor from the dist module whose onsubmit the test settles: window.sends, window.pend.
+  const probeEditor = (page, extra = {}) => page.evaluate(async x => {
+    const { wkMarkdownEditor } = await import('/editor/dist/markdown.js');
+    window.sends = []; window.pend = [];
+    const ed = wkMarkdownEditor({ label: 'Probe', value: 'first', actions: [{ label: 'Send', submit: true }], ...x,
+      onsubmit: v => { window.sends.push(v); return new Promise((res, rej) => window.pend.push({ res, rej })); } });
+    ed.id = 'probe';
+    document.getElementById('demo').append(ed);
+    window.ed = ed;
+  }, extra);
+  const busyNow = page => page.evaluate(() => document.querySelector('#probe [data-submit]').hasAttribute('data-busy'));
+  const failedRows = page => page.evaluate(() => [...document.querySelectorAll('.wk-task-list .wk-task-row')].filter(r => r.dataset.state === 'failed').map(r => r.textContent));
+
+  await check('markdown submit through wkTask: its own words; Retry in the task list sends the value that failed; a new submit or destroy() dismisses a failure', async () => {
+    const { page, problems } = await open(MD);
+    await listen(page);
+    await probeEditor(page, { submitTask: { words: 'Posting…', doneWords: 'Posted', failWords: 'Couldn’t post' } });
+    await page.evaluate(() => window.ed.submit());
+    await heard(page, 'Posting…');
+    await page.evaluate(() => window.pend[0].rej(new Error('offline')));
+    await heard(page, 'Couldn’t post');
+    await until(page, () => !document.querySelector('#probe [data-submit]').hasAttribute('data-busy'));
+    // The person changes the text; Retry in the task list sends what failed.
+    await page.evaluate(() => { window.ed.value = 'a new draft'; document.wkTask.showList(); });
+    await until(page, () => document.querySelector('.wk-task-list[open]'));
+    assert.equal((await failedRows(page)).length, 1);
+    await page.click('.wk-task-list .wk-task-row[data-state=failed] button:text-is("Retry")');
+    assert.deepEqual(await page.evaluate(() => window.sends), ['first', 'first']);
+    await page.evaluate(() => window.pend[1].res());
+    await heard(page, 'Posted');
+    await until(page, () => !document.querySelector('#probe [data-submit]').hasAttribute('data-busy'));
+    assert.deepEqual(await failedRows(page), []);
+    // A failure, then a new submit: the failure leaves the task list.
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => window.ed.submit());
+    await page.evaluate(() => window.pend[2].rej(new Error('offline')));
+    await until(page, () => !document.querySelector('#probe [data-submit]').hasAttribute('data-busy'));
+    await page.evaluate(() => document.wkTask.showList());
+    assert.equal((await failedRows(page)).length, 1);
+    await page.evaluate(() => window.ed.submit());
+    assert.deepEqual(await failedRows(page), [], 'the earlier failure is dismissed');
+    assert.deepEqual(await page.evaluate(() => window.sends), ['first', 'first', 'a new draft', 'a new draft']);
+    // A failure, then destroy(): its Retry has nothing to send, so it goes.
+    await page.evaluate(() => window.pend[3].rej(new Error('offline')));
+    await until(page, () => !document.querySelector('#probe [data-submit]').hasAttribute('data-busy'));
+    assert.equal((await failedRows(page)).length, 1);
+    await page.evaluate(() => window.ed.destroy());
+    assert.deepEqual(await failedRows(page), []);
+    // destroy() while a submit is pending: its failure, when it comes, is dismissed too.
+    await probeEditor(page);
+    await page.evaluate(() => { window.ed.submit(); window.ed.destroy(); window.pend[0].rej(new Error('offline')); });
+    await page.waitForFunction(() => window.heard.some(h => h[1].includes('Couldn’t send')), null, { timeout: 3000 });
+    await page.evaluate(() => new Promise(r => setTimeout(r, 50)));
+    assert.deepEqual(await failedRows(page), []);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('markdown submit: no timeout by default, its words end in an ellipsis; with submitTask.timeout the actions rest, but nothing is sent twice until onsubmit settles', async () => {
+    const { page, problems } = await open(MD);
+    await listen(page);
+    // The spec the editor gives the window's wkTask.
+    await page.evaluate(() => { const real = document.wkTask; document.wkTask = s => { window.taskSpec = s; return real(s); }; });
+    await probeEditor(page);
+    await page.evaluate(() => window.ed.submit());
+    assert.deepEqual(await page.evaluate(() => [window.taskSpec.timeout, window.taskSpec.words, window.taskSpec.subject]), [false, 'Sending…', 'Probe']);
+    await page.evaluate(() => window.pend[0].res());
+    await until(page, () => !document.querySelector('#probe [data-submit]').hasAttribute('data-busy'));
+    await page.evaluate(() => window.ed.destroy());
+    await probeEditor(page, { submitTask: { timeout: 600 } });
+    await page.evaluate(() => window.ed.submit());
+    await heard(page, 'Couldn’t confirm it was sent');
+    await until(page, () => !document.querySelector('#probe [data-submit]').hasAttribute('data-busy'));
+    assert.equal(await page.getAttribute('#probe [data-submit]', 'aria-disabled'), null, 'the actions are at rest');
+    assert.deepEqual(await page.evaluate(() => [window.ed.submit(), window.sends.length]), [false, 1], 'but the first submit is still pending');
+    await page.evaluate(() => window.pend[0].res());
+    await page.waitForFunction(() => window.ed.submit() === true, null, { timeout: 3000 });
+    assert.equal(await page.evaluate(() => window.sends.length), 2);
+    assert.equal(await busyNow(page), true);
+    await page.evaluate(() => window.pend[1].res());
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('markdown: an editor built before the kit loads gives its error region up once the announcer is there, so nothing is said twice; spec.kit is used before the globals', async () => {
+    const { page, problems } = await open(MD);
+    await listen(page);
+    const r = await page.evaluate(async () => {
+      const kit = { task: document.wkTask, announce: document.wkAnnounce };
+      delete document.wkTask; delete document.wkAnnounce;
+      const { wkMarkdownEditor } = await import('/editor/dist/markdown.js');
+      const ed = wkMarkdownEditor({ label: 'Early', value: '', actions: [{ label: 'Send', submit: true }] });
+      document.getElementById('demo').append(ed);
+      const e = ed.querySelector('.wk-markdown-editor-error');
+      const before = e.getAttribute('role');
+      document.wkTask = kit.task; document.wkAnnounce = kit.announce;
+      ed.submit();
+      // Given spec.kit, without the globals.
+      delete document.wkTask; delete document.wkAnnounce;
+      window.injected = [];
+      const own = wkMarkdownEditor({ label: 'Injected', value: '', kit: { wkTask: kit.task, announce: w => window.injected.push(w) } });
+      document.getElementById('demo').append(own);
+      const injectedRole = own.querySelector('.wk-markdown-editor-error').getAttribute('role');
+      own.submit();
+      document.wkTask = kit.task; document.wkAnnounce = kit.announce;
+      return [before, e.getAttribute('role'), e.textContent, injectedRole];
+    });
+    assert.deepEqual(r, ['status', null, 'Write something first.', null]);
+    await heard(page, 'Write something first.');
+    assert.deepEqual(await page.evaluate(() => window.injected), ['Write something first.']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('without @wails-kit/ui\'s module: the same error again empties the editor\'s own region, then fills it on the next frame', async () => {
+    const { page, problems } = await open(MD);
+    const seen = await page.evaluate(async () => {
+      delete document.wkTask; delete document.wkAnnounce;
+      const { wkMarkdownEditor } = await import('/editor/dist/markdown.js');
+      const ed = wkMarkdownEditor({ label: 'Bare', value: '', actions: [{ label: 'Send', submit: true }] });
+      document.getElementById('demo').append(ed);
+      const e = ed.querySelector('.wk-markdown-editor-error');
+      ed.submit();
+      const out = [];
+      new MutationObserver(() => out.push(e.textContent)).observe(e, { childList: true, characterData: true, subtree: true });
+      ed.submit();
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      return [e.getAttribute('role'), ...out];
+    });
+    assert.deepEqual(seen, ['status', '', 'Write something first.']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
   await check('markdown: the count updates as the person types and marks a text over the limit', async () => {
     const { page, problems } = await open(MD);
     await mdSet(page, 'abc');
@@ -1652,13 +1786,15 @@ try {
       return wkRichTextEditor({ label: 'Again', value: document.getElementById('demo-rich').value }).hasAttribute('data-source');
     });
     assert.equal(r, false, 'the value went past the limits');
-    // Length: at the limit, typing is refused.
+    // Length: at the limit, typing is refused, and the window's announcer says why.
+    await listen(page);
     await page.evaluate(() => { document.getElementById('demo-rich').value = 'x'.repeat(100000); });
     await page.click('#demo-rich .wk-richtext-editor-content');
     await page.keyboard.press(`${mod}+End`);
     await page.keyboard.type('y');
     assert.equal((await rtValue(page)).length, 100000);
     assert.match(await errorText(), /too long to save/);
+    await heard(page, 'That would make the text too long to save.');
     assert.deepEqual(problems, []);
     await page.close();
   });

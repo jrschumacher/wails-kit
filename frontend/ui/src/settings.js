@@ -141,7 +141,8 @@ class WkSettings extends HTMLElement {
     const schema = this.state.schema;
     this.replaceChildren();
     this.rowsByKey.clear(); this.fieldsByKey.clear(); this.tabsByGroup.clear(); this.advancedByGroup.clear();
-    for (const run of this.checks.values()) if (!run.ending) run.task?.cancelled();
+    // The checks running go with the window they drew in; the person didn't cancel them.
+    for (const run of this.checks.values()) if (!run.ending) run.task?.cancelled({ quiet: true });
     for (const timer of this.rechecks.values()) clearTimeout(timer);
     this.checks.clear(); this.rechecks.clear(); this.drafts.clear(); this.live.clear();
     clearTimeout(this.noticeTimer);
@@ -386,8 +387,8 @@ class WkSettings extends HTMLElement {
     const own = this.ownErrors(field, raw);
     if (own.length) {
       this.checks.delete(key);
-      // The check it overtakes has nothing left to say.
-      if (prior && !prior.ending) prior.task?.cancelled();
+      // The check it overtakes has nothing left to say: the field shows why.
+      if (prior && !prior.ending) prior.task?.cancelled({ quiet: true });
       this.state.errors = [...this.state.errors.filter(e => e.field !== key), ...own];
       this.live.add(key);
       this.sync();
@@ -414,27 +415,32 @@ class WkSettings extends HTMLElement {
   // 500 ms. A check overtaken before its words show is cancelled (nothing is
   // said); once they show, the newer check keeps them, so they don't go and
   // come back. One whose outcome is already showing ends first: the newer
-  // check's task starts when it has. No timeout: the window waits for
-  // CheckValue's answer, which carries on in Go if the window closes.
+  // check's task starts when it has (wait: that ending, carried on to every
+  // check that overtakes one still waiting for it), so two tasks never draw
+  // in the line at once. No timeout: the window waits for CheckValue's
+  // answer, which carries on in Go if the window closes. Not in the task
+  // list: the field shows the check, and its outcome.
   checkTask(field, run, prior) {
     const pending = this.rowsByKey.get(field.key)?.pending;
     if (!pending) return;
     if (prior?.task && !prior.ending) {
       if (pending.querySelector(':scope > .wk-task-state')) { run.task = prior.task; return; }
-      prior.task.cancelled();
+      prior.task.cancelled({ quiet: true });
     }
     const start = () => {
       if (this.checks.get(field.key) !== run || !pending.isConnected) return;
-      run.task = wkTask({ target: pending, words: field.check.pending || 'Checking…', subject: this.labelOf(field), timeout: false });
+      run.task = wkTask({ target: pending, words: field.check.pending || 'Checking…', subject: this.labelOf(field), timeout: false, listed: false });
     };
-    if (prior?.ending) run.started = prior.ending.then(start);
+    run.wait = prior?.ending || (prior && !prior.task ? prior.wait : null) || null;
+    if (run.wait) run.started = run.wait.then(start);
     else start();
   }
 
   // The check answered. A check overtaken by a newer one is ignored. The
-  // outcome goes to the announcer as the words leave (wkTask's done, which
-  // waits for their 500 ms), and in the same step the value applies or the
-  // field shows its error.
+  // words leave (wkTask's done, which waits for their 500 ms), and in that
+  // step the outcome goes to the announcer and the value applies or the field
+  // shows its error; unless a newer check overtook it meanwhile: then
+  // nothing is said or applied.
   settle(field, run, errs) {
     const key = field.key;
     if (this.checks.get(key) !== run) return;
@@ -453,6 +459,7 @@ class WkSettings extends HTMLElement {
     const finish = () => {
       if (this.checks.get(key) !== run) return;
       this.checks.delete(key);
+      announce(words);
       if (mine.length) {
         const replaced = new Set(errs.map(e => e.field));
         this.state.errors = [...this.state.errors.filter(e => !replaced.has(e.field)), ...others, ...mine];
@@ -463,10 +470,7 @@ class WkSettings extends HTMLElement {
       if (this.drafts.get(key) === run.raw) this.drafts.delete(key);
       this.apply(field, run.value, { checked: true });
     };
-    run.ending = Promise.resolve(run.started).then(() => {
-      if (!run.task) { announce(words); return finish(); }
-      return run.task.done({ words }).then(finish);
-    });
+    run.ending = Promise.resolve(run.started).then(() => (run.task ? run.task.done({ words, quiet: true }).then(finish) : finish()));
   }
 
   // The values the window shows: the applied ones with the drafts typed over them.

@@ -3447,6 +3447,80 @@ try {
     await page.close();
   });
 
+  // The folder field's pending line: [its words, the row's data-pending, the control described by them, task lines in it].
+  const pendingState = page => page.evaluate(() => {
+    const p = document.querySelector('#demo-settings [data-key="general.folder"] .wk-settings-pending');
+    const control = p.closest('.wk-settings-row').querySelector('input');
+    return [p.textContent, p.closest('.wk-settings-row').hasAttribute('data-pending'), (control.getAttribute('aria-describedby') || '').split(' ').includes(p.id), p.querySelectorAll('.wk-task-state').length];
+  });
+  const watchTasks = page => page.evaluate(() => { window.taskStates = []; document.addEventListener('wk-task', e => window.taskStates.push(e.detail.state)); });
+
+  await check('settings window: checks committed while an answered one holds its words wait for it, so the words never stick; an overtaken check\'s answer is not announced', async () => {
+    const { page, problems } = await openSettings({ clock: true });
+    await manualChecks(page);
+    await watchTasks(page);
+    const folder = row(page, 'general.folder').locator('input');
+    await folder.fill('/a');
+    await folder.press('Tab');
+    await page.clock.runFor(410);
+    await answer(page, 0, []);
+    await page.clock.runFor(10);
+    await folder.fill('/b');
+    await folder.press('Tab');
+    await page.clock.runFor(10);
+    await folder.fill('/c');
+    await folder.press('Tab');
+    await page.clock.runFor(600);
+    assert.deepEqual(await said(page), ['Checking folder…'], '/a was overtaken in its hold: its answer is not said');
+    await page.clock.runFor(400);
+    assert.deepEqual(await pendingState(page), ['Checking folder…', true, true, 1], '/c shows its own words once /a\'s have gone');
+    await answer(page, 2, []);
+    await page.clock.runFor(1500);
+    assert.deepEqual(await pendingState(page), ['', false, false, 0], 'nothing left beside the field');
+    assert.equal(await page.evaluate(() => document.getElementById('demo-settings').values['general.folder']), '/c');
+    assert.deepEqual(await said(page, { clock: false }).then(w => w.filter(x => x !== 'Checking folder…')), ['Projects folder checked']);
+    assert.deepEqual(await page.evaluate(() => window.taskStates), ['running', 'done', 'running', 'done']);
+    // /b's answer, overtaken before it came, changes nothing.
+    await answer(page, 1, []);
+    await page.clock.runFor(1000);
+    assert.deepEqual(await pendingState(page), ['', false, false, 0]);
+    assert.deepEqual(await said(page), []);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('settings window: a check abandoned for the window\'s own error, or by a new schema, is cancelled without saying "Cancelled"; checks stay out of the task list', async () => {
+    const { page, problems } = await openSettings({ clock: true });
+    await manualChecks(page);
+    await watchTasks(page);
+    await page.evaluate(() => { document.getElementById('demo-settings').validate = (s, v) => (String(v['general.folder']).length > 6 ? [{ field: 'general.folder', message: 'Keep it short.', code: 'max_length' }] : []); });
+    const folder = row(page, 'general.folder').locator('input');
+    await folder.fill('/abc');
+    await folder.press('Tab');
+    await page.clock.runFor(600);
+    assert.equal(await page.evaluate(() => document.wkTask.showList().querySelectorAll('.wk-task-row').length), 0, 'not in the task list');
+    await page.evaluate(() => document.querySelector('.wk-task-list').close());
+    await said(page);
+    await folder.fill('/abcdefghij');
+    await folder.press('Tab');
+    await page.clock.runFor(600);
+    assert.deepEqual(await pendingState(page), ['', false, false, 0]);
+    assert.equal(await row(page, 'general.folder').locator('.wk-error').textContent(), 'Keep it short.');
+    assert.deepEqual(await said(page), ['1 setting needs attention.'], 'the Notice\'s count, and no "Cancelled"');
+    assert.deepEqual(await page.evaluate(() => window.taskStates.splice(0)), ['running', 'cancelled']);
+    // A new schema (or icons) while a check shows its words: cancelled, quietly.
+    await folder.fill('/x');
+    await folder.press('Tab');
+    await page.clock.runFor(600);
+    await said(page);
+    await page.evaluate(() => { const el = document.getElementById('demo-settings'); el.icons = { ...el.icons }; });
+    await page.clock.runFor(600);
+    assert.deepEqual(await page.evaluate(() => window.taskStates.splice(0)), ['running', 'cancelled']);
+    assert.deepEqual(await said(page), []);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
   await check('settings window: an empty required setting shows its error on open, and the window\'s Notice counts what needs attention', async () => {
     const { page, problems } = await openSettings({ clock: true });
     assert.equal(await page.locator('#demo-settings .wk-settings-status').textContent(), '', 'nothing needs attention at first');
@@ -3753,6 +3827,29 @@ try {
     await page.evaluate(() => { document.querySelector('[data-wk-announcer]').remove(); kit.announce('Back'); });
     await run(600);
     assert.deepEqual(await page.evaluate(() => [document.querySelectorAll('[data-wk-announcer]').length, document.querySelector('[data-wk-announcer] [aria-live="polite"]').textContent]), [1, 'Back']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('wkTask: listed false keeps a task out of the list; cancelled({ quiet }) and done({ quiet }) say nothing; dismiss() takes a failed task out of the list', async () => {
+    const { page, problems, run, said } = await openTasks();
+    await page.evaluate(() => {
+      window.hidden = kit.wkTask({ words: 'Checking', listed: false });
+      window.shown = kit.wkTask({ words: 'Exporting' });
+      window.summary = kit.wkTask.summary();
+      document.getElementById('tbox').append(window.summary);
+    });
+    await run(500);
+    assert.equal(await page.evaluate(() => window.summary.textContent), '1 task running');
+    await page.evaluate(() => { hidden.cancelled({ quiet: true }); shown.done({ words: 'Exported', quiet: true }); });
+    await run(1000);
+    assert.deepEqual(await said(), [['polite', 'Checking. Exporting']], 'the starts only: neither end is announced');
+    await page.evaluate(() => { window.f = kit.wkTask({ words: 'Saving' }); f.fail('Couldn’t save'); });
+    await run(1000);
+    assert.equal(await page.evaluate(() => window.summary.textContent), '1 failed');
+    await page.evaluate(() => f.dismiss());
+    await run(10);
+    assert.equal(await page.evaluate(() => window.summary.hidden || window.summary.textContent === ''), true, 'the failure is gone from the list');
     assert.deepEqual(problems, []);
     await page.close();
   });

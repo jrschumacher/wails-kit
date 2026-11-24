@@ -664,14 +664,16 @@ function handle(task) {
     done: o => task.done(o),
     fail: o => task.fail(o),
     stopped: w => task.stopped(w),
-    cancelled: () => task.cancelled(),
+    cancelled: o => task.cancelled(o),
     stop: () => task.stop(),
+    // Takes an ended task (a failed one waits there) out of the task list.
+    dismiss: () => { if (task.ended && !task.parent && local.get(task.id) === task) { local.delete(task.id); changed(); } },
     part: spec => handle(task.part(spec)),
   };
 }
 
 function wkTask(spec = {}) {
-  return handle(new Task(spec));
+  return handle(new Task(spec, { listed: spec.listed !== false }));
 }
 
 // ---- The Go side ---------------------------------------------------------

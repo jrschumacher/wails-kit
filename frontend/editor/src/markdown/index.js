@@ -306,7 +306,7 @@ export function wkMarkdownEditor(spec = {}) {
   // focus does not move (Mod-Enter in the text). Without @wails-kit/ui's
   // module in the page, the error is its own polite live region, in the
   // page from the start and empty when there is none.
-  const errorEl = el('p', { class: 'wk-markdown-editor-error', id: ids.error, role: kitAnnounce() ? null : 'status' });
+  const errorEl = el('p', { class: 'wk-markdown-editor-error', id: ids.error, role: kitAnnounce(null, spec.kit) ? null : 'status' });
   const status = el('div', { class: 'wk-markdown-editor-status' }, [...(count ? [count] : []), errorEl]);
   const actionButtons = [];
   for (const a of Array.isArray(spec.actions) ? spec.actions : []) {
@@ -335,7 +335,7 @@ export function wkMarkdownEditor(spec = {}) {
   // again empties the region, then fills it on the next frame.
   let announce = 0;
   function setError(next, { repeat = false } = {}) {
-    const say = kitAnnounce(root);
+    const say = kitAnnounce(root, spec.kit);
     if (say) errorEl.removeAttribute('role');
     if (next === error) {
       if (!repeat || !next) return;
@@ -460,14 +460,32 @@ export function wkMarkdownEditor(spec = {}) {
       view.focus();
       return false;
     }
+    return send(value);
+  }
+
+  // Sends a value: wk-submit, then onsubmit. Retry (in the window's task
+  // list, after a failed submit) sends the value that failed again, not what
+  // the editor holds now. The editor stays busy until onsubmit's promise
+  // settles, even when the task has timed out, so nothing is sent twice.
+  let lastTask = null;
+  function send(value) {
+    if (destroyed || disabled || busy) return false;
     if (!root.dispatchEvent(new CustomEvent('wk-submit', { bubbles: true, cancelable: true, detail: { value } }))) return false;
+    // A submit that failed earlier waits in the task list until this one.
+    lastTask?.dismiss?.();
+    lastTask = null;
     const result = spec.onsubmit?.(value);
     if (result && typeof result.then === 'function') {
       // The busy state lives on the submit controls (BEHAVIOUR.md: aria-disabled
       // and data-busy), not on the editor: through the window's wkTask.
       busy = true;
       const controls = actionButtons.filter(b => b.hasAttribute('data-submit'));
-      busySubmit(root, controls, result, { subject: label, retry: () => submit(), ...spec.submitTask }).then(() => { busy = false; });
+      const run = busySubmit(root, controls, result, { subject: label, retry: () => send(value), ...spec.submitTask, kit: spec.kit });
+      lastTask = run.task;
+      Promise.all([result.then(() => {}, () => {}), run.ended]).then(() => {
+        busy = false;
+        if (destroyed) run.task?.dismiss?.();
+      });
     }
     return true;
   }
@@ -505,6 +523,8 @@ export function wkMarkdownEditor(spec = {}) {
       value: () => {
         if (destroyed) return;
         destroyed = true;
+        // A failed submit's Retry has nothing left to send.
+        lastTask?.dismiss?.();
         text.destroy();
         root.replaceChildren();
       },

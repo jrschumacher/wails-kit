@@ -293,7 +293,8 @@ It returns a `<div class="wk-markdown-editor">`:
 | `actions` | the buttons under it, in order: `{ label, primary?, submit?, cancel?, onclick?(editor) }`. A `submit` action submits, a `cancel` action cancels; the others call `onclick` | none |
 | `onchange(value)` | after each edit, not when the app sets `value` | |
 | `onsubmit(value)` | on submit. Return a promise to keep the submit actions busy until it settles (below) | |
-| `submitTask` | the busy submit's words and timeout, for the window's `wkTask` (below): `{ words, doneWords, failWords, timeout }` | `{ words: 'Sending', doneWords: 'Sent', failWords: 'Couldn’t send' }`, the kit's 2 min timeout |
+| `submitTask` | the busy submit's words and timeout, for the window's `wkTask` (below): `{ words, doneWords, failWords, timeout, timeoutWords }` | `{ words: 'Sending…', doneWords: 'Sent', failWords: 'Couldn’t send', timeoutWords: 'Couldn’t confirm it was sent' }`, no timeout |
+| `kit` | `{ wkTask, announce }` from `@wails-kit/ui`, for a page where the kit doesn't publish them (below) | `document.wkTask`, `document.wkAnnounce` |
 | `oncancel(editor)` | on cancel: a `cancel` action, `cancel()`, or Escape (below). Without it, Escape is left to the page (a dialog around the editor) | |
 | `onmode(mode)` | when the person switches tabs | |
 | `onlink(url)` | a click on a preview link (see `renderMarkdown`) | |
@@ -354,15 +355,19 @@ actions (`control`), named by `label` in the task list:
   [BEHAVIOUR.md](../ui/BEHAVIOUR.md#accessibility) says, not `aria-busy` on the
   editor), and another submit does nothing;
 - after 400 ms, a spinner in the first submit button, and `submitTask.words`
-  ("Sending") announced; once shown, it stays at least 500 ms;
+  ("Sending…") announced; once shown, it stays at least 500 ms;
 - when the promise resolves, `doneWords` ("Sent") are announced; when it
   rejects, `failWords` ("Couldn’t send"), assertively while focus is still on
-  the actions, and the task waits in the window's task list with Retry (which
-  submits again);
+  the actions, and the task waits in the window's task list with Retry, which
+  sends the value that failed again (not what the editor holds now). The
+  failure leaves the list when the next submit starts, or on `destroy()`;
 - at the end each action gets back the `aria-disabled` it had, so an action
-  the app locked stays locked. After the timeout (2 min, or
-  `submitTask.timeout`; `false` for none) the task fails with "Timed out after
-  2 min" and the actions are back at rest even if the promise is still pending.
+  the app locked stays locked;
+- there is no timeout unless `submitTask.timeout` (ms) sets one: the request
+  is the app's, and it knows how long it may take. After that time the task
+  fails with `timeoutWords` ("Couldn’t confirm it was sent", since the request
+  may still land) and the actions are back at rest; another submit still does
+  nothing until `onsubmit`'s promise settles, so nothing is sent twice.
 
 The editor does not clear the text or show a failure itself: on success the
 app sets `value = ''` (or removes the editor), and on failure it shows the
@@ -370,9 +375,12 @@ error.
 
 **Without `@wails-kit/ui`'s module.** The editor bundles no part of the kit:
 `wkTask` needs the kit's `kit.js`, which defines the custom elements the app
-loads itself, so the editor uses the window's own, which the kit publishes as
-`document.wkTask` and `document.wkAnnounce` (the first copy of the kit in the
-window). It looks them up as it needs them, and without them works as before:
+loads itself, so the editor uses the window's own: `spec.kit` when the app
+gives it (`{ wkTask, announce }` imported from `@wails-kit/ui`), else what the
+kit publishes as `document.wkTask` and `document.wkAnnounce` (the first copy of
+the kit in the window, whose task list the submits join). It looks them up as
+it needs them, so an editor built before the kit loaded uses it once it has;
+without them it works as before:
 the error is a polite live region of its own (`role="status"`, in the page from
 the start and empty until needed, every change heard, the same message again
 emptied and set on the next frame), and the submit actions are busy at once
