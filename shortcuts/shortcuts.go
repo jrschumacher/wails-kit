@@ -31,6 +31,7 @@ type Manager struct {
 	windowMenu bool
 	fileMenu   bool
 	settings   bool
+	undo       *UndoStack
 }
 
 // WithEmitter sets the event emitter used to broadcast shortcut events
@@ -76,6 +77,40 @@ func WithWindowMenu() Option {
 // platforms if they are not already enabled.
 func WithSettings() Option {
 	return func(m *Manager) { m.settings = true }
+}
+
+// WithUndo puts the app's undo stack behind Edit > Undo and Redo: the items
+// are named for the action ("Undo Archive"), enabled to match, and undo
+// typing first while a text field has focus (see UndoStack.MenuUndo). It
+// implies WithEditMenu. Redo is on the platform's shortcut: ⇧⌘Z on macOS,
+// Ctrl+Y on Windows and Ctrl+Shift+Z on Linux.
+//
+// Apply also tells the stack about Wails's windows: text focus is kept per
+// window, and Edit > Undo with text focus is sent to the page of the window
+// in front only.
+//
+// Limits in Wails v3.0.0-alpha.64: on Linux, menu accelerators are not
+// attached to the GTK menu items (setAccelerator is a stub), so Edit > Undo
+// and Redo run only when clicked; ⌘Z/Ctrl+Z in a field is the web view's own
+// typing undo there. On Windows, a menu item's native handle is the one for
+// the window that built the menu last, so with several windows only one
+// window's Edit menu shows the updated labels and enabled state.
+func WithUndo(stack *UndoStack) Option {
+	return func(m *Manager) {
+		m.undo = stack
+		if stack != nil {
+			m.editMenu = true
+		}
+	}
+}
+
+// RedoAccelerator is Redo's shortcut on the platform named by goos
+// (runtime.GOOS), in Wails's accelerator syntax.
+func RedoAccelerator(goos string) string {
+	if goos == "windows" {
+		return "Ctrl+y"
+	}
+	return "CmdOrCtrl+Shift+z"
 }
 
 // WithDefaults enables the standard set of menus: App, File, Edit, View,

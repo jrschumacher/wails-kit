@@ -1,4 +1,4 @@
-// Error types — mirrors errors/errors.go, updates/service.go, settings/check.go and tasks/tasks.go
+// Error types — mirrors errors/errors.go, updates/service.go, settings/check.go, tasks/tasks.go and shortcuts/undo.go
 // Kept in sync via Go reflection test in frontend/types_test.go
 
 export type ErrorCode =
@@ -34,7 +34,13 @@ export type ErrorCode =
   | "tasks_invalid_state"
   | "tasks_unsupported"
   // Desktop error codes (desktop package)
-  | "desktop_invalid_colour";
+  | "desktop_invalid_colour"
+  // Undo error codes (shortcuts package)
+  | "undo_empty"
+  | "undo_busy"
+  | "undo_stale"
+  | "undo_invalid"
+  | "undo_failed";
 
 export interface UserError {
   code: ErrorCode;

@@ -1330,6 +1330,55 @@ wk-dialog { display: contents; }
   .wk-diff-thread, .wk-diff-comments { border-color: CanvasText; }
 }
 
+/* ---- Toast (wkToast, toast.js) ------------------------------------------
+   One at a time, at the bottom centre of the window, above a footer bar
+   along the bottom (toast.js sets --wk-toast-above to its height). It
+   rises and fades in, and fades out in about two-thirds of the time; with
+   reduced motion it only fades, in 100 ms. Not a live region: its words go
+   to the announcer. */
+.wk-toast {
+  position: fixed; z-index: 1000; left: 50%; bottom: calc(var(--wk-toast-above, 0px) + var(--wk-space-4));
+  display: flex; align-items: center; gap: var(--wk-space-3);
+  box-sizing: border-box; max-width: min(480px, calc(100% - 32px)); min-height: calc(var(--wk-control-height) + 12px);
+  padding: 6px var(--wk-space-3);
+  border: var(--wk-hairline-width) solid var(--wk-color-hairline-strong); border-radius: var(--wk-radius-group);
+  background: var(--wk-color-surface); color: var(--wk-color-text); box-shadow: var(--wk-shadow-popover);
+  font-size: var(--wk-font-size-base); line-height: var(--wk-line-height);
+  transform: translateX(-50%);
+  transition: opacity var(--wk-duration-base) var(--wk-ease-out), transform var(--wk-duration-base) var(--wk-ease-out);
+}
+@starting-style { .wk-toast { opacity: 0; transform: translate(-50%, 8px); } }
+.wk-toast[data-leaving] { opacity: 0; transition: opacity calc(var(--wk-duration-base) * 2 / 3) var(--wk-ease-in); }
+.wk-toast[data-moved] { transition: none; }
+.wk-toast-words { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.wk-toast-action { flex: none; margin-right: -6px; }
+@media (prefers-reduced-motion: reduce) {
+  .wk-toast, .wk-toast[data-leaving] { transition: opacity var(--wk-duration-fast) linear; }
+  @starting-style { .wk-toast { opacity: 0; transform: translateX(-50%); } }
+}
+
+/* ---- Copy feedback (wk-copy, copy.js): "Copied" in a tooltip above ----- */
+.wk-copy-tip { pointer-events: none; white-space: nowrap; }
+
+/* ---- Skeleton rows (wkSkeleton, skeleton.js) ----------------------------
+   Still bars at the real row height (the cell keeps its line of text
+   height), hidden from assistive technology on the row. No shimmer. */
+.wk-skeleton-bar { display: inline-block; width: 60%; max-width: 160px; height: .75em; border-radius: var(--wk-radius-small); background: var(--wk-color-fill); vertical-align: middle; }
+.wk-skeleton > :first-child > .wk-skeleton-bar { width: 80%; max-width: 220px; }
+.wk-table--zebra tbody tr.wk-skeleton:nth-child(even) .wk-skeleton-bar { background: var(--wk-color-fill-strong); }
+
+/* ---- Loading chart (wkChart's loading) --------------------------------- */
+.wk-chart-loading { display: grid; place-items: center; height: var(--wk-chart-height, 220px); color: var(--wk-color-text-secondary); }
+.wk-chart-loading > .wk-spinner[hidden] { display: none; }
+
+/* Forced colours: the toast keeps its border (the system draws it in
+   CanvasText) and the copy tip gets one; skeleton bars are outlined in
+   GrayText, since their fill is a background. */
+@media (forced-colors: active) {
+  .wk-copy-tip { border: 1px solid CanvasText; }
+  .wk-skeleton-bar, .wk-table--zebra tbody tr.wk-skeleton:nth-child(even) .wk-skeleton-bar { forced-color-adjust: none; background: Canvas; outline: 1px solid GrayText; outline-offset: -1px; }
+}
+
 /* ---- settings.css ---- */
 /* ---- Settings window (<wk-settings>, built by settings.js) -------------- */
 /* The settings tabs sit across the top (more than one group); each pane is

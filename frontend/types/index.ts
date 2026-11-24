@@ -20,6 +20,9 @@ export {
   TasksChanged,
   DesktopShowTasks,
   DesktopQuitPending,
+  UndoChanged,
+  UndoText,
+  UndoFailed,
 } from "./events";
 
 export type {
@@ -32,6 +35,9 @@ export type {
   TasksChangedPayload,
   DesktopShowTasksPayload,
   DesktopQuitPendingPayload,
+  UndoChangedPayload,
+  UndoTextPayload,
+  UndoFailedPayload,
   EventMap,
 } from "./events";
 
@@ -44,3 +50,5 @@ export type {
   TaskError,
   TaskSnapshot,
 } from "./tasks";
+
+export type { UndoEntry, UndoOp, UndoError } from "./undo";

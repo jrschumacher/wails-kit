@@ -2115,7 +2115,16 @@ export { wkTask };
 //     view: 'chart' | 'table', onview: view => {},
 //     selection: -1, onselection: index => {}, // category index, or -1 for none
 //     retainSelectionOnBlur: false,    // keep the readout when focus leaves the plot
+//     loading: 'Fetching runs',         // loading: the frame and legend, a spinner in the plot
 //   }) -> <figure class="wk-chart">
+//
+// A loading chart (BEHAVIOUR.md, "Loading content") keeps its frame, title
+// and view switch, and its legend when the series are known (their labels;
+// values may be empty), and has aria-busy="true". Its plot keeps the
+// chart's height and shows a spinner, named by the loading words, after the
+// indicator delay (400 ms). There's no skeleton for a chart.
+// wkChart.ready(fig) resolves when the loading chart may be replaced: at
+// once if its spinner hasn't shown, else once it has shown for 500 ms.
 const SVG = 'http://www.w3.org/2000/svg';
 const GAP = 2;          // the surface between touching marks
 const BAR_MAX = 24;     // a bar is never thicker than this
@@ -2349,9 +2358,9 @@ function legend(spec) {
     key.dataset.shape = shape; if (tone != null) key.dataset.tone = tone; key.setAttribute('aria-hidden', 'true');
     htmlEl('span', null, text, li);
   };
-  for (const s of spec.series) entry(spec.kind === 'line' ? 'line' : 'bar', s.tone, spec.legendValues ? `${s.label} ${fmt(sum(s.values))}` : s.label);
+  for (const s of spec.series) entry(spec.kind === 'line' ? 'line' : 'bar', s.tone, spec.legendValues && !spec.loading ? `${s.label} ${fmt(sum(s.values || []))}` : s.label);
   if (spec.band) entry('band', spec.band.tone, spec.band.label);
-  if (spec.shadeLabel && spec.categories.some(c => c.shaded)) entry('shade', null, spec.shadeLabel);
+  if (spec.shadeLabel && (spec.categories || []).some(c => c.shaded)) entry('shade', null, spec.shadeLabel);
   return list;
 }
 
@@ -2395,8 +2404,14 @@ function unwatchSize(plot) {
   if (observing.delete(plot)) sizeObserver.unobserve(plot);
 }
 
+// Loading charts: fig -> { shownAt, timer }.
+const chartLoads = new WeakMap();
+
 /** Builds the chart's <figure>. It redraws itself when its width changes. */
 export function wkChart(spec) {
+  if (spec.loading) {
+    spec = { ...spec, categories: spec.categories || [], series: (spec.series || []).map(s => ({ ...s, values: s.values || [] })) };
+  }
   const id = spec.id || `wk-chart-${++sequence}`;
   let view = spec.view === 'table' ? 'table' : 'chart';
   const fig = htmlEl('figure', 'wk-chart');
@@ -2413,7 +2428,7 @@ export function wkChart(spec) {
     htmlEl('span', null, text, label);
     input.addEventListener('change', () => { if (input.checked) { view = value; spec.onview?.(value); paint(); } });
   }
-  fig.append(legend(spec));
+  if (!spec.loading || spec.series.length) fig.append(legend(spec));
   const body = htmlEl('div', 'wk-chart-body', null, fig);
   const status = htmlEl('p', 'wk-chart-readout', null, fig);
   status.setAttribute('role', 'status');
@@ -2473,6 +2488,16 @@ export function wkChart(spec) {
   function paint() {
     if (observed) unwatchSize(observed); observed = null; current = null; activeIndex = selection; status.textContent = '';
     body.replaceChildren();
+    if (spec.loading) {
+      const plot = htmlEl('div', 'wk-chart-plot wk-chart-loading', null, body);
+      plot.style.setProperty('--wk-chart-height', `${HEIGHT}px`);
+      const spinner = htmlEl('span', 'wk-spinner', null, plot);
+      spinner.setAttribute('role', 'progressbar');
+      spinner.setAttribute('aria-label', spec.loading);
+      const load = chartLoads.get(fig);
+      if (!load || load.shownAt < 0) spinner.hidden = true;
+      return;
+    }
     if (view === 'table') {
       const { head: header, rows } = tableModel(spec);
       const scroll = htmlEl('div', 'wk-chart-scroll', null, body);
@@ -2498,9 +2523,28 @@ export function wkChart(spec) {
       if (w > 0 && w !== width) drawChart(plot, w);
     });
   }
+  if (spec.loading) {
+    fig.setAttribute('aria-busy', 'true');
+    const load = { shownAt: -1, timer: 0 };
+    chartLoads.set(fig, load);
+    load.timer = setTimeout(() => {
+      load.shownAt = Date.now();
+      fig.querySelector('.wk-chart-loading > .wk-spinner')?.removeAttribute('hidden');
+    }, timings.indicatorDelay);
+  }
   paint();
   return fig;
 }
+
+/** Resolves when a loading chart may be replaced: at once if its spinner hasn't shown, else after it has shown for 500 ms. */
+wkChart.ready = fig => {
+  const load = chartLoads.get(fig);
+  if (!load) return Promise.resolve();
+  clearTimeout(load.timer);
+  const wait = load.shownAt < 0 ? 0 : load.shownAt + timings.indicatorMin - Date.now();
+  chartLoads.delete(fig);
+  return wait > 0 ? new Promise(resolve => setTimeout(resolve, wait)) : Promise.resolve();
+};
 
 // ---- diff.js ----
 // wk-diff: a read-only diff, unified or split (old | new side by side), built
@@ -4650,3 +4694,643 @@ const defineSettings = (name, cls) => { if (!customElements.get(name)) customEle
 defineSettings('wk-settings', WkSettings);
 
 export { WkSettings };
+
+// ---- toast.js ----
+// wkToast: a brief outcome with nowhere inline to show it (BEHAVIOUR.md,
+// "Notifications inside the window" and "Building blocks › Toast").
+//
+//   wkToast({ words: 'Conversation archived', action: { label: 'Undo', run } })
+//     -> { element, dismiss() }
+//
+// One at a time, at the bottom centre of the window, above any footer bar
+// (wk-footer-bar). It shows for timings.toast (6 s), or
+// timings.toastWithAction (10 s) with an action, and the clock runs only
+// while the window is focused and the pointer and focus are outside it. A
+// newer toast replaces it at once. It isn't a live region: its words go to
+// the window's polite announcer. F6 moves focus to its action and back to
+// where it was; Esc dismisses it while focus is inside; focus goes back
+// when it closes. An action must also exist elsewhere (Undo in Edit > Undo,
+// Show in the list), because the toast goes away by itself.
+//
+// An action from wkUndo.action() (it carries undoId) closes the toast once
+// the app's undo stack moves past it, from Edit > Undo or anywhere else.
+
+let toastShown = null;   // the toast on screen
+let toastSeq = 0;
+// Watches the document for modals opening and closing, only while a toast
+// is shown.
+let toastObserver = null;
+function toastSetShown(t) {
+  toastShown = t;
+  if (!toastObserver) return;
+  if (t) toastObserver.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['open'] });
+  else toastObserver.disconnect();
+}
+// Whether the window has focus: from the document at load, then window
+// focus and blur (document.hasFocus() can't be watched).
+let toastWindowFocused = typeof document !== 'undefined' && typeof document.hasFocus === 'function' ? document.hasFocus() : true;
+let toastListening = false;
+
+// The open modal on top, where the toast must sit to be reachable; else
+// the body.
+function toastHome() {
+  // The announcer keeps the modals in the order they opened; else the last
+  // open one in the document.
+  const stack = (document.wkAnnouncer?.wkModals || []).filter(d => d.isConnected && d.matches(':modal'));
+  return stack.pop() || [...document.querySelectorAll('dialog')].filter(d => d.matches(':modal')).pop() || document.body;
+}
+
+// Bottom offset: above the footer bars that sit along the bottom of the
+// window, in the toast's home.
+function toastPlace(t) {
+  const vh = document.documentElement.clientHeight;
+  let top = vh;
+  for (const bar of t.home.querySelectorAll('.wk-footer-bar')) {
+    const r = bar.getBoundingClientRect();
+    if (r.height > 0 && r.bottom >= vh - 1 && r.top < top) top = r.top;
+  }
+  t.el.style.setProperty('--wk-toast-above', `${Math.max(0, Math.round(vh - top))}px`);
+}
+
+function toastListen() {
+  if (toastListening) return;
+  toastListening = true;
+  window.addEventListener('focus', () => { toastWindowFocused = true; toastShown?.tick(); });
+  window.addEventListener('blur', () => { toastWindowFocused = false; toastShown?.tick(); });
+  window.addEventListener('resize', () => { if (toastShown) toastPlace(toastShown); });
+  // F6 (and Shift+F6) moves between the toast's action and where focus was.
+  window.addEventListener('keydown', e => {
+    if (e.key !== 'F6' || e.defaultPrevented || e.ctrlKey || e.altKey || e.metaKey) return;
+    const t = toastShown;
+    if (!t || !t.actionEl) return;
+    toastRehome(t);
+    const was = document.activeElement;
+    if (t.el.contains(was)) toastReturn(t);
+    else { t.actionEl.focus(); if (document.activeElement === t.actionEl) t.back = was; }
+    // Only a key that moved focus is used; otherwise F6 goes on to the page.
+    if (document.activeElement !== was) e.preventDefault();
+  });
+  // A modal opening or closing makes the toast's place inert or takes it
+  // away: it follows the top-most modal, as the announcer does.
+  const onDialog = () => { if (toastShown) toastRehome(toastShown); };
+  document.addEventListener('toggle', onDialog, true);
+  document.addEventListener('close', onDialog, true);
+  toastObserver = new MutationObserver(onDialog);
+  document.addEventListener('wk-undo-change', e => {
+    const t = toastShown;
+    const id = t?.undoId;
+    if (!id) return;
+    const top = e.detail?.undo?.id ?? null;
+    if (top === id) t.seen = true;
+    else if (t.seen) t.dismiss();
+  });
+}
+
+// Moves the toast into the top-most open modal, or back to the body, keeping
+// focus on its action if it had it.
+function toastRehome(t) {
+  if (t.gone) return;
+  const home = toastHome();
+  if (t.el.parentNode === home && t.el.isConnected) return;
+  const had = t.el.contains(document.activeElement) ? document.activeElement : null;
+  t.home = home;
+  // Moved, not new: no entry animation again (@starting-style applies to an
+  // element put back in the page). Its style is settled with transitions
+  // off, then they're back for its exit.
+  t.el.dataset.moved = '';
+  home.append(t.el);
+  void getComputedStyle(t.el).opacity;
+  delete t.el.dataset.moved;
+  toastPlace(t);
+  if (had && had.isConnected) had.focus({ preventScroll: true });
+}
+
+// Puts focus back where it was before it came to the toast.
+function toastReturn(t) {
+  const back = t.back;
+  t.back = null;
+  if (back && back !== document.body && back.isConnected && typeof back.focus === 'function') back.focus({ preventScroll: true });
+  else if (t.el.contains(document.activeElement)) document.activeElement.blur();
+}
+
+function wkToast({ words, action } = {}) {
+  const text = String(words ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) throw new TypeError('wkToast: words are required');
+  if (action && (typeof action.run !== 'function' || !action.label)) throw new TypeError('wkToast: an action needs a label and run()');
+  toastListen();
+
+  const prev = toastShown;
+  const hadFocus = Boolean(prev && prev.el.contains(document.activeElement));
+  const back = prev?.back ?? null;
+  if (prev) prev.remove();
+
+  const el = document.createElement('div');
+  el.className = 'wk-toast';
+  el.setAttribute('role', 'group');
+  el.dataset.wkToast = '';
+  const said = document.createElement('span');
+  said.className = 'wk-toast-words';
+  said.id = `wk-toast-words-${++toastSeq}`;
+  said.textContent = text;
+  el.setAttribute('aria-labelledby', said.id);
+  el.append(said);
+
+  const t = {
+    el, home: toastHome(), back, undoId: action?.undoId ?? null, seen: false,
+    remaining: action ? timings.toastWithAction : timings.toast,
+    timer: 0, startedAt: 0, hovered: false, focused: false, gone: false, actionEl: null,
+  };
+  if (t.undoId) t.seen = action.current?.() === t.undoId;
+
+  if (action) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'wk-button wk-button--small wk-toast-action';
+    b.textContent = action.label;
+    b.addEventListener('click', () => {
+      if (t.gone) return;
+      t.dismiss();
+      action.run();
+    });
+    el.append(b);
+    t.actionEl = b;
+  }
+
+  // The clock runs only while the window is focused and the pointer and
+  // focus are outside the toast.
+  t.tick = () => {
+    if (t.gone) return;
+    const run = toastWindowFocused && !t.hovered && !t.focused;
+    if (run && !t.timer) {
+      t.startedAt = Date.now();
+      t.timer = setTimeout(() => { t.timer = 0; t.remaining = 0; t.dismiss(); }, t.remaining);
+    } else if (!run && t.timer) {
+      clearTimeout(t.timer);
+      t.timer = 0;
+      t.remaining = Math.max(0, t.remaining - (Date.now() - t.startedAt));
+    }
+  };
+  el.addEventListener('pointerenter', () => { t.hovered = true; t.tick(); });
+  el.addEventListener('pointerleave', () => { t.hovered = false; t.tick(); });
+  el.addEventListener('focusin', e => {
+    // Reached with Tab (or a click): focus goes back where it came from.
+    if (!t.focused && e.relatedTarget && !el.contains(e.relatedTarget) && !t.back) t.back = e.relatedTarget;
+    t.focused = true;
+    t.tick();
+  });
+  el.addEventListener('focusout', e => {
+    if (el.contains(e.relatedTarget)) return;
+    t.focused = false;
+    t.tick();
+  });
+  el.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    e.preventDefault();
+    e.stopPropagation();
+    t.dismiss();
+  });
+
+  // Taken off the screen at once (a newer toast), with no exit.
+  t.remove = () => {
+    if (t.gone) return;
+    t.gone = true;
+    clearTimeout(t.timer);
+    if (toastShown === t) toastSetShown(null);
+    el.remove();
+  };
+  // Dismissed: focus goes back first, then it leaves, in about two-thirds of
+  // the time it took to enter (a fade of at most 100 ms with reduced motion).
+  t.dismiss = () => {
+    if (t.gone) return;
+    const inside = el.contains(document.activeElement);
+    t.gone = true;
+    clearTimeout(t.timer);
+    if (toastShown === t) toastSetShown(null);
+    if (inside) toastReturn(t);
+    el.inert = true;
+    el.dataset.leaving = '';
+    const leave = reducedMotion() ? motion.durationFast : Math.round(motion.durationBase * 2 / 3);
+    setTimeout(() => el.remove(), leave);
+  };
+
+  t.home.append(el);
+  toastPlace(t);
+  toastSetShown(t);
+  // Focus was in the toast it replaced: the new action takes it, or it goes
+  // back where it was.
+  if (hadFocus) {
+    if (t.actionEl) t.actionEl.focus({ preventScroll: true });
+    else toastReturn(t);
+  }
+  announce(text);
+  t.tick();
+  return { element: el, dismiss: () => t.dismiss() };
+}
+
+export { wkToast };
+
+// ---- undo.js ----
+// wkUndo: the frontend of the app's undo stack, which lives on the Go side
+// (the shortcuts package's UndoStack; BEHAVIOUR.md, "Undo, confirm or
+// neither").
+//
+//   wkUndo.connect({ on, bindings })   on(name, listener) subscribes to a Go
+//                                      event and may return an unsubscribe;
+//                                      bindings is the stack's Bindings()
+//   wkUndo.state()                     { undo, redo, busy, textFocus }
+//   wkUndo.undo(), wkUndo.redo()       the app's stack, from a button
+//   wkUndo.action(id?)                 a toast's Undo: { label, run, undoId }
+//   wkUndo.words                       the kit's words, for localising
+//
+// Connected, it reports text focus to Go (a field, editable content such as
+// the kit's CodeMirror and ProseMirror editors, or an app's [data-wk-undo]), so
+// Edit > Undo and Redo undo typing first: Go sends undo:text (as the DOM
+// event wk-undo-text to the window in front), the field or editor gets a
+// cancelable beforeinput historyUndo/historyRedo, and then execCommand. A
+// plain field with nothing to undo hands over to the app's stack; an editor
+// never does. A failed undo is said in words through the announcer. Every state from Go fires
+// wk-undo-change on the document (detail: the state), for the app to show
+// what came back.
+
+const undoWords = {
+  undo: 'Undo',
+  busy: 'An undo is already under way',
+  couldNot: (op, name) => `Couldn’t ${op} ${name}`,
+};
+
+const undoEmpty = Object.freeze({ undo: null, redo: null, busy: false, textFocus: false });
+let undoState = undoEmpty;
+let undoConn = null;
+
+// Where Edit > Undo goes first: a plain field (the browser's typing undo),
+// editable content (a contenteditable, such as the kit's CodeMirror and
+// ProseMirror editors, with their own history; never the app's stack), an
+// element the app marks with data-wk-undo, or nowhere. Focus elsewhere in an
+// editor (a read-only editor, its toolbar, the Markdown Write tab) isn't
+// text focus: Edit > Undo there is the app's.
+function undoTarget(el) {
+  if (!el || el === document.body || el === document.documentElement) return null;
+  if (el instanceof HTMLTextAreaElement) return !el.readOnly && !el.disabled ? { kind: 'field', el } : null;
+  if (el instanceof HTMLInputElement) {
+    return !el.readOnly && !el.disabled && /^(text|search|url|tel|email|password|number|)$/.test(el.type) ? { kind: 'field', el } : null;
+  }
+  // CodeMirror keeps a read-only editor contenteditable, marked aria-readonly.
+  if (el.isContentEditable && !el.closest('[aria-readonly="true"]')) return { kind: 'host', el: el.closest('[contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]') || el };
+  const marked = el.closest?.('[data-wk-undo]');
+  if (marked) return { kind: 'host', el: marked.querySelector('[contenteditable="true"]') || marked };
+  return null;
+}
+const undoTextField = el => Boolean(undoTarget(el));
+
+// The error code of a rejected binding: Wails passes the Go error's JSON,
+// on the error itself, its cause, or as its message.
+function undoCode(err) {
+  for (const v of [err, err?.cause]) {
+    if (v && typeof v === 'object' && typeof v.code === 'string' && v.code.startsWith('undo_')) return v.code;
+    if (typeof v === 'string' || typeof v?.message === 'string') {
+      try { const parsed = JSON.parse(typeof v === 'string' ? v : v.message); if (parsed?.code) return parsed.code; } catch { /* not JSON */ }
+    }
+  }
+  return '';
+}
+
+function undoTake(state) {
+  undoState = Object.freeze({ ...undoEmpty, ...(state || {}) });
+  document.dispatchEvent(new CustomEvent('wk-undo-change', { detail: undoState }));
+}
+
+// Calls a binding; a failure of the action is said assertively (the person
+// pressed it and waits on it). Nothing to undo, a stale toast and a busy
+// stack say nothing: there is no failure to report.
+async function undoCall(name, op, args = [], what = '', pressed = false) {
+  const fn = undoConn?.bindings?.[name];
+  if (typeof fn !== 'function') return false;
+  const label = what || (op === 'redo' ? undoState.redo?.name : undoState.undo?.name) || '';
+  try {
+    await fn(...args);
+    return true;
+  } catch (err) {
+    const code = undoCode(err);
+    // A toast's Undo pressed while another undo runs: say why nothing happened.
+    if (code === 'undo_busy' && pressed) announce(undoWords.busy);
+    else if (!['undo_empty', 'undo_stale', 'undo_busy'].includes(code)) announce(undoWords.couldNot(op, label).trim(), { assertive: true });
+    return false;
+  }
+}
+
+// Edit > Undo or Redo with text focus, in the focused window only. First
+// the field or editor gets a cancelable beforeinput (historyUndo or
+// historyRedo): an editor with its own history (CodeMirror, ProseMirror)
+// takes it there. Otherwise a plain field undoes its typing with
+// execCommand, and with none to undo, the app's stack goes. Editable
+// content never falls back to the app's stack: its undo stays in the editor.
+function undoText(op) {
+  if (!document.hasFocus()) return; // another window's field
+  const target = undoTarget(document.activeElement);
+  if (target) {
+    const ev = new InputEvent('beforeinput', { inputType: op === 'redo' ? 'historyRedo' : 'historyUndo', bubbles: true, cancelable: true });
+    target.el.dispatchEvent(ev);
+    if (ev.defaultPrevented) return;
+    if (target.kind === 'host') { document.execCommand(op); return; }
+    const before = target.el.value;
+    document.execCommand(op);
+    if (target.el.value !== before) return;
+  }
+  undoCall(op === 'redo' ? 'Redo' : 'Undo', op);
+}
+
+function undoConnect({ on, bindings = {} } = {}) {
+  if (typeof on !== 'function') throw new TypeError('wkUndo.connect: on must be a function');
+  undoConn?.disconnect();
+  const conn = { bindings, seen: false, offs: [], focus: null };
+  conn.offs.push(on('undo:changed', state => { conn.seen = true; undoTake(state); }));
+  conn.offs.push(on('undo:text', p => undoText(p?.op === 'redo' ? 'redo' : 'undo')));
+  // The Go side's Apply sends undo:text to one window's page as a DOM event.
+  const onDomText = e => undoText(e.detail?.op === 'redo' ? 'redo' : 'undo');
+  document.addEventListener('wk-undo-text', onDomText);
+  conn.offs.push(on('undo:failed', p => announce(undoWords.couldNot(p?.op === 'redo' ? 'redo' : 'undo', p?.name || '').trim(), { assertive: true })));
+  // Text focus, reported when it changes.
+  // A window coming to the front reports again, so the menu follows the
+  // window in front.
+  const report = force => {
+    const now = document.hasFocus() && undoTextField(document.activeElement);
+    if (now === conn.focus && force !== true) return;
+    conn.focus = now;
+    Promise.resolve().then(() => bindings.SetTextFocus?.(now)).catch(() => {});
+  };
+  const later = e => queueMicrotask(() => report(e?.type === 'focus' && e.target === window));
+  document.addEventListener('focusin', later, true);
+  document.addEventListener('focusout', later, true);
+  window.addEventListener('blur', later);
+  window.addEventListener('focus', later);
+  conn.disconnect = () => {
+    for (const off of conn.offs) if (typeof off === 'function') off();
+    document.removeEventListener('wk-undo-text', onDomText);
+    document.removeEventListener('focusin', later, true);
+    document.removeEventListener('focusout', later, true);
+    window.removeEventListener('blur', later);
+    window.removeEventListener('focus', later);
+    if (undoConn !== conn) return;
+    undoConn = null;
+    undoTake(undoEmpty);
+  };
+  undoConn = conn;
+  report();
+  // A reloaded window asks for the stack as it is, unless an event has
+  // already brought it.
+  Promise.resolve().then(() => bindings.State?.()).then(s => { if (!conn.seen && undoConn === conn && s) undoTake(s); }, () => {});
+  return conn.disconnect;
+}
+
+// A toast's Undo for the action with this ID (Push's result on the Go side),
+// or else the most recent action. It undoes only that action: once the
+// stack has moved past it, it does nothing and its toast closes.
+function undoAction(id) {
+  const undoId = id || undoState.undo?.id || null;
+  const name = undoState.undo?.id === undoId ? undoState.undo.name : '';
+  return {
+    label: undoWords.undo,
+    undoId,
+    current: () => undoState.undo?.id ?? null,
+    run: () => (undoId ? undoCall('UndoID', 'undo', [undoId], name, true) : Promise.resolve(false)),
+  };
+}
+
+const wkUndo = {
+  connect: undoConnect,
+  state: () => undoState,
+  undo: () => undoCall('Undo', 'undo'),
+  redo: () => undoCall('Redo', 'redo'),
+  action: undoAction,
+  words: undoWords,
+};
+
+export { wkUndo };
+
+// ---- copy.js ----
+// Copy to clipboard for wk-copy (BEHAVIOUR.md, "Patterns › Copy to
+// clipboard"). The kit copies; the button keeps its accessible name ("Copy
+// join code") and its glyph. "Copied" shows for timings.copied (2 s) in a
+// tooltip above the button and goes to the polite announcer once per press;
+// on failure, "Couldn't copy".
+//
+// A wk-copy button copies, on a click, with no script of the app's:
+//   data-wk-copy="text"          that text
+//   data-wk-copy-from="id"       the text (or a field's value) of the element with that id
+//   inside a wk-code             the <code> or <pre> beside it
+// Otherwise the app calls wkCopy(button, text) from its own click handler;
+// on a button the kit would copy from (in a wk-code, say), it calls
+// preventDefault() on the click so the kit doesn't copy as well.
+//
+//   wkCopy(button, text) -> Promise<boolean>   copies, then shows and says the outcome
+//   wkCopy.write = async text => {}            replaces the clipboard writer (Wails's Clipboard.SetText, say);
+//                                              resolving to false, or rejecting, is a failure
+//   wkCopy.words = { copied, failed }
+//
+// It fires wk-copy on the button: detail { ok }. The text isn't in the
+// event: it may be a secret.
+
+const copyTips = new WeakMap(); // button -> { tip, timer }
+
+function copyHome() {
+  const modals = [...document.querySelectorAll('dialog')].filter(d => d.matches(':modal'));
+  return modals.pop() || document.body;
+}
+
+// Above the button, centred, inside the viewport (below it when there's no
+// room above).
+function copyPlace(tip, rect) {
+  tip.style.setProperty('left', '0px');
+  tip.style.setProperty('top', '0px');
+  const box = tip.getBoundingClientRect();
+  const vw = document.documentElement.clientWidth;
+  let top = rect.top - 6 - box.height;
+  if (top < 4) top = rect.bottom + 6;
+  const left = Math.min(Math.max(4, rect.left + rect.width / 2 - box.width / 2), vw - 4 - box.width);
+  tip.style.setProperty('left', `${Math.round(left)}px`);
+  tip.style.setProperty('top', `${Math.round(top)}px`);
+}
+
+function copyHide(button) {
+  const s = copyTips.get(button);
+  if (!s) return;
+  clearTimeout(s.timer);
+  s.tip.remove();
+  s.off.abort();
+  copyTips.delete(button);
+}
+
+function copyShow(button, text) {
+  copyHide(button);
+  // The button's own hover tooltip gives way.
+  button.closest('wk-tooltip')?.hide?.();
+  const tip = document.createElement('span');
+  tip.className = 'wk-tooltip wk-copy-tip';
+  // Said through the announcer, once: not read again from here.
+  tip.setAttribute('aria-hidden', 'true');
+  tip.textContent = text;
+  copyHome().append(tip);
+  copyPlace(tip, button.getBoundingClientRect());
+  const off = new AbortController();
+  // Esc hides it only while focus or the pointer is on the button; anywhere
+  // else Esc belongs to the page (a dialog, a task's Cancel).
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (document.activeElement !== button && !button.matches(':hover')) return;
+    e.preventDefault();
+    copyHide(button);
+  }, { signal: off.signal });
+  copyTips.set(button, { tip, off, timer: setTimeout(() => copyHide(button), timings.copied) });
+}
+
+async function wkCopy(button, text) {
+  let ok = false;
+  try {
+    // A writer that resolves to false (Wails's Clipboard.SetText) didn't copy.
+    ok = (await wkCopy.write(String(text ?? ''))) !== false;
+  } catch { ok = false; }
+  if (button?.isConnected) {
+    copyShow(button, ok ? wkCopy.words.copied : wkCopy.words.failed);
+    button.dispatchEvent(new CustomEvent('wk-copy', { bubbles: true, detail: { ok } }));
+  }
+  // A failure while the person still waits on the button is assertive.
+  announce(ok ? wkCopy.words.copied : wkCopy.words.failed, { assertive: !ok && document.activeElement === button });
+  return ok;
+}
+wkCopy.write = text => {
+  if (!navigator.clipboard?.writeText) return Promise.reject(new Error('no clipboard'));
+  return navigator.clipboard.writeText(text);
+};
+wkCopy.words = { copied: 'Copied', failed: 'Couldn’t copy' };
+
+// The text a wk-copy button copies by itself, or null when the app copies.
+function copySource(button) {
+  if (button.hasAttribute('data-wk-copy')) return button.getAttribute('data-wk-copy');
+  const from = button.getAttribute('data-wk-copy-from');
+  if (from) {
+    const el = document.getElementById(from);
+    if (!el) return null;
+    return 'value' in el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) ? el.value : el.textContent;
+  }
+  const code = button.parentElement?.matches('.wk-code') ? button.parentElement.querySelector(':scope > pre, :scope > code') : null;
+  return code ? code.textContent : null;
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', e => {
+    const button = e.target instanceof Element ? e.target.closest('.wk-copy') : null;
+    if (!button || e.defaultPrevented) return;
+    const text = copySource(button);
+    if (text == null) return;
+    wkCopy(button, text);
+  });
+}
+
+export { wkCopy };
+
+// ---- skeleton.js ----
+// Skeleton rows: a table that loads shows still rows in the shape of its
+// content (BEHAVIOUR.md, "Loading content" and "Building blocks › Skeleton
+// rows"), after the indicator delay (400 ms), for at least the indicator
+// minimum (500 ms) once shown.
+//
+//   const loading = wkSkeleton(tbody, { rows, columns, region });
+//   const data = await fetchRuns();
+//   await loading.done(() => drawRows(tbody, data)); // swapped in one step
+//
+// From the call, the region (the table, or `region`) has aria-busy="true"
+// until done(). At 400 ms the body's rows give way to
+// <tr class="wk-skeleton" aria-hidden="true">, one cell per column (the
+// header's, or `columns`), each holding a still bar, at the real row height:
+// as many rows as the body had, or as last time, or enough to fill the
+// window below the body, up to 12 (or `rows`). done(draw) takes them out,
+// calls draw in the same step and resolves; if they haven't shown yet, at
+// once, with no indicator. cancel() takes them out and puts the old rows
+// back. Focus in the rows that give way moves to the region (the table),
+// so it isn't lost to the page.
+
+const SKELETON_MAX = 12;
+const skeletonLast = new WeakMap(); // body -> its row count after the last load
+
+function skeletonColumns(body) {
+  const table = body.closest('table');
+  const head = table?.tHead?.rows[0] || body.rows[0];
+  if (!head) return 1;
+  return [...head.cells].reduce((n, c) => n + (c.colSpan || 1), 0) || 1;
+}
+
+function skeletonRow(columns) {
+  const tr = document.createElement('tr');
+  tr.className = 'wk-skeleton';
+  tr.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < columns; i++) {
+    const td = tr.insertCell();
+    const bar = document.createElement('span');
+    bar.className = 'wk-skeleton-bar';
+    td.append(bar);
+  }
+  return tr;
+}
+
+// Focuses the region (focusable for the while with tabindex -1, dropped
+// once focus leaves it).
+function skeletonHoldFocus(region) {
+  if (!region.hasAttribute('tabindex')) {
+    region.setAttribute('tabindex', '-1');
+    region.addEventListener('blur', () => region.removeAttribute('tabindex'), { once: true });
+  }
+  region.focus({ preventScroll: true });
+}
+
+function wkSkeleton(body, { rows, columns, region } = {}) {
+  if (body instanceof HTMLTableElement) body = body.tBodies[0] || body.createTBody();
+  if (!(body instanceof HTMLTableSectionElement)) throw new TypeError('wkSkeleton: pass a <tbody> or a <table>');
+  const busy = region || body.closest('table') || body;
+  busy.setAttribute('aria-busy', 'true');
+  let shownAt = -1, kept = null, ended = false, added = [];
+
+  const show = () => {
+    const cols = columns || skeletonColumns(body);
+    const first = skeletonRow(cols);
+    kept = [...body.childNodes];
+    // Focus in the rows that give way goes to the region, not the page.
+    const focused = body.contains(document.activeElement);
+    body.replaceChildren(first);
+    if (focused) skeletonHoldFocus(busy);
+    let n = rows || kept.filter(r => r.nodeName === 'TR').length || skeletonLast.get(body) || 0;
+    if (!n) {
+      const h = first.getBoundingClientRect().height || 1;
+      const below = document.documentElement.clientHeight - first.getBoundingClientRect().top;
+      n = Math.floor(below / h);
+    }
+    n = Math.max(1, Math.min(SKELETON_MAX, n));
+    added = [first];
+    for (let i = 1; i < n; i++) added.push(body.appendChild(skeletonRow(cols)));
+    shownAt = Date.now();
+  };
+  const timer = setTimeout(show, timings.indicatorDelay);
+
+  const finish = (draw, restore) => {
+    if (ended) return Promise.resolve();
+    ended = true;
+    clearTimeout(timer);
+    const swap = () => {
+      for (const r of added) r.remove();
+      if (restore && kept) body.append(...kept);
+      busy.removeAttribute('aria-busy');
+      if (typeof draw === 'function') draw();
+      if (!restore) queueMicrotask(() => { if (body.rows.length) skeletonLast.set(body, body.rows.length); });
+    };
+    const wait = shownAt < 0 ? 0 : shownAt + timings.indicatorMin - Date.now();
+    if (wait <= 0) { swap(); return Promise.resolve(); }
+    return new Promise(resolve => setTimeout(() => { swap(); resolve(); }, wait));
+  };
+
+  return {
+    done: draw => finish(draw, false),
+    cancel: () => finish(null, true),
+    get shown() { return shownAt >= 0 && !ended; },
+  };
+}
+
+export { wkSkeleton };
