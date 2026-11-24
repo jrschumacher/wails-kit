@@ -27,6 +27,12 @@ export interface Validation {
   max?: number;
 }
 
+/** A back-end check (settings.Check): the field's value applies only once it passes. */
+export interface Check {
+  /** Words shown beside the field while the check runs ("Checking token…"). */
+  pending?: string;
+}
+
 export interface Field {
   key: string;
   type: FieldType;
@@ -38,6 +44,7 @@ export interface Field {
   dynamicOptions?: DynamicOptions;
   condition?: Condition;
   validation?: Validation;
+  check?: Check;
   advanced?: boolean;
 }
 

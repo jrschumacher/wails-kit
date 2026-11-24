@@ -308,9 +308,10 @@ make.
 - **Several tasks at once:** each task shows its state where it started. When two or
   more run, one summary ("3 tasks running · 1 failed") sits beside the connection state
   in the toolbar, or in the footer bar of a window with no toolbar, and opens the task
-  list ([`wkTask.summary` and `wkTask.showList`](README.md#the-summary-and-the-task-list)), also reachable from Window > Tasks. A failed task stays in the list
-  until the person retries or dismisses it, so a failure never depends on a toast or on
-  finding the control that started it. The taskbar shows the combined total, and
+  list ([`wkTask.summary` and `wkTask.showList`](README.md#the-summary-and-the-task-list)),
+  also reachable from Window > Tasks. A failed task stays in the list until the person
+  retries or dismisses it, so a failure never depends on a toast or on finding the
+  control that started it. The taskbar shows the combined total, and
   notifications are grouped ("3 jobs finished.").
 - **Work across reload, close and reopen:** task state lives on the Go side, not in the
   web view. A reloaded or reopened window asks for the current tasks and draws them as
@@ -580,11 +581,6 @@ Where shipped code doesn't yet follow this page:
 
 - `wkTask` doesn't yet show time left ("About 3 min left") once the estimates are
   stable; the app can put it beside the indicator itself.
-- The settings window validates on `change` only: it doesn't re-check as the person
-  types once a field shows an error, and it has no pending state for a field whose
-  check is still running. It marks a tab with attention but shows no window Notice
-  ("2 settings need attention."), and an empty required setting shows its error only
-  after the app passes errors in, not when the window opens.
 - `wk-copy` is styling only: the app copies, and nothing gives feedback.
 - The design system's Button card documents `disabled` and the locked state, but no
   busy state; the kit's README documents it.

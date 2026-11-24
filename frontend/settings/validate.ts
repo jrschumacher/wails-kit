@@ -10,6 +10,8 @@ export const CodeMin = "min" as const;
 export const CodeMax = "max" as const;
 export const CodeInvalidType = "invalid_type" as const;
 export const CodeInvalidOption = "invalid_option" as const;
+/** A back-end check failed (settings.CodeCheck; Service.CheckValue). */
+export const CodeCheck = "check" as const;
 
 export type ValidationCode =
   | typeof CodeRequired
@@ -19,7 +21,8 @@ export type ValidationCode =
   | typeof CodeMin
   | typeof CodeMax
   | typeof CodeInvalidType
-  | typeof CodeInvalidOption;
+  | typeof CodeInvalidOption
+  | typeof CodeCheck;
 
 export interface ValidationError {
   field: string;
@@ -57,6 +60,26 @@ export function validate(
   }
 
   return errs;
+}
+
+/**
+ * Validate one field: the errors validate() would return for `key`. For
+ * re-checking a field as the person types, with their draft in `values`.
+ * Returns [] for an unknown key or a field hidden by its condition.
+ */
+export function validateKey(
+  schema: Schema,
+  values: Record<string, unknown>,
+  key: string,
+): ValidationError[] {
+  for (const group of schema.groups) {
+    for (const field of group.fields) {
+      if (field.key !== key) continue;
+      if (field.condition && !conditionMet(field.condition, values)) return [];
+      return validateField(field, values[field.key], values);
+    }
+  }
+  return [];
 }
 
 function validateField(

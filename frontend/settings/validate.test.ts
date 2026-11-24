@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { Field, Schema } from "@wails-kit/types";
 import {
   validate,
+  validateKey,
+  CodeCheck,
   CodeRequired,
   CodePattern,
   CodeMinLen,
@@ -291,5 +293,50 @@ describe("validate", () => {
     const fields = errs.map((e) => e.field);
     expect(fields).toContain("name");
     expect(fields).toContain("email");
+  });
+});
+
+describe("validateKey", () => {
+  const schema: Schema = {
+    groups: [
+      {
+        key: "g",
+        label: "G",
+        fields: [
+          { key: "mode", type: "text", label: "Mode" },
+          { key: "name", type: "text", label: "Name", validation: { required: true, minLen: 3 } },
+          { key: "port", type: "number", label: "Port", validation: { min: 1 } },
+          {
+            key: "token",
+            type: "password",
+            label: "Token",
+            validation: { required: true },
+            condition: { field: "mode", equals: ["remote"] },
+          },
+        ],
+      },
+    ],
+  };
+
+  it("returns only the named field's errors", () => {
+    const values = { name: "ab", port: 0, mode: "remote" };
+    expect(validateKey(schema, values, "name")).toEqual([
+      { field: "name", message: "Name must be at least 3 characters", code: CodeMinLen },
+    ]);
+    expect(validate(schema, values)).toHaveLength(3);
+  });
+
+  it("clears once the draft is fixed", () => {
+    expect(validateKey(schema, { name: "abc" }, "name")).toEqual([]);
+  });
+
+  it("returns nothing for a hidden or unknown field", () => {
+    expect(validateKey(schema, { mode: "local" }, "token")).toEqual([]);
+    expect(validateKey(schema, { mode: "remote" }, "token")).toHaveLength(1);
+    expect(validateKey(schema, {}, "nope")).toEqual([]);
+  });
+
+  it("exports the back-end check's code, matching settings.CodeCheck", () => {
+    expect(CodeCheck).toBe("check");
   });
 });
