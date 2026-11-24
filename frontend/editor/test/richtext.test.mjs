@@ -7,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSchema, featureSet, linkTarget, languageOf, FEATURES } from '../src/richtext/schema.js';
 import { parseMarkdown, serializeMarkdown, sourceDoc, sourceText } from '../src/richtext/markdown.js';
-import { serializeHtml } from '../src/richtext/html.js';
+import { serializeHtml, cleanHtml } from '../src/richtext/html.js';
 import { nesting, tooDeep } from '../src/richtext/limits.js';
 import { MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH, MAX_MARKDOWN_DELIMITERS } from '../src/shared/markdown-limits.js';
 
@@ -82,6 +82,36 @@ test('Markdown: other spellings settle on the canonical one after one save, and 
   }
 });
 
+test('Markdown: emphasis Markdown cannot spell is dropped, never written as literal asterisks', () => {
+  const t = (text, ms = []) => schema.text(text, ms);
+  const em = () => [marks.em.create()], strong = () => [marks.strong.create()];
+  for (const [content, want] of [
+    [[t('file'), t('.js', em())], 'file.js'],
+    [[t('f'), t('(x)', strong())], 'f(x)'],
+    [[t('say'), t('"hi"', strong())], 'say"hi"'],
+    [[t('"hi"', em()), t('x')], '"hi"x'],
+    [[t('a ('), t('b', strong()), t(') c')], 'a (**b**) c'],
+    [[t('say '), t('"hi"', strong())], 'say **"hi"**'],
+  ]) {
+    const doc = nodes.doc.create(null, nodes.paragraph.create(null, content));
+    const text = serializeMarkdown(doc);
+    assert.equal(text, want);
+    assert.equal(load(text).doc.textContent, doc.textContent, want);
+  }
+});
+
+test('Markdown: plain text that GFM would link (a URL, a www. address, an e-mail address) stays plain text', () => {
+  const doc = nodes.doc.create(null, nodes.paragraph.create(null, schema.text('see https://example.com/x, www.example.org, ftp://h and a@example.com')));
+  const text = serializeMarkdown(doc);
+  assert.equal(text, 'see https\\://example.com/x, www\\.example.org, ftp\\://h and a\\@example.com');
+  const back = load(text).doc;
+  let linked = 0;
+  back.descendants(n => { if (n.marks.length) linked++; });
+  assert.equal(linked, 0);
+  assert.equal(back.textContent, doc.textContent);
+  assert.equal(roundTrip(text), text);
+});
+
 test('Markdown: what the editor does not offer comes in as text (tables, task lists, strikethrough, images, raw HTML)', () => {
   assert.equal(roundTrip('| a | b |\n|---|---|\n| 1 | **2** |'), 'a | b\n\n1 | **2**');
   assert.equal(roundTrip('- [x] done\n- [ ] todo'), '- \\[x\\] done\n- \\[ \\] todo');
@@ -132,6 +162,53 @@ test('HTML out: only the allow-listed elements and attributes, text escaped, lin
   assert.equal(serializeHtml(tricky), '<p><a href="https://example.com/?q=%22%3E%3Cscript%3E" rel="noopener noreferrer">"x"</a></p>');
   // A loose list keeps its paragraphs.
   assert.equal(serializeHtml(load('- a\n\n- b').doc), '<ul><li><p>a</p></li><li><p>b</p></li></ul>');
+});
+
+// Every start tag left in cleaned HTML, as [name, attributes].
+const tagsOf = html => [...html.matchAll(/<([a-z][^\s/>]*)([^>]*)>/gi)].map(([, name, rest]) => [name.toLowerCase(), [...rest.matchAll(/\s([^\s=]+)=/g)].map(a => a[1])]);
+
+test('cleanHtml: untrusted HTML keeps no handler, resource URL or inline style, before any parser sees it', () => {
+  const hostile = [
+    '<img src=x onerror=alert(1)>', '<img/src=x/onerror=alert(1)>', '<IMG SRC=x ONERROR=alert(1)>', '<img src="x" onerror="alert(1)"',
+    '<svg onload=alert(1)><circle r=1></circle></svg>', '<svg><image href="https://example.com/x.png"></image></svg>', '<math><mi xlink:href="javascript:alert(1)">x</mi></math>',
+    '<body onload=alert(1)>', '<details open ontoggle=alert(1)>d</details>', '<video><source src=x onerror=alert(1)></video>', '<audio src=x onerror=alert(1)></audio>',
+    '<iframe srcdoc="<script>alert(1)</script>"></iframe>', '<iframe src="https://example.com"></iframe>', '<object data="x.swf"></object><embed src="x">',
+    '<input autofocus onfocus=alert(1)>', '<marquee onstart=alert(1)>m</marquee>', '<form action="https://example.com"><button formaction=x>b</button></form>',
+    '<link rel=stylesheet href="https://example.com/x.css">', '<meta http-equiv="refresh" content="0;url=https://example.com">', '<base href="https://example.com/">',
+    '<a title=">" onclick=alert(1)>q</a>', '<a href="x" <img onerror=alert(1)>z</a>', '<a href="javascript:alert(1)">j</a>', '<a href="&#106;avascript:alert(1)">j</a>',
+    '<p style="background:url(https://example.com/x.png)">s</p>', '<style>@import "https://example.com/x.css"; body{display:none}</style>', '<script>alert(1)</script>',
+    '<script>"</script><img src=x onerror=alert(1)>"</script>', '<div onmouseover=alert(1) onclick=alert(1)>t</div>', '<table background="x.png"><tr><td>c</td></tr></table>',
+    '<noscript><img src=x onerror=alert(1)></noscript>', '<template><img src=x onerror=alert(1)></template>', '<x-y onclick=alert(1)>c</x-y>',
+  ];
+  const allowed = { a: ['href'], ol: ['start'], pre: ['class', 'data-language'], code: ['class', 'data-language'] };
+  for (const html of hostile) {
+    const clean = cleanHtml(html);
+    assert.doesNotMatch(clean, /\son[a-z]+\s*=|\s(src|srcset|srcdoc|data|action|formaction|background|poster|style|content)\s*=/i, `${html} → ${clean}`);
+    assert.doesNotMatch(clean, /javascript:|https:\/\/example\.com\/x\.(png|css)|<(img|svg|math|iframe|object|embed|script|style|link|meta|base|input|source|video|audio)\b/i, `${html} → ${clean}`);
+    for (const [name, attrs] of tagsOf(clean)) {
+      for (const a of attrs) assert.ok(a === 'data-wk-style' || (allowed[name] || []).includes(a), `${html} → ${clean}: <${name} ${a}>`);
+    }
+  }
+  // What the schema reads survives: safe links, a list's start, a code block's language, bold and italic from styles.
+  assert.equal(cleanHtml('<a href="https://example.com/x?a=1&amp;b=2" target=_blank>ok</a>'), '<a href="https://example.com/x?a=1&amp;b=2">ok</a>');
+  assert.equal(cleanHtml('<ol start=3 class=x><li>a</li></ol>'), '<ol start="3"><li>a</li></ol>');
+  assert.equal(cleanHtml('<pre><code class="language-go">x &lt; y</code></pre>'), '<pre><code class="language-go">x &lt; y</code></pre>');
+  assert.equal(cleanHtml('<span style="font-weight:700" onclick=x>b</span>'), '<span data-wk-style="font-weight:700">b</span>');
+  // Text is left alone.
+  assert.equal(cleanHtml('1 < 2 & "q"'), '1 < 2 & "q"');
+  // The tokenizer's attribute rules: a ">" inside quotes, "/" between attributes, unquoted values, any case.
+  for (const [html, want] of [
+    ['<span title="a>b" style="font-weight:700" onclick="x">t</span>', '<span data-wk-style="font-weight:700">t</span>'],
+    ["<span title='a>b' style='font-style:italic'>t</span>", '<span data-wk-style="font-style:italic">t</span>'],
+    ['<span/style="font-weight:bold"/onclick=x>t</span>', '<span data-wk-style="font-weight:bold">t</span>'],
+    ['<p/onclick=alert(1)/title=x>t</p>', '<p>t</p>'],
+    ['<a/href=https://example.com/x/onclick=alert(1)>t</a>', '<a href="https://example.com/x/onclick=alert(1)">t</a>'],
+    ['<A HREF=https://example.com ONCLICK=alert(1) OnMouseOver="x">t</A>', '<a href="https://example.com">t</a>'],
+    ['<P STYLE="COLOR:RED; FONT-WEIGHT:BOLD" ONCLICK=x>t</P>', '<p data-wk-style="FONT-WEIGHT:BOLD">t</p>'],
+    ['<span style=font-weight:700 onclick=x>t</span>', '<span data-wk-style="font-weight:700">t</span>'],
+    ['<span style="font-weight:700" style="x" onclick>t</span>', '<span data-wk-style="font-weight:700">t</span>'],
+    ['<p =onclick=alert(1) "onclick"=x>t</p>', '<p>t</p>'],
+  ]) assert.equal(cleanHtml(html), want, html);
 });
 
 test('features: the schema holds only what the editor offers; loaded content is cut down to it', () => {

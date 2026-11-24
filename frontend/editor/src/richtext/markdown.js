@@ -198,6 +198,11 @@ function escapeText(text, before, after) {
     else if (c === '_') out += alnum(prev) && alnum(next) ? '_' : '\\_';
     else if (c === '<') out += /[A-Za-z/!?]/.test(next || '') ? '\\<' : '<';
     else if (c === '&') out += /^&(#x?[0-9a-f]+|[a-z][a-z0-9]*);/i.test(text.slice(i)) ? '\\&' : '&';
+    // Plain text that GFM would make a link (a URL, a www. address, an
+    // e-mail address) is escaped, so it is still plain text after a save.
+    else if (c === ':' && next === '/' && /(?:^|[^\p{L}\p{N}])(?:https?|ftp)$/iu.test(before + text.slice(0, i))) out += '\\:';
+    else if (c === '.' && /(?:^|[^\p{L}\p{N}])www$/iu.test(before + text.slice(0, i))) out += '\\.';
+    else if (c === '@' && /[\w.+-]/.test(prev || '') && /\w/.test(next || '')) out += '\\@';
     else out += c;
   }
   return out;
@@ -235,7 +240,6 @@ function destination(href) {
   return paired && !open ? href : href.replace(/[()]/g, '\\$&');
 }
 
-const sameMarks = (a, b) => a.length === b.length && a.every((m, i) => m.eq(b[i]));
 const prefix = (a, b) => { let i = 0; while (i < a.length && i < b.length && a[i].eq(b[i])) i++; return i; };
 
 // How a link whose whole text is its target can be written without
@@ -255,7 +259,69 @@ function autolink(text, href, before, after) {
 
 // A textblock's inline content as Markdown: one line, or several split by
 // hard breaks ("\\\n"). `heading`: a line break is a space (a heading is one line).
+// Emphasis that Markdown cannot spell: a delimiter run opens only where it
+// is left-flanking and closes only where it is right-flanking (CommonMark).
+// An italic ".js" right after "file" cannot open; nor can a bold "(x)" after
+// "f". Such a mark is dropped for that span rather than written as literal
+// asterisks. Neighbours are read from the text, without the delimiters of
+// other marks.
+const punct = c => !!c && /[\p{P}\p{S}]/u.test(c);
+function dropUnflanked(runs) {
+  for (const name of ['strong', 'em']) {
+    for (let i = 0; i < runs.length;) {
+      const has = r => !r.br && r.marks.some(m => m.type.name === name);
+      if (!has(runs[i])) { i++; continue; }
+      let j = i;
+      while (j < runs.length && has(runs[j])) j++;
+      const text = runs.slice(i, j).map(r => r.text).join('');
+      const inner = text.trim();
+      const prev = /^\s/.test(text) ? ' ' : (runs[i - 1] && !runs[i - 1].br ? runs[i - 1].text.slice(-1) : '');
+      const next = /\s$/.test(text) ? ' ' : (runs[j] && !runs[j].br ? runs[j].text[0] : '');
+      const first = inner[0], last = inner.slice(-1);
+      const opens = !!first && (!punct(first) || space(prev) || punct(prev));
+      const closes = !!last && (!punct(last) || space(next) || punct(next));
+      if (!opens || !closes) for (let k = i; k < j; k++) runs[k].marks = runs[k].marks.filter(m => m.type.name !== name);
+      i = j;
+    }
+  }
+}
+
+// A textblock's inline content as lines, cached per (immutable) node. The
+// result is read back with marked: if any text would change, marks Markdown
+// cannot spell are dropped (dropUnflanked), then, if that is not enough, all
+// bold and italic in the block, so the text itself never changes.
+const inlineCache = new WeakMap();
 function inlineMarkdown(block, { heading = false } = {}) {
+  const key = heading ? 'h' : 'p';
+  const cached = inlineCache.get(block)?.[key];
+  if (cached) return cached;
+  // The text as Markdown keeps it: no spaces at a line's ends, no line
+  // breaks at the end.
+  const norm = text => text.split('\n').map(l => l.trim()).join('\n').replace(/\n+$/, '');
+  const textOf = node => norm(node.textBetween(0, node.content.size, '', heading ? ' ' : '\n'));
+  const want = textOf(block);
+  const reads = lines => {
+    const md = lines.join('\n');
+    if (!md || pastMarkdownLimits(md)) return true;
+    const { doc, source } = parseMarkdown(block.type.schema, md);
+    return !source && doc.childCount === 1 && textOf(doc.firstChild) === want;
+  };
+  let lines = writeInline(runsOf(block), heading);
+  if (!reads(lines)) {
+    const runs = runsOf(block);
+    dropUnflanked(runs);
+    lines = writeInline(runs, heading);
+    if (!reads(lines)) {
+      const plain = runsOf(block);
+      for (const r of plain) r.marks = r.marks.filter(m => m.type.name !== 'strong' && m.type.name !== 'em');
+      lines = writeInline(plain, heading);
+    }
+  }
+  inlineCache.set(block, { ...inlineCache.get(block), [key]: lines });
+  return lines;
+}
+
+function runsOf(block) {
   const runs = [];
   block.forEach(node => {
     if (node.isText) runs.push({ text: node.text, marks: node.marks });
@@ -276,6 +342,10 @@ function inlineMarkdown(block, { heading = false } = {}) {
     const prev = runs[i - 1]?.marks || [], next = runs[i + 1]?.marks || [];
     r.marks = r.marks.filter(m => m.isInSet(prev) && m.isInSet(next) && m.type.name !== 'code');
   }
+  return runs;
+}
+
+function writeInline(runs, heading) {
   const lines = [];
   let out = '';
   const active = []; // { mark, close }

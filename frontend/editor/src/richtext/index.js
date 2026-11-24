@@ -16,10 +16,10 @@ import { StyleModule } from 'style-mod';
 import { safeUrl } from '../shared/url.js';
 import { warnWithoutAdoptedSheets } from '../shared/adopted.js';
 import { mountPreviewStyles } from '../shared/markdown-styles.js';
-import { MAX_MARKDOWN_DEPTH } from '../shared/markdown-limits.js';
+import { MAX_MARKDOWN_DEPTH, MAX_MARKDOWN_LENGTH, markdownLimits, exceedsMarkdownLimits } from '../shared/markdown-limits.js';
 import { buildSchema, featureSet, linkTarget, languageOf, FEATURES } from './schema.js';
 import { parseMarkdown, serializeMarkdown, sourceText } from './markdown.js';
-import { serializeHtml, parseHtml, withoutInlineStyles } from './html.js';
+import { serializeHtml, parseHtml, cleanHtml } from './html.js';
 import { nesting } from './limits.js';
 import { richtextStyles } from './style-spec.js';
 
@@ -246,7 +246,14 @@ export function wkRichTextEditor(spec = {}) {
     if (format === 'html') return { doc: parseHtml(schema, value), source: false };
     return parseMarkdown(schema, value);
   };
-  const serialize = doc => (source ? sourceText(doc) : format === 'html' ? serializeHtml(doc) : serializeMarkdown(doc));
+  // The Markdown of the last document written (the limits guard writes it
+  // before an edit applies; onchange and value read it back).
+  let written = null;
+  const markdownOf = doc => {
+    if (written?.doc !== doc) written = { doc, md: serializeMarkdown(doc) };
+    return written.md;
+  };
+  const serialize = doc => (source ? sourceText(doc) : format === 'html' ? serializeHtml(doc) : markdownOf(doc));
 
   // ---- Commands bound to this editor ----
   const guard = (cmd, check = canFormat) => (state, dispatch, view) => check() && cmd(state, dispatch, view);
@@ -317,11 +324,23 @@ export function wkRichTextEditor(spec = {}) {
   });
   // No edit nests quotes and lists past the Markdown limit (limits.js), so
   // what the editor saves loads again as Markdown.
+  // Nor does any edit make the Markdown longer than MAX_MARKDOWN_LENGTH or
+  // give it more emphasis and link delimiters than the limits allow (600
+  // bold words in one paragraph, or 2,000 asterisks typed), which would load
+  // again as its source. A refused edit says why in the error region.
+  let refused = null;
   const depthGuard = new Plugin({
     filterTransaction(tr, state) {
       if (!tr.docChanged) return true;
       const after = nesting(tr.doc);
-      return after <= MAX_MARKDOWN_DEPTH || after <= nesting(state.doc);
+      if (after > MAX_MARKDOWN_DEPTH && after > nesting(state.doc)) { refused = 'That would nest the lists and quotes too deeply.'; return false; }
+      if (source || format !== 'markdown') return true;
+      const md = markdownOf(tr.doc);
+      if (md.length > MAX_MARKDOWN_LENGTH && md.length > markdownOf(state.doc).length) { refused = 'That would make the text too long to save.'; return false; }
+      if (!exceedsMarkdownLimits(markdownLimits(md))) return true;
+      if (exceedsMarkdownLimits(markdownLimits(markdownOf(state.doc)))) return true;
+      refused = 'That would put more formatting in one paragraph than the editor can save.';
+      return false;
     },
   });
   const plugins = () => [
@@ -410,10 +429,15 @@ export function wkRichTextEditor(spec = {}) {
     attributes: contentAttrs,
     editable: () => canEdit(),
     transformPasted,
-    transformPastedHTML: withoutInlineStyles,
+    // Pasted and dropped HTML is cleaned as text before ProseMirror parses it
+    // (html.js), so no handler or resource URL from it reaches any document.
+    transformPastedHTML: html => cleanHtml(html),
     // A key right after a selection change (Shift+Arrow, then Mod-K) acts on
     // the new selection: ProseMirror reads the DOM selection asynchronously,
     // so read it first.
+    // Without oncancel, Escape is the page's (a <dialog> closes on it):
+    // ProseMirror would otherwise call preventDefault() on every Escape.
+    handleDOMEvents: { keydown: (v, e) => e.key === 'Escape' && !spec.oncancel },
     handleKeyDown(v, e) {
       v.domObserver?.flush?.();
       // ProseMirror calls preventDefault() on every Escape in the text, so
@@ -423,7 +447,15 @@ export function wkRichTextEditor(spec = {}) {
     },
     dispatchTransaction(tr) {
       if (destroyed) return;
-      view.updateState(view.state.apply(tr));
+      refused = null;
+      const next = view.state.apply(tr);
+      if (refused && next.doc === view.state.doc) {
+        // Redraw, in case the browser already changed the DOM (typing).
+        view.updateState(view.state);
+        setError(refused);
+        return;
+      }
+      view.updateState(next);
       refreshTools();
       if (tr.docChanged) {
         const value = serialize(view.state.doc);

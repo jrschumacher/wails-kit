@@ -559,7 +559,7 @@ the person types) and the busy submit actions (`aria-disabled="true"` and
 | **Enter**, **Shift-Enter** | a new paragraph or list item; a line break (a new line in a code block) |
 | **Mod-Z**, **Mod-Shift-Z** (and **Mod-Y**) | undo, redo |
 | **Mod-Enter** | submit (when there is an `onsubmit` or a submit action; otherwise it leaves a code block) |
-| **Escape** | cancel, when `oncancel` is set (not while an input method is composing); in the link popover, it closes the popover instead. ProseMirror calls `preventDefault()` on Escape in the text either way, so an outer listener sees `defaultPrevented` set |
+| **Escape** | cancel, when `oncancel` is set (not while an input method is composing): `preventDefault()` is called, so an outer listener sees `defaultPrevented` set. Without `oncancel`, the key is left to the page (a modal `<dialog>` around the editor closes). In the link popover, it closes the popover instead |
 | **Alt-F10** | from the text to the toolbar |
 | **Tab**, **Shift-Tab** | move focus on and back (toolbar, text, actions); the text never traps it |
 
@@ -605,19 +605,25 @@ in one spelling per feature, so text in that spelling comes back unchanged:
 | lists | `- ` bullets, `1. ` numbers from the list's start; `*` or `1)` for a list straight after one of the same kind; tight lists stay tight unless Markdown cannot keep them so |
 | quotes, code blocks, rules | `> `, ```` ``` ```` fences with the language, `---` |
 | line breaks | a backslash at the end of the line |
-| text | Markdown's characters escaped (`\*`, `\_`, `` \` ``, `\[`, `\#` at a line's start, …), `snake_case` left alone |
+| text | Markdown's characters escaped (`\*`, `\_`, `` \` ``, `\[`, `\#` at a line's start, …), `snake_case` left alone; plain text GFM would make a link escaped too (`https\://…`, `www\.…`, `a\@example.com`), so it stays text |
 
 Other spellings (`*italic*`, `__bold__`, setext headings, `~~~` or indented
 code, `***` rules, two-space line breaks) settle on these after one save. A
-soft line break inside a paragraph becomes a space; leading spaces on a line,
-empty paragraphs, link titles and character references (written as the
+soft line break inside a paragraph becomes a space; spaces at the start or
+end of a line, empty and whitespace-only paragraphs, line breaks at the end of
+a paragraph, link titles and character references (written as the
 characters) are not kept. What the editor does not offer comes in as text:
 a table row by row, a task list's box as `[ ]`, strikethrough as plain text,
-an image as a link to it, raw HTML as the text it is. Emphasis that Markdown
-cannot spell (opening on punctuation straight after a letter, `x*"y"*`) may
-shift after a save; the text itself never changes, and a code span inside a
-link that holds a bracket, backslash or backtick goes as plain text. The node
-tests check the round trip for every feature and on 3,000 random documents.
+an image as a link to it, raw HTML as the text it is.
+
+**The text never changes.** Each paragraph's Markdown is read back with
+marked before it is written. Bold or italic that Markdown cannot spell (an
+italic `.js` straight after `file`, a bold `(x)` after `f`: a delimiter there
+would not open or close, and the asterisks would show as text) is dropped
+for that span; if the text still would not come back, the paragraph loses its
+bold and italic. A code span inside a link that holds a bracket, backslash or
+backtick goes as plain text. The node tests check the round trip for every
+feature and on 3,000 random documents.
 
 **Hostile text.** The rich-text editor loads Markdown under the
 [renderer's limits](#rendering-markdown-rendermarkdowntext-options): text past
@@ -627,9 +633,14 @@ line, with the formatting off (the toolbar buttons are `aria-disabled`, the
 shortcuts and Markdown rules do nothing, pastes go in as text, and the
 element has `data-source`), and `value` gives it back exactly as it came,
 edits included. Setting a value within the limits turns formatting back on.
-No edit or paste nests quotes and lists deeper than the depth limit allows,
-so what the editor writes always loads again as Markdown, in it and in the
-Markdown editor (pasted content nested deeper goes in as its text).
+What the editor writes always loads again as Markdown, in it and in the
+Markdown editor: no edit or paste nests quotes and lists deeper than the depth
+limit allows (pasted content nested deeper goes in as its text), and an edit
+that would take the Markdown past `MAX_MARKDOWN_LENGTH` or the delimiter
+limits (600 bold words in one paragraph, 2,000 asterisks typed) is refused
+and says why in the error region ("That would make the text too long to
+save.", "That would put more formatting in one paragraph than the editor can
+save."). The message clears with the next edit.
 
 ### HTML in and out
 
@@ -638,20 +649,28 @@ holding only the Markdown preview's elements and attributes: `p`, `h1`,
 `h2`, `strong`, `em`, `code`, `a` (`href`: the normalised `http`, `https` or
 `mailto` URL; `rel="noopener noreferrer"`), `ul`, `ol` (`start`), `li`,
 `blockquote`, `pre` (with `code data-language`), `hr` and `br`; text and
-attributes escaped. HTML set as `value` is parsed into an inert document
-(`DOMParser`: no script runs, nothing loads) and read through the editor's
-schema, like a paste.
+attributes escaped. HTML set as `value` is cleaned like a paste (below), parsed
+into an inert document (`DOMParser`) and read through the editor's schema.
+HTML nested deeper than the depth limit allows (or that the parser fails on)
+loads as its text, a paragraph per block and per line break.
 
 ### Paste
 
-Pasted (and dropped) HTML is read through the schema, so only the features
-offered get in: scripts, styles, event handlers, images, frames, forms and
-tables are dropped (their text kept), and a link stays only with an `http`,
-`https` or `mailto` address. Bold and italic are kept from `<b>`, `<i>` and
-`font-weight` or `font-style` spans (Word, Google Docs). Before the browser
-parses pasted HTML, its `style` attributes are renamed and its `<style>`
-elements made inert, so the strict CSP logs no violation. Plain text pastes
-as text: Markdown in it is not read.
+Untrusted HTML (a paste, a drop, or a `value` in `format: 'html'`) is
+cleaned as text before any HTML parser sees it, so no document, live or
+inert, ever holds an event handler, a resource URL or an inline style from
+it, whatever the page's CSP (many apps have none): every tag keeps only the
+attributes the editor reads (`href` on `<a>` when it is `http`, `https` or
+`mailto`; `start` on `<ol>`; a code block's language; a style's
+`font-weight` and `font-style`, renamed), images, embeds and other void
+elements that load lose their tag, and scripts, styles, frames, SVG, media
+and forms are dropped with their content. The cleaner follows the HTML
+tokenizer's tag and attribute rules and treats every `<` followed by a letter
+as a tag, so it cleans at least what a parser would read. The cleaned HTML is
+then read through the schema, so only the features offered get in: tables
+and the rest are dropped with their text kept. Bold and italic are kept from
+`<b>`, `<i>` and `font-weight` or `font-style` spans (Word, Google Docs).
+Plain text pastes as text: Markdown in it is not read.
 
 ### Why ProseMirror
 
@@ -746,7 +765,7 @@ links going to `onlink`, no image requests, disabled, the API and forced
 colours; and for the rich-text editor, marks and blocks by toolbar and
 shortcut, the Markdown input rules, undo and redo, `aria-pressed` following
 the selection, the link popover, links going to `onlink`, paste sanitising,
-the HTML format, hostile text, the nesting limit, keyboard-only use,
+the HTML format, untrusted HTML reaching no parser with a handler (and running nothing on a page with no CSP), hostile text, the nesting limit, keyboard-only use,
 submitting (errors, busy, cancel), disabled and read-only, the API, and light,
 dark and forced colours. `CHECK=richtext npm run test:browser` runs only the
 checks whose name holds the text. These run in Chrome; check WebKit by hand on a Mac for a change

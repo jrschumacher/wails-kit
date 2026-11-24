@@ -1444,6 +1444,145 @@ try {
     await page.close();
   });
 
+  // Hostile HTML for the two checks below: each vector, if any document ran
+  // or loaded it, would add its name to window.__pwned.
+  const PWN = name => `(window.__pwned=(window.__pwned||[]).concat('${name}'))`;
+  const HOSTILE = [
+    `<p onclick="${PWN('p')}">text<img src="x" onerror="${PWN('img')}"><img src="https://example.com/i.png" onerror="${PWN('img-remote')}"></p>`,
+    `<svg onload="${PWN('svg')}"><image href="x" onerror="${PWN('svg-image')}"></image></svg>`,
+    `<details open ontoggle="${PWN('details')}"><summary>s</summary>d</details>`,
+    `<video><source src="x" onerror="${PWN('video')}"></video><audio src="x" onerror="${PWN('audio')}"></audio>`,
+    `<iframe srcdoc="<script>parent.__pwned=['iframe']</script>"></iframe><object data="x" onerror="${PWN('object')}"></object>`,
+    `<input autofocus onfocus="${PWN('input')}"><body onload="${PWN('body')}"><style onload="${PWN('style')}">p{}</style>`,
+    `<script>${PWN('script')}</script><a href="javascript:${PWN('href')}" onmouseover="${PWN('a')}">link</a>`,
+  ].join('');
+  // Waits until a live image the page adds after the hostile HTML has failed
+  // to load: the hostile images (were any live) would have failed by then.
+  const settle = page => page.evaluate(() => new Promise(resolve => {
+    const img = new Image();
+    img.addEventListener('error', () => requestAnimationFrame(() => requestAnimationFrame(resolve)), { once: true });
+    img.src = 'data:,';
+  }));
+  const pasteHtml = (page, id, html) => page.evaluate(([i, h]) => {
+    const content = document.querySelector(`#${i} .wk-richtext-editor-content`);
+    content.focus();
+    const data = new DataTransfer();
+    data.setData('text/html', h);
+    content.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, [id, html]);
+
+  await check('richtext: untrusted HTML reaches no parser with a handler, resource URL or inline style (paste and format html)', async () => {
+    const { page, problems } = await open(RT);
+    // Record every HTML string parsed outside the page: DOMParser, and innerHTML on another document's elements.
+    await page.evaluate(() => {
+      window.parsed = [];
+      const parse = DOMParser.prototype.parseFromString;
+      DOMParser.prototype.parseFromString = function (text, type) { window.parsed.push(String(text)); return parse.call(this, text, type); };
+      const inner = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+      Object.defineProperty(Element.prototype, 'innerHTML', { ...inner, set(v) { if (this.ownerDocument !== document) window.parsed.push(String(v)); inner.set.call(this, v); } });
+    });
+    await rtSet(page, '');
+    await pasteHtml(page, 'demo-rich', HOSTILE);
+    await page.evaluate(h => { document.getElementById('demo-rich-html').value = h; }, HOSTILE);
+    const parsed = await page.evaluate(() => window.parsed);
+    assert.ok(parsed.length >= 2, `only ${parsed.length} parses seen`);
+    for (const html of parsed) {
+      assert.doesNotMatch(html, /\son[a-z]+\s*=|\s(src|srcdoc|data|style)\s*=|<(img|svg|image|iframe|object|script|style|video|audio|source|input)\b|javascript:/i, html);
+    }
+    assert.equal(await rtValue(page), 'text\n\nsdlink');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: hostile HTML runs nothing on a page with no CSP, and raises no CSP violation on the strict page', async () => {
+    for (const url of ['/editor/test/fixtures/no-csp.html', RT]) {
+      const { page, problems } = await open(url);
+      await page.evaluate(() => { window.violations = []; document.addEventListener('securitypolicyviolation', e => window.violations.push(`${e.violatedDirective}: ${e.sample || e.blockedURI}`)); });
+      await rtSet(page, '');
+      await pasteHtml(page, 'demo-rich', HOSTILE);
+      await page.evaluate(h => { document.getElementById('demo-rich-html').value = h; }, HOSTILE);
+      // Drop it too.
+      await page.evaluate(h => {
+        const content = document.querySelector('#demo-rich .wk-richtext-editor-content');
+        const data = new DataTransfer();
+        data.setData('text/html', h);
+        content.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
+      }, HOSTILE);
+      await settle(page);
+      assert.deepEqual(await page.evaluate(() => ({ pwned: window.__pwned ?? null, violations: window.violations })), { pwned: null, violations: [] }, url);
+      assert.deepEqual(problems, [], url);
+      await page.close();
+    }
+  });
+
+  await check('richtext: an edit that would take the Markdown past the delimiter or length limit is refused, with a message; the value still loads as Markdown', async () => {
+    const { page, problems } = await open(RT);
+    const errorText = () => page.textContent('#demo-rich .wk-richtext-editor-error');
+    // 1,999 escaped asterisks are under the limit; typed ones stop at 2,000.
+    await rtSet(page, '\\*'.repeat(1999));
+    await page.keyboard.type('***');
+    assert.equal(await rtValue(page), '\\*'.repeat(2000));
+    assert.match(await errorText(), /more formatting in one paragraph than the editor can save/);
+    // The next edit that fits clears the message.
+    await page.keyboard.type('x');
+    assert.equal(await errorText(), '');
+    // Bold words: the one that would pass the limit is refused (Mod-B on a selection).
+    await rtSet(page, Array.from({ length: 500 }, (_, i) => `**w${i}**`).join(' ') + ' last more');
+    const before = await rtValue(page);
+    await page.keyboard.press('Shift+ArrowLeft');
+    await page.keyboard.press('Shift+ArrowLeft');
+    await page.keyboard.press(`${mod}+b`);
+    assert.equal(await rtValue(page), before);
+    assert.match(await errorText(), /more formatting in one paragraph/);
+    const r = await page.evaluate(async () => {
+      const { wkRichTextEditor } = await import('/editor/dist/richtext.js');
+      return wkRichTextEditor({ label: 'Again', value: document.getElementById('demo-rich').value }).hasAttribute('data-source');
+    });
+    assert.equal(r, false, 'the value went past the limits');
+    // Length: at the limit, typing is refused.
+    await page.evaluate(() => { document.getElementById('demo-rich').value = 'x'.repeat(100000); });
+    await page.click('#demo-rich .wk-richtext-editor-content');
+    await page.keyboard.press(`${mod}+End`);
+    await page.keyboard.type('y');
+    assert.equal((await rtValue(page)).length, 100000);
+    assert.match(await errorText(), /too long to save/);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: HTML nested too deep loads as its text a line per block, not run together', async () => {
+    const { page, problems } = await open(RT);
+    const out = await page.evaluate(() => {
+      const el = document.getElementById('demo-rich-html');
+      el.value = '<blockquote>'.repeat(40) + '<p>one</p><p>two <b>bold</b></p><ul><li>three</li><li>four<br>five</li></ul><h4>six</h4>' + '</blockquote>'.repeat(40);
+      return el.value;
+    });
+    assert.equal(out, '<p>one</p><p>two bold</p><p>three</p><p>four</p><p>five</p><p>six</p>');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: Escape in a modal dialog closes it when the editor has no oncancel; with oncancel it cancels', async () => {
+    const { page, problems } = await open(RT);
+    await page.evaluate(async () => {
+      const { wkRichTextEditor } = await import('/editor/dist/richtext.js');
+      for (const [id, cancels] of [['demo-dialog-plain', false], ['demo-dialog-cancel', true]]) {
+        const dialog = document.createElement('dialog');
+        dialog.id = id;
+        dialog.append(wkRichTextEditor({ label: 'In a dialog', value: 'text', ...(cancels ? { oncancel: () => { window.cancelled = true; } } : {}) }));
+        document.body.append(dialog);
+      }
+    });
+    for (const id of ['demo-dialog-plain', 'demo-dialog-cancel']) {
+      await page.evaluate(i => document.getElementById(i).showModal(), id);
+      await page.click(`#${id} .wk-richtext-editor-content`);
+      await page.keyboard.press('Escape');
+    }
+    assert.deepEqual(await page.evaluate(() => [document.getElementById('demo-dialog-plain').open, window.cancelled ?? false]), [false, true]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
   await check('richtext: HTML format: in and out sanitised; hostile and too-deep HTML loads as text', async () => {
     const { page, problems } = await open(RT);
     const out = await page.evaluate(async () => {

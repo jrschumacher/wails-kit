@@ -49,11 +49,10 @@ function balanced(text) {
 }
 
 const headingLevel = n => (n <= 1 ? 1 : 2);
-// Inline styles are read from the attribute, as written: under a strict CSP
-// the pasted document's style attributes are not applied (element.style is
-// empty), and the editor renames them to data-wk-style before parsing
-// (index.js, html.js) so the browser logs no violation.
-const styleOf = dom => String(dom.getAttribute('data-wk-style') || dom.getAttribute('style') || '').toLowerCase();
+// Inline styles are read from data-wk-style: cleanHtml (html.js) renames
+// style attributes before any parser sees them (under a strict CSP, parsing a
+// style attribute logs a violation, and element.style would be empty).
+const styleOf = dom => String(dom.getAttribute('data-wk-style') || '').toLowerCase();
 const isBold = dom => /(?:^|;)\s*font-weight\s*:\s*(?:bold|bolder|[6-9]00)\b/.test(styleOf(dom));
 const isNotBold = dom => /(?:^|;)\s*font-weight\s*:\s*(?:normal|[1-4]00)\b/.test(styleOf(dom));
 const isItalic = dom => /(?:^|;)\s*font-style\s*:\s*(?:italic|oblique)\b/.test(styleOf(dom));

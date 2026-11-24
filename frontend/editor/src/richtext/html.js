@@ -6,8 +6,9 @@
 // rel), ul, ol (start), li, blockquote, pre, hr and br, with code's
 // data-language. Text and attributes are escaped.
 //
-// In (parseHtml, in a browser): the HTML is parsed into an inert document
-// (DOMParser: no scripts run, nothing loads), then read through the schema's
+// In (parseHtml, in a browser): the HTML is cleaned as text first
+// (cleanHtml: no handlers, resource URLs or inline styles survive it), then
+// parsed into an inert document (DOMParser) and read through the schema's
 // rules, so anything the editor does not offer is dropped, its text kept.
 import { DOMParser as ProseMirrorParser } from 'prosemirror-model';
 import { safeUrl } from '../shared/url.js';
@@ -81,17 +82,128 @@ export function serializeHtml(doc) {
   return blocks(doc);
 }
 
-/**
- * HTML with its style attributes renamed data-wk-style and its <style>
- * elements made inert <template>s, before the browser parses it: under a
- * strict CSP, parsing a style attribute logs a violation (the style is
- * blocked anyway). Only tags change; the text between them is left alone.
- * The schema reads bold and italic from data-wk-style.
- */
-export function withoutInlineStyles(html) {
-  return String(html)
-    .replace(/<[a-zA-Z][^>]*>/g, tag => tag.replace(/(\s)style(\s*=)/gi, '$1data-wk-style$2'))
-    .replace(/<(\/?)style\b/gi, '<$1template');
+// Untrusted HTML (a paste, a drop, a value in format 'html') is cleaned as
+// text, before any parser sees it, so no document, live or inert, ever holds
+// an event handler, a resource URL or an inline style from it:
+// - every start tag keeps only the attributes the schema reads: href on <a>
+//   (http, https or mailto only), start on <ol>, class and data-language on
+//   <pre> and <code>; a style's font-weight and font-style become
+//   data-wk-style (the schema reads bold and italic from it; parsing a style
+//   attribute under a strict CSP logs a violation). Event handlers, src, srcset, srcdoc, data, action and the
+//   rest are gone.
+// - elements that load or run something, or whose text is not text, are
+//   dropped: void ones (img, embed, link, meta, …) lose their tag, the others
+//   (script, style, iframe, svg, …) lose their content too, up to their end
+//   tag.
+// The scan follows the HTML tokenizer's tag and attribute states (quoted and
+// unquoted values, "/" between attributes, a "<" or quote inside a name), and
+// rewrites every "<" followed by a letter, inside raw text too, so it can only
+// clean more than the parser would read as tags, never less.
+const VOID_DROP = new Set(['img', 'image', 'embed', 'link', 'meta', 'base', 'input', 'source', 'track', 'frame', 'area', 'param', 'keygen', 'wbr', 'basefont', 'bgsound']);
+const INERT = new Set(['script', 'style', 'iframe', 'object', 'applet', 'svg', 'math', 'video', 'audio', 'picture', 'canvas', 'select', 'textarea', 'button', 'noscript', 'noembed', 'noframes', 'frameset', 'template', 'title', 'xmp', 'portal', 'fencedframe', 'map', 'form', 'dialog']);
+const KEEP = { a: ['href'], ol: ['start'], pre: ['class', 'data-language'], code: ['class', 'data-language'] };
+const quote = value => `"${value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`;
+const unescapeAttr = value => value.replace(/&quot;/g, '"').replace(/&#0*39;|&apos;/g, '\'').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+
+/** Untrusted HTML cleaned as text (above): safe to hand to any HTML parser. */
+export function cleanHtml(html) {
+  html = String(html ?? '');
+  let out = '', i = 0;
+  const tag = /<(\/?)([a-zA-Z][^\s/>]*)/g;
+  let m;
+  while ((m = tag.exec(html))) {
+    out += html.slice(i, m.index);
+    const closing = m[1] === '/';
+    const name = m[2].toLowerCase();
+    // The attributes, as the tokenizer reads them, up to the tag's end.
+    let at = tag.lastIndex;
+    const attrs = [];
+    while (at < html.length) {
+      while (at < html.length && /[\s/]/.test(html[at])) at++;
+      if (at >= html.length || html[at] === '>') break;
+      const n = /^=?[^\s/>=]*/.exec(html.slice(at))[0];
+      at += n.length;
+      let ws = at;
+      while (ws < html.length && /\s/.test(html[ws])) ws++;
+      let value = null;
+      if (html[ws] === '=') {
+        at = ws + 1;
+        while (at < html.length && /\s/.test(html[at])) at++;
+        const q = html[at];
+        if (q === '"' || q === "'") {
+          const close = html.indexOf(q, at + 1);
+          const stop = close < 0 ? html.length : close;
+          value = html.slice(at + 1, stop);
+          at = close < 0 ? html.length : close + 1;
+        } else {
+          const v = /^[^\s>]*/.exec(html.slice(at))[0];
+          value = v;
+          at += v.length;
+        }
+      }
+      attrs.push([n.toLowerCase(), value]);
+    }
+    const end = at < html.length ? at + 1 : html.length;
+    i = end;
+    tag.lastIndex = end;
+    if (VOID_DROP.has(name)) continue;
+    if (INERT.has(name)) {
+      // Dropped with its content, up to its first end tag (where the parser
+      // ends a raw-text element too); anything after is cleaned as usual.
+      if (!closing) {
+        const close = new RegExp(`</${name}[\\s/>]`, 'ig');
+        close.lastIndex = end;
+        const c = close.exec(html);
+        const after = c ? html.indexOf('>', c.index) : -1;
+        i = after < 0 ? html.length : after + 1;
+        tag.lastIndex = i;
+      }
+      continue;
+    }
+    if (closing) { out += `</${name}>`; continue; }
+    let kept = '';
+    for (const [n, value] of attrs) {
+      if (value == null) continue;
+      if (n === 'style') {
+        // Only what the schema reads: bold and italic.
+        const decls = unescapeAttr(value).split(';').map(d => d.trim()).filter(d => /^font-(weight|style)\s*:\s*[\w ]+$/i.test(d));
+        if (decls.length) kept += ` data-wk-style=${quote(decls.join('; '))}`;
+      }
+      else if ((KEEP[name] || []).includes(n)) {
+        const v = unescapeAttr(value);
+        if (n === 'href' && !safeUrl(v)) continue;
+        kept += ` ${n}=${quote(v)}`;
+      }
+    }
+    out += `<${name}${kept}>`;
+  }
+  return out + html.slice(i);
+}
+
+const BLOCKS = new Set(['address', 'article', 'aside', 'blockquote', 'dd', 'details', 'div', 'dl', 'dt', 'fieldset', 'figcaption', 'figure', 'footer',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'hr', 'li', 'main', 'nav', 'ol', 'p', 'pre', 'section', 'summary', 'table', 'tr', 'td', 'th', 'ul']);
+
+// An element's text, a line per block (paragraph, heading, list item, …)
+// and per <br>, blank lines dropped: what innerText gives in a rendered
+// page, which an inert document is not. Iterative, for any depth.
+function textByBlocks(root) {
+  const lines = [];
+  let line = '';
+  const flush = () => { if (line.trim()) lines.push(line.replace(/\s+/g, ' ').trim()); line = ''; };
+  const stack = [[root, false]];
+  while (stack.length) {
+    const [node, leaving] = stack.pop();
+    if (leaving) { flush(); continue; }
+    if (node.nodeType === 3) { line += node.data; continue; }
+    if (node.nodeType !== 1 && node.nodeType !== 9 && node.nodeType !== 11) continue;
+    const name = node.localName;
+    if (name === 'br') { flush(); continue; }
+    const block = BLOCKS.has(name);
+    if (block) { flush(); stack.push([node, true]); }
+    for (let c = node.lastChild; c; c = c.previousSibling) stack.push([c, false]);
+  }
+  flush();
+  return lines.join('\n');
 }
 
 /**
@@ -100,12 +212,12 @@ export function withoutInlineStyles(html) {
  * Markdown limit loads as its text, a paragraph per line.
  */
 export function parseHtml(schema, html) {
-  const body = new DOMParser().parseFromString(withoutInlineStyles(html ?? ''), 'text/html').body;
+  const body = new DOMParser().parseFromString(cleanHtml(html), 'text/html').body;
   try {
     const doc = ProseMirrorParser.fromSchema(schema).parse(body);
     if (!tooDeep(doc)) return doc;
   } catch (e) {
     if (!isStackOverflow(e)) throw e;
   }
-  return sourceDoc(schema, body.innerText ?? body.textContent ?? '');
+  return sourceDoc(schema, textByBlocks(body));
 }
