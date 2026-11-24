@@ -14,7 +14,7 @@ jobs:
   conventional-commits:
     name: Conventional Commits
     if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release-please--')
-    runs-on: [self-hosted, linux]
+    runs-on: self-hosted
     steps:
       - uses: amannn/action-semantic-pull-request@v5
         env:
@@ -58,7 +58,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: [self-hosted, linux]
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - uses: jrschumacher/go-actions/ci@v3
@@ -68,7 +68,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: [self-hosted, linux]
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - uses: jrschumacher/go-actions/ci@v3
@@ -78,7 +78,7 @@ jobs:
 
   typecheck:
     name: TypeScript
-    runs-on: [self-hosted, linux]
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -95,7 +95,7 @@ jobs:
 
   security:
     name: Security
-    runs-on: [self-hosted, linux]
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - uses: jrschumacher/go-actions/ci@v3
@@ -105,7 +105,7 @@ jobs:
 
   ts-typecheck:
     name: TypeScript Typecheck
-    runs-on: [self-hosted, linux]
+    runs-on: self-hosted
     defaults:
       run:
         working-directory: frontend/types
@@ -119,7 +119,7 @@ jobs:
 
   ts-lint:
     name: TypeScript Lint
-    runs-on: [self-hosted, linux]
+    runs-on: self-hosted
     defaults:
       run:
         working-directory: frontend/types
@@ -133,7 +133,7 @@ jobs:
 
   settings-ts-typecheck:
     name: Settings TypeScript Typecheck
-    runs-on: [self-hosted, linux]
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -148,7 +148,7 @@ jobs:
 
   settings-ts-lint:
     name: Settings TypeScript Lint
-    runs-on: [self-hosted, linux]
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -163,7 +163,7 @@ jobs:
 
   settings-ts-test:
     name: Settings TypeScript Test
-    runs-on: [self-hosted, linux]
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -178,7 +178,7 @@ jobs:
 
   ui-test:
     name: UI Test
-    runs-on: [self-hosted, linux]
+    runs-on: self-hosted
     defaults:
       run:
         working-directory: frontend/ui
@@ -197,7 +197,7 @@ jobs:
 
   editor-test:
     name: Editor Test
-    runs-on: [self-hosted, linux]
+    runs-on: self-hosted
     defaults:
       run:
         working-directory: frontend/editor
