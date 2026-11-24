@@ -2735,6 +2735,62 @@ try {
     await page.close();
   });
 
+  await check('locked button: [data-locked] with aria-disabled stays focusable and draws as the design system does (not-allowed cursor, 12 px glyph, 4 px gap)', async () => {
+    const { page, problems } = await open(PAGE('button'));
+    const looks = await page.evaluate(() => [...document.querySelectorAll('#page-button .wk-button[data-locked]')].map(b => {
+      const cs = getComputedStyle(b), svg = b.querySelector('svg');
+      return { aria: b.getAttribute('aria-disabled'), disabled: b.disabled, cursor: cs.cursor, gap: cs.columnGap, opacity: cs.opacity, glyph: svg && [svg.getBoundingClientRect().width, svg.getBoundingClientRect().height], first: b.firstElementChild === svg };
+    }));
+    assert.equal(looks.length, 2);
+    for (const l of looks) assert.deepEqual(l, { aria: 'true', disabled: false, cursor: 'not-allowed', gap: '4px', opacity: '0.45', glyph: [12, 12], first: true });
+    // Markup written to the design system gets the style; it is the
+    // attribute, not a class, that locks the look.
+    const plain = await page.evaluate(() => {
+      const b = document.createElement('button');
+      b.className = 'wk-button';
+      b.type = 'button';
+      b.setAttribute('aria-disabled', 'true');
+      document.getElementById('page-button').append(b);
+      const before = getComputedStyle(b).cursor;
+      b.setAttribute('data-locked', '');
+      return [before, getComputedStyle(b).cursor];
+    });
+    assert.deepEqual(plain, ['default', 'not-allowed']);
+    await page.focus('#page-button .wk-button[data-locked]');
+    assert.equal(await page.evaluate(() => document.activeElement.hasAttribute('data-locked')), true, 'a locked button takes focus');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('locked button, forced colours: an aria-disabled button reads as GrayText at full opacity in every variant; an enabled one does not, and a busy one keeps its Highlight border', async () => {
+    const { page, problems } = await open(PAGE('button'), { forcedColors: 'active' });
+    const out = await page.evaluate(() => {
+      const host = document.getElementById('page-button');
+      const probe = (prop, value) => { const e = document.createElement('i'); e.style[prop] = value; host.append(e); const v = getComputedStyle(e)[prop]; e.remove(); return v; };
+      const make = (cls, attrs) => { const b = document.createElement('button'); b.className = cls; b.type = 'button'; b.textContent = 'B'; for (const [k, v] of Object.entries(attrs)) b.setAttribute(k, v); host.append(b); return b; };
+      const look = b => { const cs = getComputedStyle(b); return { opacity: cs.opacity, color: cs.color, border: cs.borderTopColor }; };
+      const specimens = [...host.querySelectorAll('.wk-button[data-locked]')].map(look);
+      const locked = ['wk-button', 'wk-button wk-button--primary', 'wk-button wk-button--destructive', 'wk-button wk-button--quiet', 'wk-button wk-button--small']
+        .map(cls => look(make(cls, { 'aria-disabled': 'true', 'data-locked': '' })));
+      return {
+        gray: probe('color', 'GrayText'), highlight: probe('borderTopColor', 'Highlight'),
+        specimens,
+        locked,
+        enabled: look(make('wk-button', {})),
+        busy: look(make('wk-button', { 'aria-disabled': 'true', 'data-busy': '' })),
+      };
+    });
+    assert.equal(out.specimens.length, 2);
+    for (const l of [...out.specimens, ...out.locked]) assert.deepEqual(l, { opacity: '1', color: out.gray, border: out.gray }, JSON.stringify(l));
+    assert.notEqual(out.enabled.color, out.gray, 'an enabled button is not GrayText');
+    assert.equal(out.enabled.opacity, '1');
+    assert.equal(out.busy.opacity, '1');
+    assert.notEqual(out.busy.color, out.gray, 'a busy button is not drawn as unavailable');
+    assert.equal(out.busy.border, out.highlight, 'a busy button keeps its Highlight border');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
   // ---- Busy controls, the spinner and the progress bar (BEHAVIOUR.md) ----
   await check('busy button: keeps focus and its accessible name, ignores a second press (pointer and keys), and does not look disabled', async () => {
     const { page, problems } = await open(PAGE('all'));
@@ -2773,7 +2829,7 @@ try {
     assert.notEqual(busy.shadow, 'none');
     // A busy button looks nothing like a disabled or a merely aria-disabled one.
     assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#page-button button[disabled]')).opacity), '0.45');
-    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#page-button .wk-button--locked')).opacity), '0.45');
+    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#page-button .wk-button[data-locked]')).opacity), '0.45');
     // The spinner takes the label's place: the width holds, the label is
     // not painted, the spinner is centred, and the name stays.
     await b.evaluate(el => { const s = document.createElement('span'); s.className = 'wk-spinner'; s.setAttribute('aria-hidden', 'true'); el.prepend(s); });
@@ -3879,15 +3935,21 @@ try {
   await check('wkTask: no indicator for work under 400 ms; busy at once; a locked control stays locked; done always announces', async () => {
     const { page, problems, run, said, taskEvents } = await openTasks(PAGE('task'));
     await page.evaluate(() => {
-      document.getElementById('tbox').innerHTML = '<button class="wk-button" type="button" id="t-go">Export</button><button class="wk-button wk-button--locked" type="button" id="t-locked" aria-disabled="true">Invite</button>';
+      document.getElementById('tbox').innerHTML = '<button class="wk-button" type="button" id="t-go">Export</button><button class="wk-button" type="button" id="t-locked" aria-disabled="true" data-locked>Invite</button>';
       window.t = kit.wkTask({ id: 'q', control: [document.getElementById('t-go'), document.getElementById('t-locked')], words: 'Exporting' });
     });
     const look = () => page.evaluate(() => ['t-go', 't-locked'].map(id => { const b = document.getElementById(id); return [b.getAttribute('aria-disabled'), b.hasAttribute('data-busy'), Boolean(b.querySelector('.wk-spinner'))]; }));
     assert.deepEqual(await look(), [['true', true, false], ['true', true, false]], 'busy at once, no spinner');
     await run(399);
     assert.deepEqual((await look())[0], ['true', true, false], 'no spinner in the quiet wait');
+    // Busy outranks locked while the task runs: the busy rule comes after the
+    // locked one at the same specificity, so the cursor is progress.
+    assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('t-locked')).cursor), 'progress', 'a busy locked control shows the progress cursor');
     await page.evaluate(() => { t.done('Report exported'); });
     assert.deepEqual(await look(), [[null, false, false], ['true', false, false]], 'back to rest; the locked control keeps aria-disabled');
+    // And stays locked: wkTask leaves data-locked alone, so the locked look
+    // (not-allowed, dimmed) is back once the busy state goes.
+    assert.deepEqual(await page.evaluate(() => { const b = document.getElementById('t-locked'), cs = getComputedStyle(b); return [b.hasAttribute('data-locked'), cs.cursor, cs.opacity]; }), [true, 'not-allowed', '0.45'], 'the locked control is locked again');
     await run(1000);
     assert.deepEqual(await said(), [['polite', 'Report exported']], 'no start announcement, the outcome once');
     assert.deepEqual(await taskEvents(), ['q:running', 'q:done']);
@@ -4255,6 +4317,9 @@ try {
     await page.keyboard.press('Escape');
     await run(10);
     assert.equal(await page.evaluate(() => document.querySelector('.wk-task-list').open), false);
+    // Focus goes back from wk-dialog's close handler, which runs on the
+    // dialog's close event: a task of its own, after open is already false.
+    await until(page, () => document.activeElement === sum).catch(() => {});
     assert.equal(await page.evaluate(() => document.activeElement === sum), true, 'focus returns to the summary');
     // With nothing left to show, it stays until focus leaves it.
     assert.equal((await look()).hidden, false);

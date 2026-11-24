@@ -25,10 +25,10 @@ export default [
 </div>`,
     }, {
       title: 'Locked',
-      note: 'wk-button--locked with aria-disabled: still focusable, so its tooltip is reachable.',
+      note: '<code>data-locked</code> with <code>aria-disabled="true"</code>: still focusable, so its tooltip is reachable.',
       html: `<div class="g-row">
-  <button class="wk-button wk-button--locked" type="button" aria-disabled="true" title="Needs manage access">${icons.lock}Invite</button>
-  <button class="wk-button wk-button--small wk-button--locked" type="button" aria-disabled="true" title="Needs manage access">${icons.lock}Stop…</button>
+  <button class="wk-button" type="button" aria-disabled="true" data-locked title="Needs manage access">${icons.lock}Invite</button>
+  <button class="wk-button wk-button--small" type="button" aria-disabled="true" data-locked title="Needs manage access">${icons.lock}Stop…</button>
 </div>`,
     }],
   },

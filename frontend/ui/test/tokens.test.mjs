@@ -401,11 +401,11 @@ test('the kit uses the system UI font: no font files, no @font-face, no font fea
   assert.ok(!pkg.files.includes('fonts') && !Object.keys(pkg.exports).some(k => k.includes('fonts')), 'package.json neither ships nor exports fonts/');
 });
 
-test('the design system\'s names: wk-code and wk-chip--access, not the old wk-codeblock and wk-chip--lock', () => {
-  const files = [...walk(src), ...themes, ...walk(path.join(root, 'dist')), ...walk(path.join(root, 'test')).filter(p => !p.endsWith('tokens.test.mjs')), path.join(root, 'README.md')];
-  for (const file of files) assert.doesNotMatch(read(file), /wk-codeblock|wk-chip--lock/, `${rel(file)} uses an old name`);
+test('the design system\'s names: wk-code, wk-chip--access and wk-button[data-locked], not the old wk-codeblock, wk-chip--lock and wk-button--locked', () => {
+  const files = [...walk(src), ...themes, ...walk(path.join(root, 'dist')), ...walk(path.join(root, 'test')).filter(p => !p.endsWith('tokens.test.mjs')), path.join(root, 'README.md'), path.join(root, 'BEHAVIOUR.md'), path.join(root, 'THEMING.md')];
+  for (const file of files) assert.doesNotMatch(read(file), /wk-codeblock|wk-chip--lock|wk-button--locked/, `${rel(file)} uses an old name`);
   const css = read(path.join(src, 'components.css'));
-  for (const selector of ['.wk-code {', '.wk-code--scroll > pre', '.wk-chip--access > svg', '.wk-chip--access[data-level="manage"]']) assert.ok(css.includes(selector), `components.css defines ${selector}`);
+  for (const selector of ['.wk-code {', '.wk-code--scroll > pre', '.wk-chip--access > svg', '.wk-chip--access[data-level="manage"]', '.wk-button[data-locked] {', '.wk-button[data-locked] > svg']) assert.ok(css.includes(selector), `components.css defines ${selector}`);
 });
 
 // Increased contrast: one block in tokens.css, under prefers-contrast: more
