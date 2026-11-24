@@ -129,6 +129,13 @@ if (typeof document !== 'undefined') {
   };
   document.addEventListener('toggle', onDialog, true);
   document.addEventListener('close', onDialog, true);
+  // toggle and close are queued as tasks of their own, so something else can
+  // run while the regions still sit in a dialog that has closed (and hides
+  // them). A dialog's open attribute changes with it, and an observer hears
+  // that in the same task.
+  new MutationObserver(records => {
+    for (const r of records) if (r.target instanceof HTMLDialogElement) placeAnnouncer(r.target, r.target.open);
+  }).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['open'] });
 }
 
 export { announce, placeAnnouncer };

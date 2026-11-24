@@ -3244,8 +3244,22 @@ try {
     await page.evaluate(() => kit.announce('Exported the report'));
     await run(600);
     assert.equal(await heard('Exported the report'), true, 'not inert under the modal');
+    // Closed by the script: the regions are back in the same task, before the
+    // dialog's close event (queued as a task of its own) has fired.
+    assert.equal(await page.evaluate(async () => {
+      const d = document.querySelector('.wk-task-list');
+      let closeFired = false;
+      d.addEventListener('close', () => { closeFired = true; }, { once: true });
+      d.close();
+      await Promise.resolve();
+      return [closeFired, document.querySelector('[data-wk-announcer]').parentNode === document.body].join();
+    }), 'false,true');
+    // Closed by Esc: the browser may close it a task later; wait for that.
+    await page.evaluate(() => kit.wkTask.showList());
+    await run(10);
+    assert.equal(await page.evaluate(() => document.querySelector('.wk-task-list').contains(document.querySelector('[data-wk-announcer]'))), true);
     await page.keyboard.press('Escape');
-    await run(100);
+    for (let i = 0; i < 100 && await page.evaluate(() => document.querySelector('.wk-task-list').open); i++) await new Promise(res => setTimeout(res, 20));
     assert.equal(await page.evaluate(() => document.querySelector('[data-wk-announcer]').parentNode === document.body), true);
     await page.evaluate(() => kit.announce('Back in the window'));
     await run(600);

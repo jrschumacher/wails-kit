@@ -369,8 +369,9 @@ second copy of the kit (`src/` and `dist/` together) uses the same regions and
 joins into the same messages, and regions the app removed are put back. A
 modal `<dialog>` makes the rest of the page inert, live regions too, so while
 one is open the regions sit inside the top-most modal and go back to `<body>`
-when it closes. `wk-dialog` moves them, and the dialog `toggle` and `close`
-events catch a plain `<dialog>`; `placeAnnouncer(dialog, open)` does it by hand
+when it closes. `wk-dialog` moves them, and so does any `<dialog>`'s `open`
+attribute changing (watched in the same task, not on the later `toggle` or
+`close` event); `placeAnnouncer(dialog, open)` does it by hand
 for a modal opened some other way. Never
 send a countdown, a progress value or streamed output; wkTask, the toast and
 the settings window send their words here instead of having live regions of
