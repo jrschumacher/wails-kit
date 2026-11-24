@@ -89,95 +89,139 @@ export function serializeHtml(doc) {
 //   (http, https or mailto only), start on <ol>, class and data-language on
 //   <pre> and <code>; a style's font-weight and font-style become
 //   data-wk-style (the schema reads bold and italic from it; parsing a style
-//   attribute under a strict CSP logs a violation). Event handlers, src, srcset, srcdoc, data, action and the
-//   rest are gone.
+//   attribute under a strict CSP logs a violation). Event handlers, src,
+//   srcset, srcdoc, data, action and the rest are gone. The first of a
+//   repeated attribute counts, as in the parser.
 // - elements that load or run something, or whose text is not text, are
 //   dropped: void ones (img, embed, link, meta, …) lose their tag, the others
 //   (script, style, iframe, svg, …) lose their content too, up to their end
-//   tag.
+//   tag. A tag whose name is not plain letters and digits (with single hyphens
+//   between them) is dropped.
+// - comments (<!--…-->, ending at --> or --!>, or at once for <!--> and
+//   <!--->), declarations and processing instructions (<!…>, <?…>) and bogus
+//   end tags (</ …>) are dropped whole.
+// - every other "<" (in text, or one the tokenizer would not read as a tag)
+//   is written &lt;. So the only "<" in the output open tags this function
+//   writes itself: dropped markup can never join the text around it into a
+//   new tag ("<<img>img onerror=…>"), and cleaning twice changes nothing.
 // The scan follows the HTML tokenizer's tag and attribute states (quoted and
 // unquoted values, "/" between attributes, a "<" or quote inside a name), and
-// rewrites every "<" followed by a letter, inside raw text too, so it can only
-// clean more than the parser would read as tags, never less.
-const VOID_DROP = new Set(['img', 'image', 'embed', 'link', 'meta', 'base', 'input', 'source', 'track', 'frame', 'area', 'param', 'keygen', 'wbr', 'basefont', 'bgsound']);
-const INERT = new Set(['script', 'style', 'iframe', 'object', 'applet', 'svg', 'math', 'video', 'audio', 'picture', 'canvas', 'select', 'textarea', 'button', 'noscript', 'noembed', 'noframes', 'frameset', 'template', 'title', 'xmp', 'portal', 'fencedframe', 'map', 'form', 'dialog']);
+// reads every "<" followed by a letter as a tag, inside raw text too, so it
+// can only clean more than the parser would read as tags, never less.
+const VOID_DROP = new Set(['img', 'image', 'embed', 'link', 'meta', 'base', 'input', 'source', 'track', 'frame', 'area', 'param', 'keygen', 'wbr', 'basefont', 'bgsound', 'isindex']);
+const INERT = new Set(['script', 'style', 'iframe', 'object', 'applet', 'svg', 'math', 'video', 'audio', 'picture', 'canvas', 'select', 'textarea', 'button', 'noscript', 'noembed', 'noframes', 'frameset', 'template', 'title', 'xmp', 'plaintext', 'portal', 'fencedframe', 'map', 'form', 'dialog']);
 const KEEP = { a: ['href'], ol: ['start'], pre: ['class', 'data-language'], code: ['class', 'data-language'] };
-const quote = value => `"${value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`;
+const quote = value => `"${value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}"`;
 const unescapeAttr = value => value.replace(/&quot;/g, '"').replace(/&#0*39;|&apos;/g, '\'').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+const letter = c => !!c && /[a-zA-Z]/.test(c);
+
+// The tag at html[lt] ("<name" or "</name"), read as the tokenizer reads it:
+// { end, name, closing, attrs: [[name, value | null]] }.
+function readTag(html, lt) {
+  const closing = html[lt + 1] === '/';
+  let at = lt + (closing ? 2 : 1);
+  const name = /^[^\s/>]*/.exec(html.slice(at))[0];
+  at += name.length;
+  const attrs = [];
+  while (at < html.length) {
+    while (at < html.length && /[\s/]/.test(html[at])) at++;
+    if (at >= html.length || html[at] === '>') break;
+    const n = /^=?[^\s/>=]*/.exec(html.slice(at))[0];
+    at += n.length;
+    let ws = at;
+    while (ws < html.length && /\s/.test(html[ws])) ws++;
+    let value = null;
+    if (html[ws] === '=') {
+      at = ws + 1;
+      while (at < html.length && /\s/.test(html[at])) at++;
+      const q = html[at];
+      if (q === '"' || q === "'") {
+        const close = html.indexOf(q, at + 1);
+        value = html.slice(at + 1, close < 0 ? html.length : close);
+        at = close < 0 ? html.length : close + 1;
+      } else {
+        value = /^[^\s>]*/.exec(html.slice(at))[0];
+        at += value.length;
+      }
+    }
+    attrs.push([n.toLowerCase(), value]);
+  }
+  return { end: at < html.length ? at + 1 : html.length, name: name.toLowerCase(), closing, attrs };
+}
+
+// The end of a comment starting at html[lt] ("<!--").
+function commentEnd(html, lt) {
+  const body = lt + 4;
+  if (html[body] === '>') return body + 1;
+  if (html.startsWith('->', body)) return body + 2;
+  const ends = ['-->', '--!>'].map(e => [html.indexOf(e, body), e.length]).filter(([at]) => at >= 0);
+  if (!ends.length) return html.length;
+  const [at, length] = ends.sort((a, b) => a[0] - b[0])[0];
+  return at + length;
+}
+
+function writeTag({ name, closing, attrs }) {
+  if (closing) return `</${name}>`;
+  let kept = '';
+  const seen = new Set();
+  for (const [n, value] of attrs) {
+    // The parser keeps the first of a repeated attribute.
+    if (seen.has(n)) continue;
+    seen.add(n);
+    if (value == null) continue;
+    if (n === 'style') {
+      // Only what the schema reads: bold and italic.
+      const decls = unescapeAttr(value).split(';').map(d => d.trim()).filter(d => /^font-(weight|style)\s*:\s*[\w ]+$/i.test(d));
+      if (decls.length) kept += ` data-wk-style=${quote(decls.join('; '))}`;
+    } else if ((KEEP[name] || []).includes(n)) {
+      const v = unescapeAttr(value);
+      if (n === 'href' && !safeUrl(v)) continue;
+      kept += ` ${n}=${quote(v)}`;
+    }
+  }
+  return `<${name}${kept}>`;
+}
 
 /** Untrusted HTML cleaned as text (above): safe to hand to any HTML parser. */
 export function cleanHtml(html) {
   html = String(html ?? '');
   let out = '', i = 0;
-  const tag = /<(\/?)([a-zA-Z][^\s/>]*)/g;
-  let m;
-  while ((m = tag.exec(html))) {
-    out += html.slice(i, m.index);
-    const closing = m[1] === '/';
-    const name = m[2].toLowerCase();
-    // The attributes, as the tokenizer reads them, up to the tag's end.
-    let at = tag.lastIndex;
-    const attrs = [];
-    while (at < html.length) {
-      while (at < html.length && /[\s/]/.test(html[at])) at++;
-      if (at >= html.length || html[at] === '>') break;
-      const n = /^=?[^\s/>=]*/.exec(html.slice(at))[0];
-      at += n.length;
-      let ws = at;
-      while (ws < html.length && /\s/.test(html[ws])) ws++;
-      let value = null;
-      if (html[ws] === '=') {
-        at = ws + 1;
-        while (at < html.length && /\s/.test(html[at])) at++;
-        const q = html[at];
-        if (q === '"' || q === "'") {
-          const close = html.indexOf(q, at + 1);
-          const stop = close < 0 ? html.length : close;
-          value = html.slice(at + 1, stop);
-          at = close < 0 ? html.length : close + 1;
-        } else {
-          const v = /^[^\s>]*/.exec(html.slice(at))[0];
-          value = v;
-          at += v.length;
-        }
-      }
-      attrs.push([n.toLowerCase(), value]);
+  while (i < html.length) {
+    const lt = html.indexOf('<', i);
+    if (lt < 0) { out += html.slice(i); break; }
+    out += html.slice(i, lt);
+    const next = html[lt + 1];
+    if (html.startsWith('<!--', lt)) { i = commentEnd(html, lt); continue; }
+    if (next === '!' || next === '?' || (next === '/' && !letter(html[lt + 2]) && lt + 2 < html.length)) {
+      // A declaration, a processing instruction or a bogus end tag: to its ">".
+      const gt = html.indexOf('>', lt + 1);
+      i = gt < 0 ? html.length : gt + 1;
+      continue;
     }
-    const end = at < html.length ? at + 1 : html.length;
-    i = end;
-    tag.lastIndex = end;
-    if (VOID_DROP.has(name)) continue;
-    if (INERT.has(name)) {
+    if (!letter(next) && !(next === '/' && letter(html[lt + 2]))) {
+      // Not a tag: a "<" in the text.
+      out += '&lt;';
+      i = lt + 1;
+      continue;
+    }
+    const t = readTag(html, lt);
+    i = t.end;
+    if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(t.name) || VOID_DROP.has(t.name)) continue;
+    if (INERT.has(t.name)) {
       // Dropped with its content, up to its first end tag (where the parser
       // ends a raw-text element too); anything after is cleaned as usual.
-      if (!closing) {
-        const close = new RegExp(`</${name}[\\s/>]`, 'ig');
-        close.lastIndex = end;
+      if (!t.closing) {
+        const close = new RegExp(`</${t.name}[\\s/>]`, 'ig');
+        close.lastIndex = t.end;
         const c = close.exec(html);
         const after = c ? html.indexOf('>', c.index) : -1;
         i = after < 0 ? html.length : after + 1;
-        tag.lastIndex = i;
       }
       continue;
     }
-    if (closing) { out += `</${name}>`; continue; }
-    let kept = '';
-    for (const [n, value] of attrs) {
-      if (value == null) continue;
-      if (n === 'style') {
-        // Only what the schema reads: bold and italic.
-        const decls = unescapeAttr(value).split(';').map(d => d.trim()).filter(d => /^font-(weight|style)\s*:\s*[\w ]+$/i.test(d));
-        if (decls.length) kept += ` data-wk-style=${quote(decls.join('; '))}`;
-      }
-      else if ((KEEP[name] || []).includes(n)) {
-        const v = unescapeAttr(value);
-        if (n === 'href' && !safeUrl(v)) continue;
-        kept += ` ${n}=${quote(v)}`;
-      }
-    }
-    out += `<${name}${kept}>`;
+    out += writeTag(t);
   }
-  return out + html.slice(i);
+  return out;
 }
 
 const BLOCKS = new Set(['address', 'article', 'aside', 'blockquote', 'dd', 'details', 'div', 'dl', 'dt', 'fieldset', 'figcaption', 'figure', 'footer',

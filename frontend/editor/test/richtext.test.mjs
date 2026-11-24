@@ -82,6 +82,70 @@ test('Markdown: other spellings settle on the canonical one after one save, and 
   }
 });
 
+// The tags in cleaned HTML: every "<" in it opens one cleanHtml wrote.
+const tagsIn = html => html.match(/<[^>]*>?/g) || [];
+// What cleaned HTML must never hold, inside a tag.
+function assertCleanTags(html, label) {
+  for (const t of tagsIn(html)) {
+    assert.match(t, /^<\/?[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?: [a-z-]+="[^"<>]*")*>$/, `${label}: ${t}`);
+    assert.doesNotMatch(t, /^<\/?(img|svg|style|script|iframe|object|embed|math|template|link|meta|base)(?=[\s>])/i, `${label}: ${t}`);
+    for (const [, name] of t.matchAll(/ ([a-z-]+)="[^"]*"/g)) assert.ok(!/^on|^style$|^src/.test(name), `${label}: ${t}`);
+  }
+}
+
+test('cleanHtml: a stray "<" cannot join dropped markup and the text after it into a new tag; comments and declarations go whole', () => {
+  const X = 'onerror=alert(1)';
+  for (const [html, want] of [
+    [`<<img>img src=x ${X}>`, `&lt;img src=x ${X}>`],
+    [`<<script></script>img src=x ${X}>`, `&lt;img src=x ${X}>`],
+    [`<</img>img src=x ${X}>`, `&lt;img src=x ${X}>`],
+    ['<<svg></svg>svg onload=alert(1)>', '&lt;svg onload=alert(1)>'],
+    ['<<b>style>p{}</style>', '&lt;<b>style>p{}'],
+    [`<<br/><img>script>alert(1)<</img>/script>`, '&lt;<br>script>alert(1)&lt;/script>'],
+    ['<<img>svg onload=x><<img>image href=x onerror=y>', '&lt;svg onload=x>&lt;image href=x onerror=y>'],
+    ['<<img>style>p{color:red}<</img>/style>', '&lt;style>p{color:red}&lt;/style>'],
+    ['<p><<img>span style="font-weight:bold;color:red">b</span></p>', '<p>&lt;span style="font-weight:bold;color:red">b</span></p>'],
+    [`&lt;img src=x ${X}>`, `&lt;img src=x ${X}>`],
+    [`<!--<img src=x ${X}>--><p>a</p>`, '<p>a</p>'],
+    [`<!--><img src=x ${X}>-->`, '--&gt;'.replace('&gt;', '>')],
+    [`<!---><p>a</p>`, '<p>a</p>'],
+    [`<!-- a --!><img src=x ${X}>`, ''],
+    [`<![CDATA[<img src=x ${X}>]]>`, ']]>'],
+    [`<!doctype html><img src=x ${X}>`, ''],
+    [`<?xml <img src=x ${X}>?>`, '?>'],
+    [`</ <img src=x ${X}>>`, '>'],
+    ['</>a', 'a'],
+    ['<p onclick=x', '<p>'],
+    // The tag's name runs to the first space: `a"onclick=x` is not <a>.
+    ['<a"onclick=x href=https://x>q</a>', 'q</a>'],
+    ['<a href="javascript:alert(1)" href="https://x">q</a>', '<a>q</a>'],
+    ['<a href="https://x" href="javascript:alert(1)">q</a>', '<a href="https://x">q</a>'],
+    ['<scr\0ipt>alert(1)</script>', 'alert(1)'],
+    [`<noscript><p title="</noscript><img src=x ${X}>"></noscript>`, '">'],
+    [`<plaintext><img src=x ${X}>`, ''],
+    [`<xmp></xmp ><img src=x ${X}></xmp>`, ''],
+    ['<code class=\'language-x" onclick="a\'>c</code>', '<code class="language-x&quot; onclick=&quot;a">c</code>'],
+  ]) {
+    const clean = cleanHtml(html);
+    assert.equal(clean, want, html);
+    assert.equal(cleanHtml(clean), clean, `${html}: not stable`);
+    assertCleanTags(clean, html);
+  }
+});
+
+test('cleanHtml: random markup fragments come out with only clean tags, and cleaning twice changes nothing', () => {
+  const pieces = ['<', '</', '<!', '<!--', '-->', '--!>', '<?', '<img>', '</img>', '<script>', '</script>', '<style>', 'img', 'script>', 'style', 'svg', 'span',
+    ' ', '/', '"', "'", '=', '>', 'src=x', 'onerror=alert(1)', 'style="color:red"', 'onload=y', 'a', '<p>', '</p>', '<a href=https://x>', 'href=javascript:x', '\0', '&lt;', '<b'];
+  for (const seed of [1, 2, 3, 42, 133, 2026, ...Array.from({ length: 3000 }, (_, i) => 1000 + i)]) {
+    const rnd = random(seed);
+    let html = '';
+    for (let i = 0, n = 2 + Math.floor(rnd() * 24); i < n; i++) html += pieces[Math.floor(rnd() * pieces.length)];
+    const clean = cleanHtml(html);
+    assert.equal(cleanHtml(clean), clean, `seed ${seed}: ${JSON.stringify(html)} is not stable`);
+    assertCleanTags(clean, `seed ${seed}: ${JSON.stringify(html)}`);
+  }
+});
+
 test('Markdown: emphasis Markdown cannot spell is dropped, never written as literal asterisks', () => {
   const t = (text, ms = []) => schema.text(text, ms);
   const em = () => [marks.em.create()], strong = () => [marks.strong.create()];
@@ -194,8 +258,8 @@ test('cleanHtml: untrusted HTML keeps no handler, resource URL or inline style, 
   assert.equal(cleanHtml('<ol start=3 class=x><li>a</li></ol>'), '<ol start="3"><li>a</li></ol>');
   assert.equal(cleanHtml('<pre><code class="language-go">x &lt; y</code></pre>'), '<pre><code class="language-go">x &lt; y</code></pre>');
   assert.equal(cleanHtml('<span style="font-weight:700" onclick=x>b</span>'), '<span data-wk-style="font-weight:700">b</span>');
-  // Text is left alone.
-  assert.equal(cleanHtml('1 < 2 & "q"'), '1 < 2 & "q"');
+  // Text is left alone, but for "<", which is always written &lt;.
+  assert.equal(cleanHtml('1 < 2 & "q" a<'), '1 &lt; 2 & "q" a&lt;');
   // The tokenizer's attribute rules: a ">" inside quotes, "/" between attributes, unquoted values, any case.
   for (const [html, want] of [
     ['<span title="a>b" style="font-weight:700" onclick="x">t</span>', '<span data-wk-style="font-weight:700">t</span>'],

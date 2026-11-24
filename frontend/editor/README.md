@@ -664,9 +664,12 @@ attributes the editor reads (`href` on `<a>` when it is `http`, `https` or
 `mailto`; `start` on `<ol>`; a code block's language; a style's
 `font-weight` and `font-style`, renamed), images, embeds and other void
 elements that load lose their tag, and scripts, styles, frames, SVG, media
-and forms are dropped with their content. The cleaner follows the HTML
-tokenizer's tag and attribute rules and treats every `<` followed by a letter
-as a tag, so it cleans at least what a parser would read. The cleaned HTML is
+and forms are dropped with their content; comments, declarations and
+processing instructions go whole. The cleaner follows the HTML tokenizer's
+tag and attribute rules and treats every `<` followed by a letter as a tag,
+so it cleans at least what a parser would read; every other `<` is written
+`&lt;`, so dropped markup can never join the text around it into a new tag
+(`<<img>img onerror=…>`), and cleaning twice changes nothing. The cleaned HTML is
 then read through the schema, so only the features offered get in: tables
 and the rest are dropped with their text kept. Bold and italic are kept from
 `<b>`, `<i>` and `font-weight` or `font-style` spans (Word, Google Docs).

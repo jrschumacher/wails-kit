@@ -1455,6 +1455,8 @@ try {
     `<iframe srcdoc="<script>parent.__pwned=['iframe']</script>"></iframe><object data="x" onerror="${PWN('object')}"></object>`,
     `<input autofocus onfocus="${PWN('input')}"><body onload="${PWN('body')}"><style onload="${PWN('style')}">p{}</style>`,
     `<script>${PWN('script')}</script><a href="javascript:${PWN('href')}" onmouseover="${PWN('a')}">link</a>`,
+    // A stray "<", a dropped tag, then the rest of a tag: must not join into <img onerror>.
+    `<<img>img src=x onerror="${PWN('joined')}"><<img>svg onload="${PWN('joined-svg')}">`,
   ].join('');
   // Waits until a live image the page adds after the hostile HTML has failed
   // to load: the hostile images (were any live) would have failed by then.
@@ -1463,6 +1465,14 @@ try {
     img.addEventListener('error', () => requestAnimationFrame(() => requestAnimationFrame(resolve)), { once: true });
     img.src = 'data:,';
   }));
+  // Drops HTML onto the text, inside it (where ProseMirror takes the drop).
+  const dropHtml = (page, id, html) => page.evaluate(([i, h]) => {
+    const content = document.querySelector(`#${i} .wk-richtext-editor-content`);
+    const box = content.getBoundingClientRect();
+    const data = new DataTransfer();
+    data.setData('text/html', h);
+    content.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true, clientX: box.left + 20, clientY: box.top + 15 }));
+  }, [id, html]);
   const pasteHtml = (page, id, html) => page.evaluate(([i, h]) => {
     const content = document.querySelector(`#${i} .wk-richtext-editor-content`);
     content.focus();
@@ -1484,12 +1494,27 @@ try {
     await rtSet(page, '');
     await pasteHtml(page, 'demo-rich', HOSTILE);
     await page.evaluate(h => { document.getElementById('demo-rich-html').value = h; }, HOSTILE);
+    // The joined "<img" stays text.
+    assert.match(await rtValue(page), /^text\n\nsdlink\\<img src=x onerror="\(window\.\\_\\_pwned=.*\\<svg onload=/);
+    // A drop reaches the same parser and goes in.
+    const before = await page.evaluate(() => window.parsed.length);
+    await dropHtml(page, 'demo-rich', `<p>DROPPED</p>${HOSTILE}`);
+    assert.ok(await page.evaluate(n => window.parsed.length > n, before), 'the drop reached no parser');
+    assert.match(await rtValue(page), /DROPPED/, 'the drop inserted nothing');
     const parsed = await page.evaluate(() => window.parsed);
-    assert.ok(parsed.length >= 2, `only ${parsed.length} parses seen`);
+    assert.ok(parsed.length >= 3, `only ${parsed.length} parses seen`);
+    // Every "<" a parser is handed opens a tag the cleaner wrote (text has &lt;):
+    // check each tag's name and attributes. Escaped text may read "onerror=".
     for (const html of parsed) {
-      assert.doesNotMatch(html, /\son[a-z]+\s*=|\s(src|srcdoc|data|style)\s*=|<(img|svg|image|iframe|object|script|style|video|audio|source|input)\b|javascript:/i, html);
+      for (const tag of html.match(/<[^>]*>?/g) || []) {
+        assert.match(tag, /^<\/?[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?: [a-z-]+="[^"<>]*")*>$/, `${tag} in ${html}`);
+        assert.doesNotMatch(tag, /^<\/?(img|svg|image|iframe|object|script|style|video|audio|source|input)(?=[\s>])/, `${tag} in ${html}`);
+        for (const [, name, value] of tag.matchAll(/ ([a-z-]+)="([^"]*)"/g)) {
+          assert.ok(['href', 'start', 'class', 'data-language', 'data-wk-style'].includes(name), `${tag} in ${html}`);
+          assert.doesNotMatch(value, /javascript:/i, `${tag} in ${html}`);
+        }
+      }
     }
-    assert.equal(await rtValue(page), 'text\n\nsdlink');
     assert.deepEqual(problems, []);
     await page.close();
   });
@@ -1501,13 +1526,9 @@ try {
       await rtSet(page, '');
       await pasteHtml(page, 'demo-rich', HOSTILE);
       await page.evaluate(h => { document.getElementById('demo-rich-html').value = h; }, HOSTILE);
-      // Drop it too.
-      await page.evaluate(h => {
-        const content = document.querySelector('#demo-rich .wk-richtext-editor-content');
-        const data = new DataTransfer();
-        data.setData('text/html', h);
-        content.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true, clientX: 10, clientY: 10 }));
-      }, HOSTILE);
+      // Drop it too, inside the text.
+      await dropHtml(page, 'demo-rich', `<p>DROPPED</p>${HOSTILE}`);
+      assert.match(await rtValue(page), /DROPPED/, `${url}: the drop inserted nothing`);
       await settle(page);
       assert.deepEqual(await page.evaluate(() => ({ pwned: window.__pwned ?? null, violations: window.violations })), { pwned: null, violations: [] }, url);
       assert.deepEqual(problems, [], url);
