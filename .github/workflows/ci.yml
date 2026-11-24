@@ -64,6 +64,7 @@ jobs:
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: test
+          cache: false # Go caches are shared locally on the self-hosted runners.
 
   lint:
     name: Lint
@@ -73,6 +74,7 @@ jobs:
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: lint
+          cache: false # Go caches are shared locally on the self-hosted runners.
 
   typecheck:
     name: TypeScript
@@ -99,6 +101,7 @@ jobs:
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: security
+          cache: false # Go caches are shared locally on the self-hosted runners.
 
   ts-typecheck:
     name: TypeScript Typecheck
@@ -111,8 +114,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/types/package-lock.json
       - run: npm ci
       - run: npm run typecheck
 
@@ -127,8 +128,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/types/package-lock.json
       - run: npm ci
       - run: npm run lint
 
@@ -140,8 +139,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/settings/package-lock.json
       - run: npm ci
         working-directory: frontend/types
       - run: npm ci
@@ -157,8 +154,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/settings/package-lock.json
       - run: npm ci
         working-directory: frontend/types
       - run: npm ci
@@ -174,8 +169,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/settings/package-lock.json
       - run: npm ci
         working-directory: frontend/types
       - run: npm ci
@@ -194,8 +187,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/ui/package-lock.json
       - run: npm ci
       # Static checks, including that the committed dist/ matches src/.
       - run: npm test
@@ -215,8 +206,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/editor/package-lock.json
       - run: npm ci
       # Static checks, the licences, and that the committed dist/ matches a fresh build.
       - run: npm test
