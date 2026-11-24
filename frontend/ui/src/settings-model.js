@@ -84,15 +84,22 @@ export function dependentResets(schema, key, values) {
   return out;
 }
 
+/** A required field the person must fill: visible, not a toggle or computed, and empty. */
+const emptyRequired = (field, value) => Boolean(field.validation?.required) && field.type !== 'toggle' && field.type !== 'computed' && (value == null || value === '');
+
 /**
  * What the window shows for a schema, its values and the errors to show:
- *   { groups: [{ key, label, attention, rows, advanced }] }
+ *   { groups: [{ key, label, attention, rows, advanced }], attention }
  * rows and advanced hold one row per field, in schema order (advanced holds
  * the fields marked advanced): { key, type, label, description, placeholder,
  * visible, value, text, options, missing, disabled, error, min, max,
  * required }. attention is true when a visible field in the group has an
  * error. A select whose value is not among its options has missing: true; a
  * select with no options is disabled.
+ * A visible required field that is empty shows "<label> is required" (as
+ * settings.Validate words it) when no error is given for it, so the window
+ * marks it from the moment it opens. The model's attention is the number of
+ * visible fields with an error, for the window's Notice.
  */
 export function settingsModel(schema, values = {}, errors = []) {
   const byField = errorsByField(errors);
@@ -114,7 +121,7 @@ export function settingsModel(schema, values = {}, errors = []) {
         options: null,
         missing: false,
         disabled: false,
-        error: visible ? byField.get(field.key) ?? null : null,
+        error: visible ? byField.get(field.key) ?? (emptyRequired(field, value) ? `${field.label || field.key} is required` : null) : null,
         min: v.min ?? null,
         max: v.max ?? null,
         required: Boolean(v.required),
@@ -129,5 +136,6 @@ export function settingsModel(schema, values = {}, errors = []) {
     const attention = [...rows, ...advanced].some(r => r.error);
     return { key: group.key, label: group.label || group.key, attention, rows, advanced };
   });
-  return { groups };
+  const attention = groups.reduce((n, g) => n + [...g.rows, ...g.advanced].filter(r => r.error).length, 0);
+  return { groups, attention };
 }

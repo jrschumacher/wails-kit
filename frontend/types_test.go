@@ -35,13 +35,14 @@ func TestSettingsTypeParity(t *testing.T) {
 
 	// Check struct fields via JSON tags
 	structs := map[string]reflect.Type{
-		"SelectOption":  reflect.TypeOf(settings.SelectOption{}),
+		"SelectOption":   reflect.TypeOf(settings.SelectOption{}),
 		"DynamicOptions": reflect.TypeOf(settings.DynamicOptions{}),
-		"Condition":     reflect.TypeOf(settings.Condition{}),
-		"Validation":    reflect.TypeOf(settings.Validation{}),
-		"Field":         reflect.TypeOf(settings.Field{}),
-		"Group":         reflect.TypeOf(settings.Group{}),
-		"Schema":        reflect.TypeOf(settings.Schema{}),
+		"Condition":      reflect.TypeOf(settings.Condition{}),
+		"Validation":     reflect.TypeOf(settings.Validation{}),
+		"Check":          reflect.TypeOf(settings.Check{}),
+		"Field":          reflect.TypeOf(settings.Field{}),
+		"Group":          reflect.TypeOf(settings.Group{}),
+		"Schema":         reflect.TypeOf(settings.Schema{}),
 	}
 
 	for name, typ := range structs {
@@ -57,12 +58,13 @@ func TestEventsTypeParity(t *testing.T) {
 
 	// Check event name constants
 	eventConstants := map[string]string{
-		"SettingsChanged":  events.SettingsChanged,
-		"UpdateAvailable":  updates.EventAvailable,
-		"UpdateDownloading": updates.EventDownloading,
-		"UpdateReady":      updates.EventReady,
-		"UpdateError":      updates.EventError,
-		"TasksChanged":     tasks.EventChanged,
+		"SettingsChanged":     events.SettingsChanged,
+		"SettingsCheckFailed": settings.EventCheckFailed,
+		"UpdateAvailable":     updates.EventAvailable,
+		"UpdateDownloading":   updates.EventDownloading,
+		"UpdateReady":         updates.EventReady,
+		"UpdateError":         updates.EventError,
+		"TasksChanged":        tasks.EventChanged,
 	}
 	for name, value := range eventConstants {
 		if !strings.Contains(ts, `"`+value+`"`) {
@@ -72,12 +74,13 @@ func TestEventsTypeParity(t *testing.T) {
 
 	// Check payload struct fields
 	payloads := map[string]reflect.Type{
-		"SettingsChangedPayload":  reflect.TypeOf(events.SettingsChangedPayload{}),
-		"UpdateAvailablePayload":  reflect.TypeOf(updates.AvailablePayload{}),
-		"UpdateDownloadingPayload": reflect.TypeOf(updates.DownloadingPayload{}),
-		"UpdateReadyPayload":      reflect.TypeOf(updates.ReadyPayload{}),
-		"UpdateErrorPayload":      reflect.TypeOf(updates.ErrorPayload{}),
-		"TasksChangedPayload":     reflect.TypeOf(tasks.ChangedPayload{}),
+		"SettingsChangedPayload":     reflect.TypeOf(events.SettingsChangedPayload{}),
+		"SettingsCheckFailedPayload": reflect.TypeOf(settings.CheckFailedPayload{}),
+		"UpdateAvailablePayload":     reflect.TypeOf(updates.AvailablePayload{}),
+		"UpdateDownloadingPayload":   reflect.TypeOf(updates.DownloadingPayload{}),
+		"UpdateReadyPayload":         reflect.TypeOf(updates.ReadyPayload{}),
+		"UpdateErrorPayload":         reflect.TypeOf(updates.ErrorPayload{}),
+		"TasksChangedPayload":        reflect.TypeOf(tasks.ChangedPayload{}),
 	}
 
 	for name, typ := range payloads {
@@ -112,6 +115,9 @@ func TestErrorsTypeParity(t *testing.T) {
 		updates.ErrUpdateDownload,
 		updates.ErrUpdateApply,
 		updates.ErrUpdateVerify,
+		settings.ErrCheckFailed,
+		settings.ErrCheckTimeout,
+		settings.ErrUnknownSetting,
 		tasks.ErrNotFound,
 		tasks.ErrDuplicateID,
 		tasks.ErrInvalidSpec,

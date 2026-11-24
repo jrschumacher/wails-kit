@@ -106,3 +106,25 @@ test('an empty or missing schema has no groups', () => {
   assert.deepEqual(settingsModel(null).groups, []);
   assert.deepEqual(settingsModel({ groups: [] }).groups, []);
 });
+
+test('an empty required field shows its error from the start; the model counts the fields that need attention', () => {
+  const empty = settingsModel(schema, { provider: 'a' });
+  const name = empty.groups[0].rows[0];
+  assert.equal(name.error, 'Name is required', 'worded as settings.Validate words it');
+  assert.equal(empty.groups[0].attention, true);
+  assert.equal(empty.attention, 1);
+  // A given error wins; a filled field, a hidden one, a toggle and a computed one show none.
+  assert.equal(settingsModel(schema, {}, [{ field: 'name', message: 'From the app', code: 'required' }]).groups[0].rows[0].error, 'From the app');
+  assert.equal(settingsModel(schema, { name: 'Sam' }).attention, 0);
+  const required = { groups: [{ key: 'g', label: 'G', fields: [
+    { key: 'on', type: 'toggle', label: 'On', validation: { required: true } },
+    { key: 'calc', type: 'computed', label: 'Calc', validation: { required: true } },
+    { key: 'mode', type: 'select', label: 'Mode', default: 'a', options: [{ label: 'A', value: 'a' }, { label: 'B', value: 'b' }] },
+    { key: 'token', type: 'password', label: 'Token', validation: { required: true }, condition: { field: 'mode', equals: ['b'] } },
+    { key: 'port', type: 'number', label: 'Port', validation: { required: true } },
+  ] }] };
+  assert.deepEqual(settingsModel(required, {}).groups[0].rows.map(r => r.error), [null, null, null, null, 'Port is required']);
+  assert.equal(settingsModel(required, { mode: 'b', port: 0 }).groups[0].rows[3].error, 'Token is required');
+  assert.equal(settingsModel(required, { mode: 'b', token: SECRET_MASK, port: 0 }).attention, 0, 'a stored secret and 0 are values');
+  assert.equal(settingsModel(required, {}, [{ field: 'mode', message: 'x', code: 'check' }]).attention, 2);
+});
