@@ -171,3 +171,11 @@ test('Dependabot keeps the gallery\'s and ui\'s playwright-core pins together', 
   assert.match(entry, /directories:\s*\n\s*- \/frontend\/ui\s*\n\s*- \/frontend\/gallery/);
   assert.match(entry, /playwright:\s*\n\s*patterns:\s*\n\s*- "playwright-core"/);
 });
+
+test('the gallery marks a locked button with data-locked, as the design system does, never the old wk-button--locked', () => {
+  const tests = readdirSync(path.join(here, 'test')).filter(f => f !== 'static.test.mjs').map(f => [`test/${f}`, readFileSync(path.join(here, 'test', f), 'utf8')]);
+  for (const [file, text] of [...sources(), ...tests]) assert.doesNotMatch(text, /wk-button--locked/, `${file} uses the old name`);
+  const button = pages.find(p => p.id === 'button');
+  const locked = button.examples.find(ex => ex.title === 'Locked');
+  assert.equal((locked.html.match(/<button [^>]*aria-disabled="true" data-locked[ >]/g) || []).length, 2, 'both locked specimens carry data-locked with aria-disabled');
+});

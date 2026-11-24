@@ -207,7 +207,7 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Component | Classes |
 |---|---|
 | Type scale | `wk-title`, `wk-title-2`, `wk-heading`, `wk-subheading`, `wk-body`, `wk-caption`, `wk-small`, `wk-secondary`, `wk-num`, `wk-mono`, `wk-figure` |
-| Button | `wk-button` with `--primary`, `--destructive`, `--quiet`, `--small`, `--icon`, `--locked`; busy with `aria-disabled="true"` and `data-busy` (see [Busy, spinner and progress](#busy-spinner-and-progress)) |
+| Button | `wk-button` with `--primary`, `--destructive`, `--quiet`, `--small`, `--icon`; locked with `aria-disabled="true"` and `data-locked` (stays focusable, lock glyph first, `title="Needs manage access"`); busy with `aria-disabled="true"` and `data-busy` (see [Busy, spinner and progress](#busy-spinner-and-progress)) |
 | Link | `wk-link` (an `aria-expanded` link draws a disclosure chevron) |
 | Field | `wk-label`, `wk-field`, `wk-help`, `wk-error`; search field `wk-search` |
 | Checkbox, radio, switch | `wk-check`, `wk-checkbox`, `wk-radio`, `wk-switch` (`role="switch"`); `wk-check--row`, `wk-check--top` |
