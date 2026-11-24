@@ -50,6 +50,7 @@ jobs:
             logging
             taskfiles
             shortcuts
+            tasks
             ui
             updates
           requireScope: false

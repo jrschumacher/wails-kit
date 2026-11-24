@@ -44,6 +44,10 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 ┌──────────┐────▶ appdirs, errors, events (optional)
 │  state   │
 └──────────┘
+
+┌──────────┐────▶ errors, events (optional)
+│  tasks   │
+└──────────┘
 ```
 
 - `errors`, `events`, and `appdirs` are leaf packages with no kit dependencies
@@ -57,6 +61,7 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 - `logging` depends on `appdirs` for log directory paths
 - `shortcuts` depends on `events` (optional) and `wails/v3` for native menu APIs
 - `state` depends on `appdirs` and `errors`; optionally depends on `events`
+- `tasks` depends on `errors`; optionally depends on `events` (it emits `tasks:changed`, a snapshot of the whole task list, whose shape `@wails-kit/types` mirrors in `TaskSnapshot`)
 - `settings/templates/anyllm` depends on `settings` and `any-llm-go` (external); provides LLM provider settings integration
 
 ### Frontend packages
@@ -135,10 +140,12 @@ const ErrMyOperation errors.Code = "my_operation"
 
 func init() {
     errors.RegisterMessages(map[errors.Code]string{
-        ErrMyOperation: "Something went wrong. Please try again.",
+        ErrMyOperation: "Couldn't save the report",
     })
 }
 ```
+
+User-facing messages follow the voice in `frontend/ui/BEHAVIOUR.md` ("Writing the words"): name what happened in the person's words, as a fragment with no full stop. Never "Something went wrong" or "Please try again"; what happens next (Retry, "Next try in 8 s") is the UI's to say.
 
 ### Optional dependencies
 
