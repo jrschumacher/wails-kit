@@ -542,7 +542,12 @@ sets `errors`.
   after a failure, and a check overtaken by a newer one is ignored. An error with
   code `check` (a failure, or one from `CheckFailures()`) stays on its field until
   that field commits or is checked again, even when the app sets `errors` or
-  another field changes.
+  another field changes; when the app sets `values` with a new value for that
+  field, it goes, with any unapplied text.
+- A value the window's own validation rejects (on commit, or a live draft once
+  typing stops) still goes to `check`, and the reply is ignored: `CheckValue`
+  validates it, saves nothing, and overtakes the check of the value it replaced,
+  so that check can't save it.
 - A check that outlives the window carries on in Go (`CheckValue`): if it fails,
   `settings:check_failed` lets the main window show a Notice with "Open Settings";
   Settings then shows `CheckFailures()` and calls `reveal(key)`. See the

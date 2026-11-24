@@ -2595,6 +2595,63 @@ try {
     await page.close();
   });
 
+
+  await check('settings window: a value the window\'s own validation rejects still goes to the back end, so an older check can\'t save the value it replaced', async () => {
+    const { page, problems } = await openSettings({ clock: true });
+    await manualChecks(page);
+    await page.evaluate(() => { document.getElementById('demo-settings').validate = (schema, values) => String(values['general.folder'] ?? '').length > 12 ? [{ field: 'general.folder', message: 'Use 12 characters or fewer', code: 'max_length' }] : []; });
+    const folder = row(page, 'general.folder').locator('input');
+    const error = row(page, 'general.folder').locator('.wk-error');
+    await folder.fill('/good');
+    await folder.press('Tab');
+    // While /good is being checked, the person commits a value the window rejects itself.
+    await folder.fill('/a-very-long-path');
+    await folder.press('Tab');
+    assert.equal(await error.textContent(), 'Use 12 characters or fewer');
+    await until(page, () => window.checks.length === 2);
+    assert.equal(await page.evaluate(() => window.checks[1].values['general.folder']), '/a-very-long-path', 'the back end hears of the new value, and overtakes its check of /good');
+    // The window ignores both replies: /good was abandoned, and the new value's errors are shown already.
+    await answer(page, 0, []);
+    await answer(page, 1, [{ field: 'general.folder', message: 'General folder must be at most 12 characters', code: 'max_length' }]);
+    await page.clock.runFor(1000);
+    assert.equal(await page.evaluate(() => window.settingsEvents.some(e => e.key === 'general.folder')), false);
+    assert.equal(await error.textContent(), 'Use 12 characters or fewer');
+    // A live re-check of an invalid draft goes to the back end too, once typing stops.
+    await folder.focus();
+    await page.keyboard.press('End');
+    await page.keyboard.type('xyz');
+    await page.clock.runFor(499);
+    assert.equal(await page.evaluate(() => window.checks.length), 2);
+    await page.clock.runFor(1);
+    assert.equal(await page.evaluate(() => window.checks.length), 3);
+    assert.equal(await page.evaluate(() => window.checks[2].values['general.folder']), '/a-very-long-pathxyz');
+    assert.equal(await error.textContent(), 'Use 12 characters or fewer');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('settings window: a check failure the window kept goes when the app sets a new value for that field', async () => {
+    const { page, problems } = await openSettings();
+    const error = row(page, 'general.folder').locator('.wk-error');
+    const look = await page.evaluate(() => {
+      const el = document.getElementById('demo-settings');
+      const out = [];
+      el.errors = [{ field: 'general.folder', message: 'There is no folder at this path. Choose a folder that exists.', code: 'check' }];
+      el.errors = []; // an empty CheckFailures() keeps it: it is about the field, not the app's last reply
+      out.push(el.errors.length);
+      el.values = { ...el.values }; // the same value keeps it
+      out.push(el.errors.length);
+      el.values = { ...el.values, 'general.folder': '/saved/elsewhere' };
+      out.push(el.errors.length);
+      return out;
+    });
+    assert.deepEqual(look, [1, 1, 0]);
+    assert.equal(await error.isVisible(), false);
+    assert.equal(await row(page, 'general.folder').locator('input').inputValue(), '/saved/elsewhere');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
   await check('settings window: in forced colours, the pending words and their spinner, and the Notice\'s outline and words, take system colours', async () => {
     const { page, problems } = await openSettings({ forcedColors: 'active', clock: true });
     await manualChecks(page);

@@ -2178,7 +2178,19 @@ class WkSettings extends HTMLElement {
   set schema(schema) { this.state.schema = schema || null; this.render(); }
 
   get values() { return { ...this.state.values }; }
-  set values(values) { this.state.values = { ...(values || {}) }; this.sync(); }
+  set values(values) {
+    const next = { ...(values || {}) };
+    // A field whose value the app changes drops what the window kept for it:
+    // the person's unapplied text and a check's failure, both about another value.
+    for (const key of new Set([...Object.keys(next), ...Object.keys(this.state.values)])) {
+      if (Object.is(next[key], this.state.values[key])) continue;
+      this.drafts.delete(key);
+      this.live.delete(key);
+      this.state.errors = this.state.errors.filter(e => !(e.field === key && e.code === CODE_CHECK));
+    }
+    this.state.values = next;
+    this.sync();
+  }
 
   get errors() { return [...this.state.errors]; }
   set errors(errors) {
@@ -2431,8 +2443,9 @@ class WkSettings extends HTMLElement {
     this.noticeTimer = setTimeout(() => this.updateNotice(), timings.recheckDelay);
     clearTimeout(this.rechecks.get(key));
     this.rechecks.delete(key);
-    const value = readValue(field, raw);
-    if (field.check && this.state.check && !own.length && value != null && value !== '') {
+    // A checked field goes to the back end once typing stops: a valid draft
+    // to be checked, an invalid one so a check of an earlier value can't save it.
+    if (field.check && this.state.check) {
       this.rechecks.set(key, setTimeout(() => { this.rechecks.delete(key); this.runCheck(field, raw); }, timings.recheckDelay));
     }
   }
@@ -2464,6 +2477,11 @@ class WkSettings extends HTMLElement {
       this.state.errors = [...this.state.errors.filter(e => e.field !== key), ...own];
       this.live.add(key);
       this.sync();
+      // Still tell the back end: the value it may be checking was abandoned,
+      // so an older check that passes mustn't save it. CheckValue validates
+      // the field first, overtakes that check, and saves nothing; its reply
+      // repeats the errors shown, so it is ignored.
+      Promise.resolve().then(() => this.state.check(key, values)).catch(() => {});
       return;
     }
     const run = { raw, value, timer: null, shownAt: null };
