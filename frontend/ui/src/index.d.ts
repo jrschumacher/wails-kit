@@ -22,6 +22,17 @@ export class WkTabs extends HTMLElement { selectedIndex: number }
 export class WkTooltip extends HTMLElement { readonly open: boolean; show(): void; hide(): void }
 export class WkDialog extends HTMLElement { readonly open: boolean; show(options?: { opener?: Element }): void; close(returnValue?: string): void }
 export function syncSteppers(root?: ParentNode | Element): void;
+export interface ProgressReport { done?: number; total: number; unit?: string; text?: string }
+export function setProgress(bar: HTMLElement, progress: ProgressReport, options?: { aria?: boolean | 'now'; clock?: () => number }): void;
+
+// ---- Timings and motion (motion.js) ----
+export const timings: Readonly<{
+  indicatorDelay: number; indicatorMin: number; stopDelay: number; waiting: number; timeout: number;
+  estimateStable: number; loadingLine: number; recheckDelay: number; toast: number; toastWithAction: number;
+  copied: number; progressValueEvery: number; backoff: readonly number[]; backoffJitter: number; wakeSettle: number;
+}>;
+export const motion: Readonly<{ durationFast: number; durationBase: number; durationSlow: number; easeOut: string; easeIn: string }>;
+export function reducedMotion(): boolean;
 
 // ---- Chart (chart.js) ----
 export interface ChartCategory { label: string; name?: string; shaded?: boolean }

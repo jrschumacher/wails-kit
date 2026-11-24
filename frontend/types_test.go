@@ -10,6 +10,7 @@ import (
 	"github.com/jrschumacher/wails-kit/errors"
 	"github.com/jrschumacher/wails-kit/events"
 	"github.com/jrschumacher/wails-kit/settings"
+	"github.com/jrschumacher/wails-kit/tasks"
 	"github.com/jrschumacher/wails-kit/updates"
 )
 
@@ -63,6 +64,7 @@ func TestEventsTypeParity(t *testing.T) {
 		"UpdateDownloading":   updates.EventDownloading,
 		"UpdateReady":         updates.EventReady,
 		"UpdateError":         updates.EventError,
+		"TasksChanged":        tasks.EventChanged,
 	}
 	for name, value := range eventConstants {
 		if !strings.Contains(ts, `"`+value+`"`) {
@@ -78,6 +80,7 @@ func TestEventsTypeParity(t *testing.T) {
 		"UpdateDownloadingPayload":   reflect.TypeOf(updates.DownloadingPayload{}),
 		"UpdateReadyPayload":         reflect.TypeOf(updates.ReadyPayload{}),
 		"UpdateErrorPayload":         reflect.TypeOf(updates.ErrorPayload{}),
+		"TasksChangedPayload":        reflect.TypeOf(tasks.ChangedPayload{}),
 	}
 
 	for name, typ := range payloads {
@@ -115,6 +118,11 @@ func TestErrorsTypeParity(t *testing.T) {
 		settings.ErrCheckFailed,
 		settings.ErrCheckTimeout,
 		settings.ErrUnknownSetting,
+		tasks.ErrNotFound,
+		tasks.ErrDuplicateID,
+		tasks.ErrInvalidSpec,
+		tasks.ErrInvalidState,
+		tasks.ErrUnsupported,
 	}
 
 	for _, code := range codes {
@@ -125,6 +133,87 @@ func TestErrorsTypeParity(t *testing.T) {
 
 	// Check UserError fields
 	checkJSONFields(t, ts, "UserError", reflect.TypeOf(errors.UserError{}))
+}
+
+// TestTasksTypeParity checks the tasks:changed snapshot contract exactly:
+// each union type holds the same values as Go, and each snapshot field is
+// present with the same nullability (a Go pointer is "| null" in TypeScript).
+func TestTasksTypeParity(t *testing.T) {
+	ts := readFile(t, "types/tasks.ts")
+
+	var states []string
+	for _, s := range tasks.States {
+		states = append(states, `"`+string(s)+`"`)
+	}
+	checkUnion(t, ts, "TaskState", states)
+	checkUnion(t, ts, "TaskRetry", []string{
+		`"` + string(tasks.RetryAuto) + `"`, `"` + string(tasks.RetryManual) + `"`, `"` + string(tasks.RetryUnsafe) + `"`,
+	})
+	stops := []string{"false"} // StopNone is sent as false
+	for _, m := range []tasks.StopMode{tasks.StopCancel, tasks.StopStop, tasks.StopStopAsks, tasks.StopPause, tasks.StopUnsafe} {
+		stops = append(stops, `"`+string(m)+`"`)
+	}
+	checkUnion(t, ts, "TaskStop", stops)
+
+	checkFieldTypes(t, ts, "TaskSnapshot", reflect.TypeOf(tasks.Snapshot{}))
+	checkFieldTypes(t, ts, "TaskError", reflect.TypeOf(tasks.ErrorInfo{}))
+
+	events := readFile(t, "types/events.ts")
+	checkFieldTypes(t, events, "TasksChangedPayload", reflect.TypeOf(tasks.ChangedPayload{}))
+}
+
+// checkUnion compares the members of `export type name = a | b | ...;` with
+// want, as sets.
+func checkUnion(t *testing.T, ts, name string, want []string) {
+	t.Helper()
+	re := regexp.MustCompile(`(?s)export type\s+` + regexp.QuoteMeta(name) + `\s*=(.*?);`)
+	m := re.FindStringSubmatch(ts)
+	if m == nil {
+		t.Fatalf("type %s not found", name)
+	}
+	got := map[string]bool{}
+	for _, member := range regexp.MustCompile(`"[^"]*"|\bfalse\b|\btrue\b|\bnull\b|\bstring\b|\bnumber\b`).FindAllString(m[1], -1) {
+		got[member] = true
+	}
+	for _, w := range want {
+		if !got[w] {
+			t.Errorf("%s: %s missing", name, w)
+		}
+		delete(got, w)
+	}
+	for extra := range got {
+		t.Errorf("%s: %s is not in Go", name, extra)
+	}
+}
+
+// checkFieldTypes checks that each JSON field of typ is declared in the
+// interface, and is nullable exactly when the Go field is a pointer.
+func checkFieldTypes(t *testing.T, ts, interfaceName string, typ reflect.Type) {
+	t.Helper()
+	block := extractInterface(ts, interfaceName)
+	if block == "" {
+		t.Fatalf("interface %s not found", interfaceName)
+	}
+	for i := range typ.NumField() {
+		field := typ.Field(i)
+		tag := strings.Split(field.Tag.Get("json"), ",")[0]
+		if !field.IsExported() || tag == "" || tag == "-" {
+			continue
+		}
+		re := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(tag) + `(\??):\s*([^;]+);`)
+		m := re.FindStringSubmatch(block)
+		if m == nil {
+			t.Errorf("%s: field %q (Go: %s) not declared", interfaceName, tag, field.Name)
+			continue
+		}
+		if m[1] == "?" {
+			t.Errorf("%s.%s: optional, but Go always sends it", interfaceName, tag)
+		}
+		nullable := regexp.MustCompile(`\|\s*null\b`).MatchString(m[2])
+		if pointer := field.Type.Kind() == reflect.Pointer; pointer != nullable {
+			t.Errorf("%s.%s: TypeScript type %q, Go type %s: nullability differs", interfaceName, tag, strings.TrimSpace(m[2]), field.Type)
+		}
+	}
 }
 
 // checkJSONFields verifies that every exported JSON-tagged field in a Go struct

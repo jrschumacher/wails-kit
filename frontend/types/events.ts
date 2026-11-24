@@ -1,7 +1,8 @@
-// Event constants and payload types — mirrors events/events.go and updates/service.go
+// Event constants and payload types — mirrors events/events.go, updates/service.go and tasks/tasks.go
 // Kept in sync via Go reflection test in frontend/types_test.go
 
 import type { ErrorCode } from "./errors";
+import type { TaskSnapshot } from "./tasks";
 
 // Settings events
 export const SettingsChanged = "settings:changed" as const;
@@ -49,6 +50,14 @@ export interface UpdateErrorPayload {
   code: ErrorCode;
 }
 
+// Task events
+export const TasksChanged = "tasks:changed" as const;
+
+/** Every task in the list (active ones, and finished ones not yet dismissed), in the order they were added. */
+export interface TasksChangedPayload {
+  tasks: TaskSnapshot[];
+}
+
 // Event map for type-safe event subscription
 export interface EventMap {
   [SettingsChanged]: SettingsChangedPayload;
@@ -57,4 +66,5 @@ export interface EventMap {
   [UpdateDownloading]: UpdateDownloadingPayload;
   [UpdateReady]: UpdateReadyPayload;
   [UpdateError]: UpdateErrorPayload;
+  [TasksChanged]: TasksChangedPayload;
 }
