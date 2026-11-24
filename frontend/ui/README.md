@@ -238,6 +238,11 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 pointer, the tokens and every status dot. Serve the package folder (for
 example `npx serve .`) and open `/demo/index.html`.
 
+The [component gallery](../gallery/README.md) shows each component on its own
+page, with its markup, "Try it" buttons for its behaviour, and switches for the
+appearance, the theme, the text size and `src/` or `dist/`: `npm run gallery`
+in `frontend/gallery`.
+
 ### Custom elements and functions
 
 | Export | What it is |

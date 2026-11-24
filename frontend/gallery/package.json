@@ -1,0 +1,15 @@
+{
+  "name": "@wails-kit/gallery",
+  "version": "0.1.0",
+  "description": "The component gallery for @wails-kit/ui, @wails-kit/editor and @wails-kit/diagram: every component in each state it can show, one page per component. Static pages under a strict CSP, served by a tiny local server. Not published.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "gallery": "node serve.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:browser": "node test/browser.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.63.0"
+  }
+}
