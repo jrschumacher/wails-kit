@@ -226,7 +226,8 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Status dot | `wk-dot` with `data-shape` (`filled`, `ringed`, `half`, `hollow`, `dashed`, `bar`), `data-tone` (`neutral`, `working`, `attention`) and `data-size="sm"`. It has no state names: the app maps its own states onto shapes and tones. The filled working dot at the default size has a halo (running), its gap drawn in `--wk-dot-ground`; set that on the dot when it sits on something other than `wk-color-bg`. |
 | Utilities | `wk-visually-hidden`: read by assistive technology, not drawn |
 | Empty state, notice, error box | `wk-empty`, `wk-notice`, `wk-errorbox` |
-| Stat, code block, copy button | `wk-stat`, `wk-code`, `wk-copy` |
+| Stat, code block, copy button | `wk-stat`, `wk-code`, `wk-copy` (copies by itself with `data-wk-copy`, `data-wk-copy-from` or inside a `wk-code`; "Copied" in `wk-copy-tip`) |
+| Toast, skeleton rows | `wk-toast` (`wk-toast-words`, `wk-toast-action`), built by `wkToast()`; `wk-skeleton` rows with `wk-skeleton-bar` cells, built by `wkSkeleton()` |
 | Stepper | `wk-stepper` (an input and two arrow buttons; see `syncSteppers`) |
 | Range | `wk-range` on `<input type="range">`, drawn the same on WebKit and Chromium. The app sets `--wk-range-value` to the filled share (`el.style.setProperty('--wk-range-value', '60%')`, which a Content-Security-Policy allows where a `style` attribute is blocked) and updates it on `input`; show the value beside it in an `<output>`. |
 | Chart | `wk-chart`, built by `wkChart()` |
@@ -256,6 +257,11 @@ example `npx serve .`) and open `/demo/index.html`.
 | `wkDiff(spec)` | a read-only diff of one or more files, unified or split, with collapsible files, word marks, keyboard navigation and "Show more" context; see [Diff](#diff); with review comments, see [Review comments](#review-comments) |
 | `parseUnifiedDiff`, `diffSplitRows`, `diffWordRanges` | the diff's parser, split-view pairing and word marks, with no DOM |
 | `diffCommentPlaces(file, threads)` | where review threads go in a parsed file (under which line, or outdated), with no DOM |
+| `wkToast({ words, action? })` | a brief outcome at the bottom of the window, one at a time; see [Toast, undo, copy and skeleton rows](#toast-undo-copy-and-skeleton-rows) |
+| `wkUndo.connect`, `wkUndo.action`, `wkUndo.undo`, `wkUndo.redo`, `wkUndo.state` | the frontend of the Go undo stack (`shortcuts.UndoStack`): text focus, Edit > Undo for typing, a toast's Undo |
+| `wkCopy(button, text)` | copies, then shows "Copied" above a `wk-copy` for 2 s and says it once; `data-wk-copy` and `data-wk-copy-from` copy with no script |
+| `wkSkeleton(tbody, options?)` | skeleton rows for a table that loads, from 400 ms, for at least 500 ms |
+| `wkChart.ready(fig)` | resolves when a loading chart (`loading: 'Fetching runs'`) may be replaced |
 
 Every element works when the app builds the DOM imperatively: it may be
 connected before its children exist, moved, or removed while open, and it
@@ -596,6 +602,149 @@ Every transition in the kit uses a duration token. Under
 `prefers-reduced-motion: reduce`, transitions are instant or a fade of 100 ms
 at most and nothing slides; a component that animates from script checks
 `reducedMotion()`.
+
+## Toast, undo, copy and skeleton rows
+
+[`BEHAVIOUR.md`](BEHAVIOUR.md) is the spec: "Notifications inside the window", "Undo,
+confirm or neither", "Patterns › Copy to clipboard" and "Loading content".
+
+### Toast
+
+```js
+import { wkToast } from '@wails-kit/ui';
+wkToast({ words: 'Link copied' });
+const toast = wkToast({ words: 'Conversation archived', action: wkUndo.action(id) });
+toast.dismiss();
+```
+
+One `<div class="wk-toast" role="group">` at a time, at the bottom centre of the window,
+16 px above a `wk-footer-bar` along the bottom. While a modal is open it sits in the
+top-most modal, and it moves when one opens or closes (as the announcer does), so it
+is never stranded or left behind an inert page. A move doesn't replay its entry, and
+the document is watched for modals only while a toast is shown. It shows for `timings.toast` (6 s), or `timings.toastWithAction` (10 s) with an
+action, and its clock runs only while the window is focused and the pointer and focus
+are outside it; it runs on from where it stopped. A newer toast replaces it at once. It
+isn't a live region: its words go to the polite announcer once. It never takes focus
+when it appears. **F6** (or Shift+F6) moves focus to its action and back to where focus
+was; Tab reaches it too. F6 is only used when it moves focus; otherwise it reaches the
+page. **Esc** dismisses it while focus is inside (and only the toast: not
+a dialog around it or a task that started in the page), and focus goes back; so does pressing the action, which then runs. If a newer toast replaces it while
+focus is inside, the new action takes focus (or focus goes back, with no action). An
+action needs a `label` and `run()`, and must also exist elsewhere (Undo in Edit > Undo,
+Show in the list): the toast goes away by itself. It enters with a short rise and fade
+(`--wk-duration-base`) and leaves with a fade in two-thirds of that; with reduced motion
+it only fades, in 100 ms. In forced colours its border is `CanvasText`. Never put an
+error the person must act on in a toast.
+
+### App undo and redo
+
+The stack lives on the Go side: [`shortcuts.UndoStack`](../../shortcuts/README.md#app-undo-and-redo)
+puts it behind Edit > Undo and Redo, named for the action ("Undo Archive").
+
+```js
+import { Events } from '@wailsio/runtime';
+import { wkUndo, wkToast } from '@wails-kit/ui';
+wkUndo.connect({ on: (name, fn) => Events.On(name, e => fn(e.data)), bindings: UndoBindings });
+
+const id = await Archive(conversation.id);              // the Go method pushes and returns the ID
+wkToast({ words: 'Conversation archived', action: wkUndo.action(id) });
+document.addEventListener('wk-undo-change', e => showWhatCameBack(e.detail));
+```
+
+- `connect({ on, bindings })`: `on(name, listener)` subscribes to `undo:changed`,
+  `undo:text` and `undo:failed` and may return an unsubscribe; `bindings` is the stack's
+  `Bindings()` (`State`, `Undo`, `Redo`, `UndoID`, `SetTextFocus`). It returns a
+  function that disconnects.
+- **Text focus.** Connected, `wkUndo` reports text focus to Go, and again whenever the
+  window comes to the front. Text focus means an editable `input` or `textarea`,
+  editable content (a `contenteditable`, which is where the kit's code, Markdown and
+  rich-text editors take typing), or an element the app marks `data-wk-undo`. Focus
+  elsewhere in an editor (a read-only editor, marked `aria-readonly`; the rich-text
+  toolbar; the Markdown Write tab) isn't text focus: Edit > Undo there is the app's, with its "Undo Archive" label.
+- **Edit > Undo and Redo with text focus.** Go sends `undo:text`, which arrives in the
+  window in front as the DOM event `wk-undo-text`. In the focused window only:
+  - The field or editor first gets a cancelable `beforeinput` with `inputType`
+    `historyUndo` or `historyRedo`. An editor with its own history (CodeMirror,
+    ProseMirror) takes it there.
+  - Otherwise a plain field undoes its typing with `execCommand`; when that changes
+    nothing, the app's stack goes instead.
+  - Editable content (and `data-wk-undo`) never falls back to the app's stack: undo in
+    an editor stays in the editor.
+- **Clicking the menu with the mouse.** On Windows and Linux, clicking the menu bar may
+  take focus from the web view first. The page then reports no text focus, so Edit >
+  Undo clicked with the mouse may undo the app's action rather than the typing. The
+  shortcut isn't affected. This hasn't been checked on real hardware.
+- `action(id?)`: a toast's Undo for the action with this ID (else the most recent). It
+  undoes only that action (`UndoID`), so the toast's Undo and Edit > Undo agree; once
+  the stack moves past it (Edit > Undo undid it, or another action came), its toast
+  closes. A toast replaced by a newer one doesn't take the Undo with it: Edit > Undo
+  still has it. Pressed while another undo runs, it says "An undo is already under way"
+  (`wkUndo.words.busy`); pressed after the stack moved on, it says nothing.
+- `undo()`, `redo()`: the app's stack, for a button.
+- `state()`: `{ undo, redo, busy, textFocus }`, each of `undo` and `redo` an
+  `{ id, name, label }` or null. Every state from Go also fires `wk-undo-change` on the
+  document, for the app to show what came back.
+- A failed undo is said in words, assertively: "Couldn’t undo Archive"
+  (`wkUndo.words.couldNot(op, name)`). Nothing to undo, a stale toast and a busy stack
+  say nothing.
+
+### Copy feedback
+
+```html
+<button class="wk-copy" type="button" aria-label="Copy join code" data-wk-copy="K7-42"><svg …></svg></button>
+<button class="wk-copy" type="button" aria-label="Copy the token" data-wk-copy-from="token-field"><svg …></svg></button>
+<div class="wk-code"><code>npm i @wails-kit/ui</code><button class="wk-copy" type="button" aria-label="Copy command"><svg …></svg></button></div>
+```
+
+The kit copies on a click: `data-wk-copy`'s text, the text (or value) of the element
+`data-wk-copy-from` names, or, inside a `wk-code`, the `<code>` or `<pre>` beside it.
+Otherwise the app calls `wkCopy(button, text)` (it resolves to whether it copied).
+"Copied" shows for `timings.copied` (2 s) in a `wk-tooltip wk-copy-tip` above the button
+(below it when there's no room), hidden from assistive technology, and goes to the
+polite announcer once per press. The button's accessible name and glyph don't change.
+On failure it shows and says "Couldn’t copy", assertively while focus is still on the
+button. Esc hides the tip while focus or the pointer is on the button; elsewhere Esc is
+left to the page (a dialog, a task's Cancel). A busy copy button (`data-busy` with `aria-disabled`) does
+nothing. `wkCopy.write` is the clipboard writer (`navigator.clipboard.writeText`);
+replace it with Wails's `Clipboard.SetText` where the web view's clipboard isn't
+allowed. A writer that rejects or resolves to `false` (as `Clipboard.SetText` does on
+failure) didn't copy. An app that copies a `wk-copy` itself, with `wkCopy(button, text)`
+from its own click handler, on a button the kit would copy from too (one inside a
+`wk-code`, say), calls `preventDefault()` on that click so the kit doesn't copy as
+well. `wkCopy.words` holds the words. Each press fires `wk-copy` on the button with
+`detail: { ok }` (never the text, which may be a secret).
+
+### Skeleton rows
+
+```js
+import { wkSkeleton } from '@wails-kit/ui';
+const loading = wkSkeleton(table.tBodies[0]);
+const runs = await fetchRuns();
+await loading.done(() => drawRuns(table.tBodies[0], runs)); // swapped in one step
+```
+
+From the call, the table (or `region`) has `aria-busy="true"` until `done()`. At the
+indicator delay (400 ms) the body's rows give way to `<tr class="wk-skeleton"
+aria-hidden="true">` rows, one cell per header column (or `columns`), each holding a
+still `wk-skeleton-bar` in `--wk-color-fill`, at the real row height: as many rows as
+the body had, else as many as the last load drew, else enough to fill the window below
+it, up to 12 (or `rows`). `done(draw)` takes them out, calls `draw` in the same step and
+resolves; once they have shown, it waits for the indicator minimum (500 ms). Done
+within 400 ms, no rows ever show. `cancel()` puts the old rows back. If focus was in the rows that give way, it
+moves to the table (made focusable with `tabindex="-1"` until focus leaves), not the
+page. Keep headings,
+toolbars and filters real and usable. In forced colours each bar is outlined in
+`GrayText`.
+
+### Loading chart
+
+`wkChart({ …spec, loading: 'Fetching runs' })` keeps the chart's frame, title, view
+switch and, when the series are known (their labels, with no values), its legend; the
+figure has `aria-busy="true"`. The plot keeps the chart's height and shows a spinner
+(`role="progressbar"`, named by the words) from 400 ms. There's no skeleton for a
+chart. When the data arrives, `await wkChart.ready(fig)` (at once if the spinner hasn't
+shown, else once it has shown for 500 ms), then replace the figure with the drawn
+chart.
 
 ## Diff
 

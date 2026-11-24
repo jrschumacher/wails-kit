@@ -28,7 +28,7 @@ const fixtures = path.join(root, 'test', 'fixtures');
 // Properties a component sets on itself for its variants to change, and
 // --wk-range-value and --wk-progress-value, which the app sets on a wk-range
 // and a wk-progress.
-const LOCAL = new Set(['--wk-dot-color', '--wk-dot-ground', '--wk-chart-c', '--wk-range-value', '--wk-progress-value', '--wk-diff-digits', '--wk-diff-indent']);
+const LOCAL = new Set(['--wk-dot-color', '--wk-dot-ground', '--wk-chart-c', '--wk-range-value', '--wk-progress-value', '--wk-diff-digits', '--wk-diff-indent', '--wk-toast-above', '--wk-chart-height']);
 
 test('the colour check catches every kind of literal', () => {
   const component = { selector: '.wk-x', forced: false };

@@ -37,7 +37,7 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 │ diagnostics │──▶ appdirs, settings, events, errors (all optional except errors)
 └─────────────┘
 
-┌─────────────┐────▶ events (optional)
+┌─────────────┐────▶ errors, events (optional)
 │  shortcuts  │────▶ wails/v3 (native menus)
 └─────────────┘
 
@@ -63,7 +63,7 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 - `lifecycle` depends on `errors` and `events`; manages startup/shutdown ordering of any services
 - `diagnostics` depends on `errors`; optionally depends on `appdirs`, `settings`, and `events`
 - `logging` depends on `appdirs` for log directory paths
-- `shortcuts` depends on `events` (optional) and `wails/v3` for native menu APIs
+- `shortcuts` depends on `events` (optional), `errors` (the undo stack's codes) and `wails/v3` for native menu APIs; its `UndoStack` keeps the app's undo and redo for the session behind Edit > Undo and Redo
 - `state` depends on `appdirs` and `errors`; optionally depends on `events`
 - `tasks` depends on `errors`; optionally depends on `events` (it emits `tasks:changed`, a snapshot of the whole task list, whose shape `@wails-kit/types` mirrors in `TaskSnapshot`)
 - `desktop` depends on `tasks`, `events` and `errors`: it follows `tasks:changed` and draws the work on the desktop (notifications, Windows taskbar progress, the badge, the quit question, the window background). The OS is behind small interfaces; its Wails adapters (`wails` build tag) use `wails/v3`'s application, notifications service and `w32`

@@ -1,8 +1,9 @@
-// Event constants and payload types — mirrors events/events.go, updates/service.go, tasks/tasks.go and desktop/desktop.go
+// Event constants and payload types — mirrors events/events.go, updates/service.go, tasks/tasks.go, desktop/desktop.go and shortcuts/undo.go
 // Kept in sync via Go reflection test in frontend/types_test.go
 
 import type { ErrorCode } from "./errors";
 import type { TaskSnapshot } from "./tasks";
+import type { UndoEntry, UndoError, UndoOp } from "./undo";
 
 // Settings events
 export const SettingsChanged = "settings:changed" as const;
@@ -73,6 +74,34 @@ export interface DesktopQuitPendingPayload {
   running: number;
 }
 
+// Undo events (shortcuts/undo.go)
+export const UndoChanged = "undo:changed" as const;
+export const UndoText = "undo:text" as const;
+export const UndoFailed = "undo:failed" as const;
+
+/** The app's undo stack after a change. */
+export interface UndoChangedPayload {
+  undo: UndoEntry | null;
+  redo: UndoEntry | null;
+  /** An undo or redo is running. */
+  busy: boolean;
+  /** A text field has focus: Edit > Undo undoes typing first. */
+  textFocus: boolean;
+}
+
+/** Edit > Undo or Redo while a text field has focus: undo typing in the focused window. */
+export interface UndoTextPayload {
+  op: UndoOp;
+}
+
+/** An undo or redo started from the menu failed. */
+export interface UndoFailedPayload {
+  op: UndoOp;
+  id: string;
+  name: string;
+  error: UndoError;
+}
+
 // Event map for type-safe event subscription
 export interface EventMap {
   [SettingsChanged]: SettingsChangedPayload;
@@ -84,4 +113,7 @@ export interface EventMap {
   [TasksChanged]: TasksChangedPayload;
   [DesktopShowTasks]: DesktopShowTasksPayload;
   [DesktopQuitPending]: DesktopQuitPendingPayload;
+  [UndoChanged]: UndoChangedPayload;
+  [UndoText]: UndoTextPayload;
+  [UndoFailed]: UndoFailedPayload;
 }
