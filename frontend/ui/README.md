@@ -169,8 +169,8 @@ Each colour needs a light value and a dark value, written in the two dark
 blocks with the same values. [`theme/theme.css`](theme/theme.css) lists them
 with the kit's defaults: copy it, change the values, and link it after the
 kit's stylesheet. [`theme/example.css`](theme/example.css) is an example theme
-(a green accent, an amber working tone, rounder corners), shown on
-`demo/themed.html`.
+(a green accent, an amber working tone, rounder corners), shown in the
+[component gallery](../gallery/README.md) with its Theme switch.
 
 There are three state tones (neutral, working, attention) and no warning tone.
 Text fields, selects, checkboxes and the like are outlined in
@@ -215,7 +215,7 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Filter buttons, segmented control | `wk-filters` / `wk-filter`, `wk-segmented` |
 | Chip | `wk-chip` (a `<button class="wk-chip">` filters, with hover and disabled states; a leading `wk-dot data-size="sm"` then the item and its state in words), `--count`, `--attention`, `--muted` (dashed, for an absence), `--access` (what the person may do: a glyph first, then "View only" or "Can manage" with `data-level="manage"`, in the text colour) |
 | Table | `wk-table` (`--zebra` tints every other row); `wk-table-name`, the row's name as a `<button>` that opens the item; `wk-table-actions`, a cell's row actions on one line; `tr[data-muted]`, a row that no longer counts (secondary text, its name struck) |
-| List | `wk-list`, `wk-list-row` (`aria-selected` or `aria-current`), `wk-list-heading` (its count in a `<span>`). Selectable rows of any height. The app lays out each row and moves focus: one row `tabindex="0"`, the rest `-1`; Up and Down move, Home and End jump, Space or a click selects (the demo page shows it). |
+| List | `wk-list`, `wk-list-row` (`aria-selected` or `aria-current`), `wk-list-heading` (its count in a `<span>`). Selectable rows of any height. The app lays out each row and moves focus: one row `tabindex="0"`, the rest `-1`; Up and Down move, Home and End jump, Space or a click selects (the gallery's List page shows it). |
 | Sidebar, toolbar, footer bar | `wk-sidebar` (`wk-sidebar-detail`: short trailing text on an item, "Running"), `wk-toolbar` (`wk-toolbar-subtitle` after the title: what the view counts over, "last 14 days"; keep a space before it, `Now <span class="wk-toolbar-subtitle">`, so the text reads "Now last 14 days" when copied or styles are off), `wk-footer-bar` |
 | Three-pane layout | `wk-three-pane`, `wk-pane-list`, `wk-pane-inspector`; `wk-pane-scroll`, a pane body that scrolls under a fixed toolbar (give it `tabindex="0"` and a name) |
 | Tabs | `wk-tablist` inside `<wk-tabs>` |
@@ -234,14 +234,11 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Diff | `wk-diff`, built by `wkDiff()` |
 | Spinner, progress bar | `wk-spinner`, `wk-progress`; see [Busy, spinner and progress](#busy-spinner-and-progress) |
 
-`demo/index.html` shows every component in each state it can show without a
-pointer, the tokens and every status dot. Serve the package folder (for
-example `npx serve .`) and open `/demo/index.html`.
-
 The [component gallery](../gallery/README.md) shows each component on its own
-page, with its markup, "Try it" buttons for its behaviour, and switches for the
-appearance, the theme, the text size and `src/` or `dist/`: `npm run gallery`
-in `frontend/gallery`.
+page, in each state it can show, with its markup, "Try it" buttons for its
+behaviour, and switches for the appearance, the theme, the text size and
+`src/` or `dist/`: `npm run gallery` in `frontend/gallery`. Its browser checks
+are the kit's component checks.
 
 ### Custom elements and functions
 
@@ -385,10 +382,12 @@ the words it was about to say; words it said in the last 2 s are set again on
 the next frame. A modal `<dialog>` makes the rest of the page inert, live
 regions too, so while one is open the regions sit inside the top-most modal
 and go back to `<body>` when it closes, cleared first so the last words aren't
-read again where they land. `wk-dialog` moves them, and so does any `<dialog>`'s `open`
-attribute changing (watched in the same task, not on the later `toggle` or
-`close` event); `placeAnnouncer(dialog, open)` does it by hand
-for a modal opened some other way. Never
+read again where they land. `wk-dialog` moves them, and so does any `<dialog>`
+in the document when its `open` attribute changes (watched in the same task,
+not on the later `toggle` or `close` event); `placeAnnouncer(dialog, open)`
+does it by hand for a modal opened some other way. A modal opened inside a
+shadow root, such as another component's, needs `placeAnnouncer(dialog, open)`
+when it opens and closes, because the kit can't see into shadow roots. Never
 send a countdown, a progress value or streamed output; wkTask, the toast and
 the settings window send their words here instead of having live regions of
 their own.
@@ -1144,7 +1143,7 @@ count for the Notice), `conditionMet`,
 `resolveOptions`, `fieldValue`, `readValue`, `displayValue`,
 `dependentResets`, `errorsByField` and `SECRET_MASK`.
 
-`demo/settings.html` shows the window on a sample schema.
+The gallery's Settings window page shows the window on a sample schema.
 
 ## Layout
 
@@ -1159,7 +1158,6 @@ count for the Notice), `conditionMet`,
 | `BEHAVIOUR.md` | how components behave over time: the action lifecycle and its timings, feedback, undo and confirm, loading, retries, motion, accessibility and desktop behaviour |
 | `fonts/` | Inter (two variable woff2 files) and its licence, SIL OFL 1.1 |
 | `dist/wails-kit-ui.css`, `dist/wails-kit-ui.js`, `dist/fonts/` | the prebuilt files and a copy of the fonts, committed and checked against `src/` and `fonts/` |
-| `demo/` | review pages: `index.html`, `themed.html`, `dist.html`, `settings.html` |
 | `scripts/build.mjs` | builds `dist/` with no dependencies |
 | `test/` | the checks |
 
@@ -1169,7 +1167,7 @@ count for the Notice), `conditionMet`,
 npm ci
 npm run build          # after any change in src/
 npm test               # static checks: node --test
-npm run test:browser   # custom elements and the settings window, in Chrome
+npm run test:browser   # the package's files on their own, in Chrome
 ```
 
 `npm test` checks that every `var(--wk-…)` used is defined, that every colour
@@ -1181,13 +1179,22 @@ loads from outside the package or names an app, the chart's layout rules, the
 diff's parser, pairing and word marks, where review threads go, the contrast of
 text on the diff tints, the settings window's rules, and that `dist/` matches a fresh build.
 
-`npm run test:browser` drives the review pages with `playwright-core` and
-Chrome (set `CHROME_PATH`, or have it at `/usr/bin/google-chrome` or the macOS
-default; without Chrome it skips, unless `CI` is set). It covers the
+`npm run test:browser` loads the package's files on their own, as an app
+vendors them, with `playwright-core` and Chrome (set `CHROME_PATH`, or have it
+at `/usr/bin/google-chrome` or the macOS default; without Chrome it skips,
+unless `CI` is set). Its server serves this folder and nothing else, so it
+checks what must stay in the package: that `src/` and `dist/` load nothing
+from outside it, the bundled Inter (from `fonts/` and `dist/fonts/`, with
+`cv11` and `ss03`), and that the prebuilt module exports what `src/index.js`
+exports and defines the same elements.
+
+The components are checked in the [component gallery](../gallery/README.md)'s
+browser tests (`frontend/gallery`, `npm run test:browser`), on its pages: the
 WAI-ARIA keyboard patterns of every custom element, focus return, imperative
 construction and clean-up, forced colours, the chart, the diff (lines in both
-views, keyboard, copy, forced colours, a 5,000-line diff, review comments), the prebuilt module's
-exports, and the settings window. The kit targets WebKit (Wails on macOS) as
+views, keyboard, copy, forced colours, a 5,000-line diff, review comments), the
+settings window, `wkTask`, the announcer, the task list, the toast, app undo,
+copy feedback and skeleton rows. The kit targets WebKit (Wails on macOS) as
 well as WebView2; these checks run in Chrome, so check WebKit by hand on a Mac
 for a change in behaviour.
 

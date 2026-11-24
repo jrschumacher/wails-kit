@@ -44,18 +44,21 @@ export default [
 </div>`,
     }, {
       title: 'Disclosure',
-      note: 'A link that shows a section in place. Press it.',
+      note: 'A link that shows a section in place: closed, and open. Press either.',
       html: `<div class="g-stack">
   <button class="wk-link" type="button" aria-expanded="false" aria-controls="g-more">Advanced</button>
   <p id="g-more" class="wk-caption" hidden>The section it shows.</p>
+  <button class="wk-link" type="button" aria-expanded="true" aria-controls="g-more-open">Details</button>
+  <p id="g-more-open" class="wk-caption">The section it shows, open.</p>
 </div>`,
       after(el) {
-        const link = el.querySelector('[aria-controls]');
-        link.addEventListener('click', () => {
-          const open = link.getAttribute('aria-expanded') !== 'true';
-          link.setAttribute('aria-expanded', String(open));
-          document.getElementById(link.getAttribute('aria-controls')).hidden = !open;
-        });
+        for (const link of el.querySelectorAll('[aria-controls]')) {
+          link.addEventListener('click', () => {
+            const open = link.getAttribute('aria-expanded') !== 'true';
+            link.setAttribute('aria-expanded', String(open));
+            document.getElementById(link.getAttribute('aria-controls')).hidden = !open;
+          });
+        }
       },
     }],
   },
@@ -64,7 +67,7 @@ export default [
     intro: 'A busy control (<code>aria-disabled="true"</code> and <code>data-busy</code>) keeps its pressed face, its focus and its name; a second press does nothing. After 400 ms a spinner takes the label\'s place and the width holds. <code>wkTask</code> runs it.',
     examples: [{
       title: 'Busy, with and without the spinner',
-      html: `<div class="g-row">
+      html: `<div class="g-row" id="g-busy">
   <button class="wk-button" type="button" aria-disabled="true" data-busy>Pressed</button>
   <button class="wk-button" type="button" aria-disabled="true" data-busy><span class="wk-spinner" aria-hidden="true"></span>Export</button>
   <button class="wk-button wk-button--primary" type="button" aria-disabled="true" data-busy><span class="wk-spinner" aria-hidden="true"></span>Keep running</button>
@@ -127,7 +130,8 @@ export default [
     id: 'menu', title: 'Menu', group: 'actions', card: 'Menu',
     intro: '<code>&lt;wk-menu&gt;</code> is a menu button; <code>&lt;wk-context-menu&gt;</code> opens the same menu on right-click, Shift+F10 or the Menu key; <code>wk-menu--inline</code> lays the items out in place. Each fires <code>wk-select</code>.',
     examples: [{
-      title: 'Menu button and context menu',
+      title: 'Menu button and context menu, beside a tooltip',
+      note: 'With a menu open, the first Esc closes the menu, even while the pointer shows the tooltip.',
       html: `<div class="g-row">
   <wk-menu id="g-menu">
     <button class="wk-button" type="button">Actions</button>
@@ -152,6 +156,7 @@ export default [
       <button role="menuitemradio" type="button" aria-checked="false" data-value="large">Large</button>
     </div>
   </wk-context-menu>
+  <wk-tooltip id="g-menu-tip"><button class="wk-button" type="button">Copy link</button><span role="tooltip" class="wk-tooltip" hidden>Copies a link to this file to the clipboard</span></wk-tooltip>
 </div>
 <pre class="g-log" id="g-menu-log" aria-label="Menu events" tabindex="0"></pre>`,
       after(el) {
@@ -174,11 +179,11 @@ export default [
 </div>`,
     }, {
       title: 'Inline menu',
-      note: 'wk-menu--inline in a &lt;wk-menu&gt; with no button, in a popover surface: the same keys in place, one tab stop. The first item is a link.',
+      note: 'wk-menu--inline in a &lt;wk-menu&gt; with no button, in a popover surface: the same keys in place, one tab stop. The first item is a link; here Help goes to <code>#g-inline</code>, an anchor on this page, so following it changes the address\'s hash but not the page.',
       html: `<div class="wk-popover g-inline-menu">
   <wk-menu id="g-inline">
     <div role="menu" class="wk-menu wk-menu--inline" aria-label="App">
-      <a role="menuitem" href="#/menu" data-value="help">Help<span class="wk-menu-shortcut">F1</span></a>
+      <a role="menuitem" href="#g-inline" data-value="help">Help<span class="wk-menu-shortcut">F1</span></a>
       <button role="menuitem" type="button" data-value="settings">Settings…<span class="wk-menu-shortcut">Ctrl+,</span></button>
       <button role="menuitem" type="button" aria-disabled="true" data-value="update">Check for updates (disabled)</button>
       <div role="separator"></div>

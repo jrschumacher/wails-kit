@@ -18,7 +18,7 @@ const before = [
 ];
 const ctx = (from, to) => before.slice(from - 1, to).map(l => ` ${l}`);
 const generated = ['{', '  "version": 3,', '  "entries": ['];
-for (let i = 0; i < 200; i++) generated.push(`-    { "name": "entry-${i}", "hash": "${(i * 2654435761 % 4294967296).toString(16).padStart(8, '0')}" },`, `+    { "name": "entry-${i}", "hash": "${(i * 40503 % 65536).toString(16).padStart(8, '0')}" },`);
+for (let i = 0; i < 300; i++) generated.push(`-    { "name": "entry-${i}", "hash": "${(i * 2654435761 % 4294967296).toString(16).padStart(8, '0')}" },`, `+    { "name": "entry-${i}", "hash": "${(i * 40503 % 65536).toString(16).padStart(8, '0')}" },`);
 const changes = [
   'diff --git a/server/server.go b/server/server.go', 'index 3f1c2a4..8b9d0e7 100644', '--- a/server/server.go', '+++ b/server/server.go',
   '@@ -11,9 +11,10 @@ import (', ...ctx(11, 12), '-\ttimeout time.Duration', '+\ttimeout  time.Duration', '+\tmaxBytes int64', ...ctx(14, 16),
@@ -31,14 +31,14 @@ const changes = [
   'diff --git a/docs/serve.md b/docs/running.md', 'similarity index 88%', 'rename from docs/serve.md', 'rename to docs/running.md', 'index 1a2b3c4..5d6e7f8 100644',
   '--- a/docs/serve.md', '+++ b/docs/running.md', '@@ -1,4 +1,4 @@', '-# Serving', '+# Running the server', ' ', ' Start the server with `run`. It stops when the app quits,',
   '-and waits five seconds for open requests.', '+and waits ten seconds for open requests.', '\\ No newline at end of file',
-  'diff --git a/scripts/run.sh b/scripts/run.sh', 'old mode 100644', 'new mode 100755',
   'diff --git a/assets/icon.png b/assets/icon.png', 'index 0b1c2d3..4e5f6a7 100644', 'Binary files a/assets/icon.png and b/assets/icon.png differ',
   'diff --git a/data/index.lock.json b/data/index.lock.json', 'index 7a7a7a7..8b8b8b8 100644', '--- a/data/index.lock.json', '+++ b/data/index.lock.json',
-  '@@ -1,203 +1,203 @@', ...generated.slice(0, 3).map(l => ` ${l}`), ...generated.slice(3),
+  '@@ -1,303 +1,303 @@', ...generated.slice(0, 3).map(l => ` ${l}`), ...generated.slice(3),
   'diff --git a/server/limits.go b/server/limits.go', 'new file mode 100644', 'index 0000000..9c8d7e6', '--- /dev/null', '+++ b/server/limits.go', '@@ -0,0 +1,4 @@',
   '+package server', '+', '+// DefaultMaxBytes is the largest request body New accepts by default.', '+const DefaultMaxBytes = 1 << 20',
+  'diff --git a/scripts/run.sh b/scripts/run.sh', 'old mode 100644', 'new mode 100755',
 ].join('\n') + '\n';
-const reviewed = changes.split('diff --git a/scripts/')[0];
+const reviewed = changes.split('diff --git a/assets/')[0];
 const getContext = (_file, range) => before.slice(range.oldStart - 1, range.oldEnd);
 
 const days = Array.from({ length: 14 }, (_, i) => ({
@@ -117,7 +117,7 @@ export default [
     id: 'diff', title: 'Diff', group: 'data',
     intro: '<code>wkDiff(spec)</code>: a read-only diff, unified or split, with word marks, "Show more" context, collapsible files and keyboard navigation (n and p for changes, ] and [ for files). Here with syntax colours from <code>@wails-kit/editor</code>\'s highlighter.',
     examples: [{
-      title: 'Unified: two hunks, a rename, a mode change, a binary file, a large generated file (collapsed) and a new file',
+      title: 'Unified: two hunks, a rename, a binary file, a large generated file (collapsed), a new file and a mode change',
       async build(host, { kit }) {
         const { highlighter } = await import('../../editor/dist/code.js');
         host.append(kit.wkDiff({
@@ -227,7 +227,7 @@ function reviewDiff(kit, rid, options) {
     { id: `${rid}-2`, path: 'server/server.go', side: 'new', line: 18, endLine: 20, entries: [
       { author: 'sam', time: ago(30), body: 'The doc comment and the signature changed together; callers need updating.' }] },
     { id: `${rid}-3`, path: 'server/server.go', side: 'old', line: 17, resolved: true, entries: [
-      { author: 'ana', time: ago(60 * 26), body: 'Is five seconds enough?' }, { author: 'sam', time: ago(60 * 25), body: 'Raised to ten.' }] },
+      { author: 'ana', time: ago(60 * 26), body: 'Is five seconds enough?' }, { author: 'sam', time: ago(60 * 25), body: 'Raised to ten.' }, { author: 'ana', time: ago(60 * 24), body: 'Thanks.' }] },
     { id: `${rid}-4`, path: 'server/server.go', side: 'new', line: 30, entries: [
       { author: 'You', time: ago(0), body: 'MaxBytesHandler wraps the whole mux; is that intended?', pending: true }] },
     { id: `${rid}-5`, path: 'docs/running.md', side: 'new', line: 1, entries: [

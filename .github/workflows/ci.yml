@@ -201,7 +201,7 @@ jobs:
       - run: npm ci
       # Static checks, including that the committed dist/ matches src/.
       - run: npm test
-      # The custom elements and the settings window, in the runner's Chrome.
+      # The package's files on their own (its components are checked in the gallery), in the runner's Chrome.
       - run: npm run test:browser
         env:
           CHROME_PATH: /usr/bin/google-chrome
@@ -264,7 +264,7 @@ jobs:
       - run: npm ci
       # The server's paths, the CSP and the page list.
       - run: npm test
-      # Every gallery page in light, dark, a theme and forced colours, in the runner's Chrome.
+      # Every gallery page in light, dark, a theme and forced colours, and the kit's component checks on its pages, in the runner's Chrome.
       - run: npm run test:browser
         env:
           CHROME_PATH: /usr/bin/google-chrome

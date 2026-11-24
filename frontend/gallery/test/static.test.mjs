@@ -7,12 +7,13 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { resolve, hostAllowed, createServer, listen } from '../serve.mjs';
-import { symlinkSync, unlinkSync } from 'node:fs';
+import { resolve, inside, hostAllowed, createServer, listen } from '../serve.mjs';
+import { symlinkSync, unlinkSync, realpathSync } from 'node:fs';
 import net from 'node:net';
 import { dedent, body } from '../source.js';
 import { parseCard } from '../card.js';
 import { pages, groups } from '../pages/index.js';
+import { banned, rules, tokens } from '../../ui/test/css.mjs';
 
 const here = fileURLToPath(new URL('../', import.meta.url));
 const frontend = path.join(here, '..');
@@ -124,6 +125,42 @@ test('the server checks the Host header, and serves nothing a symlink takes outs
   } finally {
     try { unlinkSync(link); } catch { /* not made */ }
     server.close();
+  }
+});
+
+test('a symlink is served only when its real path stays in the folder the request named, outside node_modules/', async () => {
+  const links = {
+    // Inside frontend/, but not in gallery/: another package, served or not.
+    'link-settings.json': [path.join(frontend, 'settings', 'package.json'), null],
+    'link-ui.json': [path.join(frontend, 'ui', 'package.json'), null],
+    // Inside gallery/, but in its node_modules/.
+    'link-modules.json': [path.join(here, 'node_modules', 'playwright-core', 'package.json'), null],
+    // Inside gallery/: served.
+    'link-in.md': [path.join(here, 'README.md'), path.join(here, 'README.md')],
+  };
+  const made = [];
+  try {
+    for (const [name, [to, want]] of Object.entries(links)) {
+      const link = path.join(here, 'test', name);
+      symlinkSync(to, link);
+      made.push(link);
+      const file = resolve(`/gallery/test/${name}`);
+      assert.equal(file, link);
+      assert.equal(await inside(file), want && realpathSync(want), name);
+    }
+  } finally {
+    for (const link of made) unlinkSync(link);
+  }
+});
+
+test('the gallery\'s own styles take their colours from the kit\'s tokens, and every token it uses exists', () => {
+  // As the ui package's demo stylesheet was checked before the gallery took its place.
+  for (const r of rules(readFileSync(path.join(here, 'gallery.css'), 'utf8'))) {
+    for (const [prop, value] of r.decls) assert.deepEqual(banned(r, value), [], `gallery.css: ${r.selector} { ${prop}: ${value} }`);
+  }
+  const declared = tokens(readFileSync(path.join(frontend, 'ui', 'src', 'tokens.css'), 'utf8')).light;
+  for (const [file, text] of sources()) {
+    for (const [, name] of text.matchAll(/var\(\s*(--wk-[\w-]+)/g)) assert.ok(declared.has(name) || name === '--wk-range-value', `${file} uses ${name}, which ui/src/tokens.css does not declare`);
   }
 });
 

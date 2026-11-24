@@ -35,7 +35,7 @@ export default [
   ${sidebar('three')}
   <section class="wk-pane-list" aria-label="List">
     ${toolbar}
-    <div class="wk-pane-scroll" tabindex="0" aria-label="Items">
+    <div class="wk-pane-scroll" tabindex="0" aria-label="Items" id="g-pane-scroll">
     <table class="wk-table">
       <thead><tr><th>Name</th><th>State</th><th class="wk-num">Items</th></tr></thead>
       <tbody>

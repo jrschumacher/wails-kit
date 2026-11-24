@@ -1,9 +1,11 @@
 // Forms: fields, choices, steppers, ranges and the settings window.
 import { glyphs, stepper } from './shared.js';
 
-// A sample settings schema, in the shape settings.Service.GetSchema() returns.
+// A sample settings schema, in the shape settings.Service.GetSchema() returns:
+// every field type, a condition, dynamic options, advanced fields and a
+// computed value. The browser checks (test/components.mjs) use it too.
 const SECRET_MASK = '••••••••';
-const settingsSchema = {
+export const settingsSchema = {
   groups: [
     {
       key: 'general', label: 'General', fields: [
@@ -17,10 +19,15 @@ const settingsSchema = {
     },
     {
       key: 'provider', label: 'Provider', fields: [
-        { key: 'provider.name', type: 'select', label: 'Provider', default: 'alpha', options: [{ label: 'Alpha', value: 'alpha' }, { label: 'Local', value: 'local' }] },
-        { key: 'provider.key', type: 'password', label: 'API key', description: 'Kept in the system keychain.', condition: { field: 'provider.name', equals: ['alpha'] } },
-        { key: 'provider.port', type: 'number', label: 'Port', default: 8080, condition: { field: 'provider.name', equals: ['local'] }, validation: { min: 1024, max: 65535 } },
+        { key: 'provider.name', type: 'select', label: 'Provider', default: 'alpha', options: [{ label: 'Alpha', value: 'alpha' }, { label: 'Beta', value: 'beta' }, { label: 'Local', value: 'local' }] },
+        { key: 'provider.model', type: 'select', label: 'Model', dynamicOptions: { dependsOn: 'provider.name', options: {
+          alpha: [{ label: 'Alpha Small', value: 'a-small' }, { label: 'Alpha Large', value: 'a-large' }],
+          beta: [{ label: 'Beta One', value: 'b-1' }],
+        } } },
+        { key: 'provider.key', type: 'password', label: 'API key', description: 'Kept in the system keychain.', condition: { field: 'provider.name', equals: ['alpha', 'beta'] } },
+        { key: 'provider.port', type: 'number', label: 'Port', description: 'Where the local server listens.', default: 8080, condition: { field: 'provider.name', equals: ['local'] }, validation: { min: 1024, max: 65535 } },
         { key: 'provider.endpoint', type: 'text', label: 'Endpoint', placeholder: 'https://api.example.com', advanced: true },
+        { key: 'provider.debug', type: 'toggle', label: 'Log requests', advanced: true },
       ],
     },
   ],
@@ -75,7 +82,7 @@ of text.</textarea></div>
     }, {
       title: 'Switches',
       html: `<div class="g-row">
-  <label class="wk-check"><input class="wk-switch" type="checkbox" role="switch"> Off</label>
+  <label class="wk-check"><input class="wk-switch" type="checkbox" role="switch" id="g-switch"> Off</label>
   <label class="wk-check"><input class="wk-switch" type="checkbox" role="switch" checked> On</label>
   <label class="wk-check"><input class="wk-switch" type="checkbox" role="switch" disabled> Disabled</label>
   <label class="wk-check"><input class="wk-switch" type="checkbox" role="switch" checked disabled> Disabled on</label>
@@ -117,7 +124,7 @@ of text.</textarea></div>
     intro: 'Radio buttons drawn as one control: arrow keys move the choice.',
     examples: [{
       title: 'With a disabled choice',
-      html: `<div class="wk-segmented" role="radiogroup" aria-label="Period">
+      html: `<div class="wk-segmented" role="radiogroup" aria-label="Period" id="g-segmented">
   <label><input type="radio" name="g-period" value="day" checked><span>Day</span></label>
   <label><input type="radio" name="g-period" value="week"><span>Week</span></label>
   <label><input type="radio" name="g-period" value="month"><span>Month</span></label>
@@ -193,7 +200,7 @@ of text.</textarea></div>
   },
   {
     id: 'settings-window', title: 'Settings window', group: 'forms',
-    intro: '<code>&lt;wk-settings&gt;</code> drawn from a settings schema: every field type, a condition, advanced fields, a computed value and a check. A stand-in for SetValues rejects an empty name and a port under 1024; a stand-in for CheckValue accepts a folder starting with / or ~/ after 600 ms. Each check is a <code>wkTask</code> on the field\'s line: its words with the working dot from 400 ms, and the outcome to the announcer; checks stay out of the task list.',
+    intro: '<code>&lt;wk-settings&gt;</code> drawn from a settings schema: every field type, a condition, dynamic options, advanced fields, a computed value and a check. A stand-in for SetValues rejects an empty or overlong name and a port under 1024; a stand-in for CheckValue accepts a folder starting with / or ~/ after 600 ms. Each check is a <code>wkTask</code> on the field\'s line: its words with the working dot from 400 ms, and the outcome to the announcer; checks stay out of the task list.',
     examples: [{
       title: 'The window',
       html: '<div class="g-settings-window"><wk-settings id="g-settings" label="Settings"></wk-settings></div>',
@@ -205,12 +212,16 @@ of text.</textarea></div>
           const path = String(values[key] ?? '');
           resolve(path === '' || path.startsWith('/') || path.startsWith('~/') ? [] : [{ field: key, message: 'There is no folder at this path. Choose a folder that exists.', code: 'check' }]);
         }, 600));
-        settings.values = { 'general.name': 'Sam', 'general.folder': '~/Projects', 'general.launch': true, 'general.updates': 'weekly', 'general.copies': 2, 'general.config': '~/.config/example/settings.json', 'provider.name': 'alpha', 'provider.key': SECRET_MASK };
+        settings.values = { 'general.name': 'Sam', 'general.folder': '~/Projects', 'general.launch': true, 'general.updates': 'weekly', 'general.copies': 2, 'general.config': '~/.config/example/settings.json', 'provider.name': 'alpha', 'provider.model': 'a-large', 'provider.key': SECRET_MASK };
+        // The stand-in for SetValues: the errors the Go service would return.
+        // A value that passed its check is saved already (CheckValue).
         settings.addEventListener('wk-settings-change', e => {
           if (e.detail.checked) return;
           const v = e.detail.values;
           const errors = [];
-          if (!String(v['general.name'] ?? '').trim()) errors.push({ field: 'general.name', message: 'Display name is required', code: 'required' });
+          const name = String(v['general.name'] ?? '');
+          if (!name.trim()) errors.push({ field: 'general.name', message: 'Display name is required', code: 'required' });
+          else if (name.length > 40) errors.push({ field: 'general.name', message: 'Display name must be at most 40 characters', code: 'max_length' });
           if (v['provider.name'] === 'local' && typeof v['provider.port'] === 'number' && v['provider.port'] < 1024) errors.push({ field: 'provider.port', message: 'Port must be at least 1024', code: 'min' });
           settings.errors = errors;
         });

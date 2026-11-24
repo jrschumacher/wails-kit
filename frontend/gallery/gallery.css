@@ -99,3 +99,4 @@
   .g-frame .wk-pane-inspector, .g-frame .wk-sidebar { display: none; }
   :where(.wk-root) .gallery-main { padding: var(--wk-space-4); }
 }
+:where(.wk-root) .g-plain-list { margin: 0; padding-left: 1.2em; }

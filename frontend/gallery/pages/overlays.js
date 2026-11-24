@@ -8,11 +8,11 @@ export default [
     examples: [{
       title: 'Open each',
       html: `<div class="g-row">
-  <button class="wk-button" type="button" data-wk-open="g-dialog">Open dialog</button>
-  <button class="wk-button" type="button" data-wk-open="g-sheet">Open sheet</button>
-  <button class="wk-button" type="button" data-wk-open="g-long-sheet">Open long sheet</button>
-  <button class="wk-button" type="button" data-wk-open="g-alert">Open alert</button>
-  <button class="wk-button" type="button" data-wk-open="g-info">Open notice</button>
+  <button class="wk-button" type="button" id="g-dialog-open" data-wk-open="g-dialog">Open dialog</button>
+  <button class="wk-button" type="button" id="g-sheet-open" data-wk-open="g-sheet">Open sheet</button>
+  <button class="wk-button" type="button" id="g-long-sheet-open" data-wk-open="g-long-sheet">Open long sheet</button>
+  <button class="wk-button" type="button" id="g-alert-open" data-wk-open="g-alert">Open alert</button>
+  <button class="wk-button" type="button" id="g-info-open" data-wk-open="g-info">Open notice</button>
 </div>
 <wk-dialog id="g-alert">
   <dialog class="wk-dialog wk-dialog--alert" role="alertdialog" aria-labelledby="g-alert-title" aria-describedby="g-alert-body">

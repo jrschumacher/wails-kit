@@ -10,19 +10,8 @@
 // a page is ready when <html data-gallery-ready> names its hash, and a "Try
 // it" run has settled when window.galleryPending is back to 0.
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { createServer, listen } from '../serve.mjs';
-const require = createRequire(import.meta.url);
-const { chromium } = require(process.argv[2] || 'playwright-core');
-const chrome = [process.env.CHROME_PATH, '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'].find(p => p && existsSync(p));
-if (!chrome) {
-  console.log('test/browser.mjs: Chrome not found; set CHROME_PATH. Browser checks skipped.');
-  process.exit(process.env.CI ? 1 : 0);
-}
-const server = createServer();
-const origin = await listen(server);
-const browser = await chromium.launch({ executablePath: chrome, headless: true });
+import { readFileSync } from 'node:fs';
+import { browser, origin, open as openPage, check, finish, ready, go, settled, CLOCK_T0, pauseClock } from './helpers.mjs';
 const { pages, groups } = await import('../pages/index.js');
 const routes = ['#/', ...pages.map(p => `#/${p.id}`)];
 
@@ -48,25 +37,7 @@ const watch = () => {
   }).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
 };
 
-async function open(path = '/gallery/', options = {}) {
-  const page = await browser.newPage({ viewport: { width: 1200, height: 900 }, colorScheme: 'light', ...options });
-  await page.addInitScript(watch);
-  const problems = [];
-  page.on('pageerror', e => problems.push(`pageerror: ${e.message}`));
-  page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') problems.push(`console ${m.type()}: ${m.text()}`); });
-  page.on('request', r => { if (!r.url().startsWith(`${origin}/`) && !r.url().startsWith('data:') && !r.url().startsWith('blob:')) problems.push(`network: ${r.url()}`); });
-  page.on('requestfailed', r => problems.push(`failed: ${r.url()}`));
-  page.on('response', r => { if (r.status() >= 400) problems.push(`HTTP ${r.status()}: ${r.url()}`); });
-  await page.goto(origin + path);
-  await ready(page, new URL(origin + path).hash || '#/');
-  return { page, problems };
-}
-const ready = (page, hash) => page.waitForFunction(h => document.documentElement.dataset.galleryReady === h, hash, { timeout: 20000 });
-async function go(page, hash) {
-  await page.evaluate(h => { location.hash = h; }, hash);
-  await ready(page, hash);
-}
-const settled = page => page.waitForFunction(() => window.galleryPending === 0, null, { timeout: 20000 });
+const open = (path = '/gallery/', options = {}) => openPage(path, { ...options, init: [watch], blob: true });
 const until = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 5000 });
 const active = page => page.evaluate(() => {
   const a = document.activeElement;
@@ -81,17 +52,6 @@ async function unnamed(page) {
   await cdp.detach();
   return nodes.filter(n => !n.ignored && INTERACTIVE.has(n.role?.value) && !String(n.name?.value ?? '').trim())
     .map(n => `${n.role.value} (backend node ${n.backendDOMNodeId})`);
-}
-
-const failures = [];
-async function check(name, fn) {
-  try {
-    await fn();
-    console.log(`ok    ${name}`);
-  } catch (e) {
-    failures.push(name);
-    console.log(`FAIL  ${name}\n${String(e.stack || e).split('\n').slice(0, 14).join('\n')}`);
-  }
 }
 
 try {
@@ -214,9 +174,11 @@ try {
         await button.click();
         await settled(page);
         // A try that opened a modal (the task list) is closed again.
-        if (await page.evaluate(() => Boolean(document.querySelector('dialog[open]')))) {
+        // (or one in a shadow root, as the Announcer page opens).
+        const openDialog = () => Boolean(document.querySelector('dialog[open]') || [...document.querySelectorAll('*')].some(e => e.shadowRoot?.querySelector('dialog[open]')));
+        if (await page.evaluate(openDialog)) {
           await page.keyboard.press('Escape');
-          await until(page, () => !document.querySelector('dialog[open]'));
+          await until(page, () => !(document.querySelector('dialog[open]') || [...document.querySelectorAll('*')].some(e => e.shadowRoot?.querySelector('dialog[open]'))));
         }
       }
       // The chart's readout shows on the arrow keys; the diff's comment box on c.
@@ -458,11 +420,198 @@ try {
     assert.deepEqual(problems, []);
     await page.close();
   });
+  // ---- The lifecycle's "Try it" rows, on the fake clock --------------------
+  // Each opens the page on the fake clock (from CLOCK_T0), stops it at a
+  // fixed point with pauseClock, then moves it with page.clock.runFor.
+  const onClock = async path => {
+    const r = await open(path, { clock: true });
+    await pauseClock(r.page);
+    await r.page.evaluate(() => { window.taskStates = []; document.addEventListener('wk-task', e => window.taskStates.push(`${e.detail.state}`)); });
+    return r;
+  };
+  const row = s => `tr[data-scenario="${s}"]`;
+  // A press, as a click: Playwright's own click waits for animation frames,
+  // which a paused clock holds back.
+  const press = (page, sel) => page.locator(sel).evaluate(el => { el.focus(); el.click(); });
+  const cell = (page, s) => page.locator(`${row(s)} td`).first();
+
+  await check('Task page: work that might be long keeps Stop\'s space from the start and shows it at 10 s, with no layout shift', async () => {
+    const { page, problems } = await onClock('/gallery/#/task');
+    await press(page, `${row('maybe')} [data-gallery-try]`);
+    const stop = page.locator(`${row('maybe')} .wk-task-stop`);
+    const tryBox = () => page.locator(`${row('maybe')} [data-gallery-try]`).boundingBox();
+    const rowBox = () => page.locator(row('maybe')).boundingBox();
+    await page.clock.runFor(500);
+    assert.equal(await stop.count(), 1, 'the space for Stop is kept from the start');
+    assert.equal(await stop.isVisible(), false);
+    assert.match(await cell(page, 'maybe').textContent(), /^Syncing/);
+    const before = [await tryBox(), await rowBox()];
+    await page.clock.runFor(9_400);
+    assert.equal(await stop.isVisible(), false, 'Stop is hidden before 10 s');
+    await page.clock.runFor(200);
+    assert.equal(await stop.isVisible(), true, 'Stop shows at 10 s');
+    assert.equal(await stop.textContent(), 'Stop');
+    assert.deepEqual([await tryBox(), await rowBox()], before, 'nothing moved when Stop appeared');
+    await page.clock.runFor(6_000);
+    assert.deepEqual(await page.evaluate(() => window.taskStates), ['running', 'done']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('Task page: Stop… asks with an Alert; Keep keeps it running, Stop stops it and keeps what finished', async () => {
+    const { page, problems } = await onClock('/gallery/#/task');
+    await press(page, `${row('asks')} [data-gallery-try]`);
+    const stop = page.locator(`${row('asks')} .wk-task-stop`);
+    const alert = page.locator('#g-stop-alert dialog');
+    await page.clock.runFor(2_600);
+    assert.equal(await stop.isVisible(), true, 'work expected to be long shows Stop at once');
+    assert.equal(await stop.textContent(), 'Stop…');
+    await stop.evaluate(el => { el.focus(); el.click(); });
+    await page.clock.runFor(10);
+    assert.equal(await alert.isVisible(), true, 'Stop… opens its Alert');
+    assert.match(await page.textContent('#g-stop-alert-body'), /^\d+ of 40 files are copied; the rest won’t be\.$/);
+    assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Keep copying');
+    await press(page, '#g-stop-alert button[value="keep"]');
+    // The dialog's close event is a task of its own: wait for it, then move the clock.
+    await until(page, () => !document.querySelector('#g-stop-alert dialog').open);
+    await page.clock.runFor(1_000);
+    assert.equal(await alert.isVisible(), false);
+    assert.deepEqual(await page.evaluate(() => window.taskStates), ['running'], 'Keep copying keeps it running');
+    await stop.evaluate(el => { el.focus(); el.click(); });
+    await page.clock.runFor(10);
+    await press(page, '#g-stop-alert button[value="stop"]');
+    // The dialog's close event is a task of its own: wait for it, then move the clock.
+    await until(page, () => !document.querySelector('#g-stop-alert dialog').open);
+    await page.clock.runFor(1_000);
+    assert.deepEqual(await page.evaluate(() => window.taskStates), ['running', 'stopped']);
+    assert.match(await cell(page, 'asks').textContent(), /^Stopped · \d+ of 40 files$/);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('Task page: Esc cancels short work while focus is on its control, and not from elsewhere', async () => {
+    const { page, problems } = await onClock('/gallery/#/task');
+    const button = page.locator(`${row('esc')} [data-gallery-try]`);
+    await button.evaluate(el => { el.focus(); el.click(); });
+    await page.clock.runFor(1_000);
+    assert.match(await cell(page, 'esc').textContent(), /^Checking/);
+    assert.equal(await button.evaluate(b => b === document.activeElement), true);
+    await page.keyboard.press('Escape');
+    await page.clock.runFor(1_000);
+    assert.deepEqual(await page.evaluate(() => window.taskStates.splice(0)), ['running', 'cancelled']);
+    assert.equal(await cell(page, 'esc').textContent(), 'Ready', 'Cancel puts the row back');
+    // With focus elsewhere, Esc leaves the work alone.
+    await button.evaluate(el => { el.focus(); el.click(); });
+    await page.clock.runFor(500);
+    await page.evaluate(() => document.activeElement.blur());
+    await page.keyboard.press('Escape');
+    await page.clock.runFor(4_000);
+    assert.deepEqual(await page.evaluate(() => window.taskStates), ['running', 'done']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('Task page: work with no progress times out (here after 5 s) and fails with the attention dot', async () => {
+    const { page, problems } = await onClock('/gallery/#/task');
+    await press(page, `${row('timeout')} [data-gallery-try]`);
+    await page.clock.runFor(4_900);
+    assert.deepEqual(await page.evaluate(() => window.taskStates), ['running']);
+    assert.match(await cell(page, 'timeout').textContent(), /^Exporting/);
+    await page.clock.runFor(200);
+    await page.clock.runFor(600);
+    assert.deepEqual(await page.evaluate(() => window.taskStates), ['running', 'failed']);
+    assert.equal(await cell(page, 'timeout').textContent(), 'Timed out after 5 s');
+    assert.ok(await page.$(`${row('timeout')} td .wk-dot[data-tone="attention"]`));
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('Skeleton page: the app\'s loading line shows at 3 s and goes with the skeleton', async () => {
+    const { page, problems } = await onClock('/gallery/#/skeleton');
+    const line = page.locator('#g-skeleton-line');
+    await press(page, '#g-skeleton-long');
+    await page.clock.runFor(2_900);
+    assert.equal(await page.locator('#g-skeleton-table .wk-skeleton').count() > 0, true, 'the skeleton shows');
+    assert.equal(await line.isVisible(), false, 'no line before 3 s');
+    await page.clock.runFor(200);
+    assert.equal(await line.isVisible(), true, 'the line at 3 s');
+    assert.equal(await line.textContent(), 'Fetching runs from server.example…');
+    await page.clock.runFor(2_500);
+    assert.equal(await line.isVisible(), false, 'the line goes with the skeleton');
+    assert.equal(await page.locator('#g-skeleton-table .wk-skeleton').count(), 0);
+    assert.equal(await page.locator('#g-skeleton-table tbody tr').count(), 3);
+    // A fast load never shows it.
+    await press(page, '#g-skeleton-slow');
+    await page.clock.runFor(4_000);
+    assert.equal(await line.isVisible(), false);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('App undo page: the toast\'s Undo and Edit > Undo share the stack; with text focus, Edit > Undo undoes the typing first', async () => {
+    const { page, problems } = await open('/gallery/#/undo');
+    const names = () => page.evaluate(() => [...document.querySelectorAll('#g-undo-list li')].map(li => li.textContent));
+    const undoItem = page.locator('#g-edit-undo');
+    assert.equal(await undoItem.textContent(), 'Edit > Undo');
+    assert.equal(await undoItem.getAttribute('aria-disabled'), 'true');
+    await page.click('#g-undo-archive');
+    assert.deepEqual((await names())[0], 'Lunch on Friday');
+    await until(page, () => document.querySelector('.wk-toast:not([data-leaving]) .wk-toast-action'));
+    assert.equal(await undoItem.textContent(), 'Edit > Undo Archive');
+    // The toast's Undo undoes it.
+    await page.click('.wk-toast-action');
+    await until(page, () => document.querySelector('#g-undo-list li').textContent === 'Plans for May');
+    assert.equal(await page.textContent('#g-edit-redo'), 'Edit > Redo Archive');
+    // Archived again; typing in the field, Edit > Undo undoes the typing first.
+    await page.click('#g-undo-archive');
+    await page.fill('#g-undo-field', '');
+    await page.focus('#g-undo-field');
+    await page.keyboard.type('abc');
+    await until(page, () => document.getElementById('g-edit-undo').textContent === 'Edit > Undo Typing');
+    await undoItem.click();
+    assert.equal(await page.inputValue('#g-undo-field'), '');
+    assert.equal((await names())[0], 'Lunch on Friday', 'the archive stays');
+    // Without text focus, Edit > Undo undoes the archive, and its toast closes.
+    await page.evaluate(() => document.activeElement.blur());
+    await until(page, () => document.getElementById('g-edit-undo').textContent === 'Edit > Undo Archive');
+    await undoItem.click();
+    await until(page, () => document.querySelector('#g-undo-list li').textContent === 'Plans for May');
+    await until(page, () => !document.querySelector('.wk-toast:not([data-leaving])'));
+    // Leaving the page disconnects the stand-in stack.
+    await go(page, '#/toast');
+    assert.deepEqual(await page.evaluate(async () => (await import('/ui/src/index.js')).wkUndo.state()), { undo: null, redo: null, busy: false, textFocus: false });
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('Announcer page: words go to the regions; a dialog takes them by itself, a modal the kit can\'t see by placeAnnouncer; they go back when it closes', async () => {
+    const { page, problems } = await open('/gallery/#/announcer');
+    const where = () => page.evaluate(() => {
+      const p = document.wkAnnouncer.parentNode;
+      return p === document.body ? 'body' : p === document.getElementById('g-plain-modal') ? 'dialog' : p === document.getElementById('g-shadow-host').shadowRoot.querySelector('dialog') ? 'shadow modal' : String(p?.nodeName);
+    });
+    assert.equal(await where(), 'body');
+    await page.click('#g-say');
+    await until(page, () => document.getElementById('g-said').textContent.startsWith('polite: Saved'));
+    // A plain <dialog>: the kit moves the regions by itself.
+    await page.click('#g-say-dialog');
+    assert.equal(await where(), 'dialog');
+    assert.equal(await page.textContent('#g-announcer-home'), 'the dialog');
+    await until(page, () => document.getElementById('g-said').textContent.startsWith('polite: Said from inside the dialog'));
+    await page.click('#g-plain-close');
+    await until(page, () => document.wkAnnouncer.parentNode === document.body);
+    // A modal in a shadow root, which the kit can't see: placeAnnouncer moves them.
+    await page.click('#g-say-modal');
+    assert.equal(await page.evaluate(() => document.getElementById('g-shadow-host').shadowRoot.querySelector('dialog').matches(':modal')), true);
+    assert.equal(await where(), 'shadow modal', 'the regions are inside the modal, so they are not inert');
+    assert.equal(await page.textContent('#g-announcer-home'), 'the modal in the shadow root');
+    await until(page, () => document.getElementById('g-said').textContent.startsWith('polite: Said from inside the modal'));
+    await page.click('#g-shadow-host >> css=dialog button');
+    await until(page, () => document.wkAnnouncer.parentNode === document.body);
+    assert.equal(await page.textContent('#g-announcer-home'), 'the page');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
 } finally {
-  await browser.close();
-  server.close();
-}
-if (failures.length) {
-  console.log(`\n${failures.length} failed:\n${failures.map(f => `  ${f}`).join('\n')}`);
-  process.exit(1);
+  await finish();
 }

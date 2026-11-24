@@ -20,7 +20,6 @@ const walk = dir => readdirSync(dir).flatMap(name => {
 const rel = p => path.relative(root, p);
 const kitCss = walk(src).filter(p => p.endsWith('.css') && !p.endsWith('ui.css'));
 const themes = walk(themeDir).filter(p => p.endsWith('.css'));
-const demoCss = path.join(root, 'demo', 'demo.css');
 const kitTokens = () => tokens(read(path.join(src, 'tokens.css')));
 
 const kitSource = () => read(path.join(src, 'tokens.css'));
@@ -46,7 +45,7 @@ test('the colour check catches every kind of literal', () => {
 });
 
 test('colours in component rules come from tokens (::backdrop and forced colours excepted)', () => {
-  for (const file of [...kitCss, ...themes, demoCss]) {
+  for (const file of [...kitCss, ...themes]) {
     for (const r of rules(read(file))) {
       if (isTokenSelector(r.selector) || r.selector === '@font-face') continue;
       for (const [prop, value] of r.decls) {
@@ -68,7 +67,7 @@ test('every ::backdrop rule has a dark override, under the media query and under
 
 test('token coverage: every var(--wk-…) used anywhere in the package is defined by tokens.css', () => {
   const declared = kitTokens().light;
-  const files = [...walk(src), ...walk(path.join(root, 'demo')), ...themes, path.join(root, 'dist', 'wails-kit-ui.css'), path.join(root, 'dist', 'wails-kit-ui.js')]
+  const files = [...walk(src), ...themes, path.join(root, 'dist', 'wails-kit-ui.css'), path.join(root, 'dist', 'wails-kit-ui.js')]
     .filter(p => /\.(css|js|mjs|html)$/.test(p));
   for (const file of files) {
     for (const [, name] of read(file).matchAll(/var\(\s*(--wk-[\w-]+)/g)) {
@@ -325,7 +324,7 @@ test('one CSS entry and one ES module entry; no shadow DOM, customized built-ins
 });
 
 test('nothing names an app, and nothing loads from outside the package', () => {
-  const shipped = [...walk(src), ...walk(themeDir), ...walk(path.join(root, 'demo')), ...walk(path.join(root, 'dist')).filter(p => !p.endsWith('.woff2')), ...walk(path.join(root, 'scripts')),
+  const shipped = [...walk(src), ...walk(themeDir), ...walk(path.join(root, 'dist')).filter(p => !p.endsWith('.woff2')), ...walk(path.join(root, 'scripts')),
     path.join(root, 'README.md'), path.join(root, 'THEMING.md'), path.join(root, 'package.json')];
   const outside = ref => !ref.startsWith('data:') && (/^[a-z][a-z0-9+.-]*:|^\//i.test(ref));
   for (const file of shipped) {
@@ -407,7 +406,7 @@ test('Inter is bundled: two variable woff2 files and the OFL, each named by an @
 });
 
 test('the design system\'s names: wk-code and wk-chip--access, not the old wk-codeblock and wk-chip--lock', () => {
-  const files = [...walk(src), ...themes, ...walk(path.join(root, 'demo')), ...walk(path.join(root, 'dist')), ...walk(path.join(root, 'test')).filter(p => !p.endsWith('tokens.test.mjs')), path.join(root, 'README.md')];
+  const files = [...walk(src), ...themes, ...walk(path.join(root, 'dist')), ...walk(path.join(root, 'test')).filter(p => !p.endsWith('tokens.test.mjs')), path.join(root, 'README.md')];
   for (const file of files) assert.doesNotMatch(read(file), /wk-codeblock|wk-chip--lock/, `${rel(file)} uses an old name`);
   const css = read(path.join(src, 'components.css'));
   for (const selector of ['.wk-code {', '.wk-code--scroll > pre', '.wk-chip--access > svg', '.wk-chip--access[data-level="manage"]']) assert.ok(css.includes(selector), `components.css defines ${selector}`);
