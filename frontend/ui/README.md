@@ -248,6 +248,8 @@ example `npx serve .`) and open `/demo/index.html`.
 | `<wk-tooltip>` (`WkTooltip`) | WAI-ARIA tooltip on focus and after a hover delay (`delay="ms"`); event `wk-toggle` |
 | `syncSteppers(root?)` | redraws stepper arrows after the app sets a value itself |
 | `setProgress(bar, { done, total, unit?, text? }, { aria?, clock? })` | makes a `wk-progress` determinate and moves it, with its value attributes changing at most every 5 s; see [Busy, spinner and progress](#busy-spinner-and-progress) |
+| `announce(words, { assertive? })`, `placeAnnouncer(dialog?, open?)` | says words through the window's announcer; see [Tasks and the announcer](#tasks-and-the-announcer) |
+| `wkTask(spec)`, `wkTask.follow`, `wkTask.connect`, `wkTask.summary`, `wkTask.showList` | the action lifecycle: the delays, the busy control, the indicator, Stop, Esc, announcements, Go tasks and the task list; see [Tasks and the announcer](#tasks-and-the-announcer) |
 | `timings`, `motion`, `reducedMotion()` | the action lifecycle's timings and the motion values, for scripts; see [Timings and motion](#timings-and-motion) |
 | `wkChart(spec)` | bars, stacked bars, or a line with a band, as plain SVG, with a legend, hover and keyboard readout, and a Chart/Table switch; colours from `--wk-color-chart-1` to `-5` (`tone` 1 to 5 or `"neutral"`) |
 | `niceTicks`, `labelStep`, `runs`, `roundedTop`, `roundedEnd`, `tableModel`, `readout` | the chart's layout rules, with no DOM |
@@ -329,8 +331,8 @@ set. New `text` alone waits for the next due update, so words that embed the
 count ("Step 2 of 3 · 12 of 40 files") can't defeat the cap; pass `aria:
 'now'` when the words must change at once. Nothing fires later by itself: if the updates stop inside the
 window, the attributes stay behind the fill until the next call, so pass
-`aria: 'now'` when the work pauses or changes stage. The task helper
-(`wkTask`, #142) does so on waiting, pause and each change of stage. `text` replaces the default words ("Step 2 of 3 · 12 of 40 files").
+`aria: 'now'` when the work pauses or changes stage. [`wkTask`](#tasks-and-the-announcer)
+does so on waiting, pause and each change of stage. `text` replaces the default words ("Step 2 of 3 · 12 of 40 files").
 Options: `aria: 'now'` sets them whatever the cap (a change of stage),
 `aria: false` never does (except on the first call, since a bar without
 `aria-valuenow` is indeterminate), and `clock` returns milliseconds for the
@@ -342,6 +344,225 @@ to indeterminate: start a new bar instead. An app that sets
 In forced colours the fill is `Highlight` inside a `CanvasText` outline, the
 spinner keeps its border, and a button with a spinner is drawn in
 `ButtonFace` and `ButtonText` so its label stays hidden.
+
+## Tasks and the announcer
+
+[`BEHAVIOUR.md`](BEHAVIOUR.md#the-action-lifecycle) is the spec. `wkTask` runs
+the lifecycle of one action; the app writes the words, reports progress and
+does (and stops) the work.
+
+### The announcer
+
+```js
+import { announce } from '@wails-kit/ui';
+announce('Link copied');                                 // polite
+announce('Couldn’t save the file', { assertive: true }); // only for a failure the person waits on
+```
+
+Importing the kit puts two visually hidden regions in the page, before
+anything is said: `aria-live="polite"` and `aria-live="assertive"`, both
+`aria-atomic="true"` (`<div class="wk-announcer wk-visually-hidden"
+data-wk-announcer>`). Messages within 500 ms of each other are joined into one
+("Link copied. Comment posted"): a message goes out 500 ms after the last one,
+and never more than 2 s after the first. Words the region already holds are
+said again (it is cleared and set on the next frame). Each window has one: a
+second copy of the kit (`src/` and `dist/` together) uses the same regions and
+joins into the same messages. It is one element per window
+(`document.wkAnnouncer`): if it leaves the page (removed by the app, or with a
+modal it sat in), the same element is put back in `<body>` at once, keeping
+the words it was about to say; words it said in the last 2 s are set again on
+the next frame. A modal `<dialog>` makes the rest of the page inert, live
+regions too, so while one is open the regions sit inside the top-most modal
+and go back to `<body>` when it closes, cleared first so the last words aren't
+read again where they land. `wk-dialog` moves them, and so does any `<dialog>`'s `open`
+attribute changing (watched in the same task, not on the later `toggle` or
+`close` event); `placeAnnouncer(dialog, open)` does it by hand
+for a modal opened some other way. Never
+send a countdown, a progress value or streamed output; wkTask, the toast and
+the settings window send their words here instead of having live regions of
+their own.
+
+### wkTask
+
+```js
+import { wkTask } from '@wails-kit/ui';
+
+button.addEventListener('click', async () => {
+  const task = wkTask({ control: button, words: 'Exporting', expect: 'maybe-long', stop: 'cancel', bar });
+  try {
+    for await (const n of exportFiles({ signal: task.signal })) task.progress({ done: n, total: 40, unit: 'files' });
+    await task.done({ words: 'Report exported' });  // resolves when the indicator goes: draw the result here
+    showResult();
+  } catch (error) {
+    if (!task.signal.aborted) task.fail({ words: 'Couldn’t export the report', error, retry: () => button.click() });
+  }
+});
+```
+
+| Option | Default | What it does |
+|---|---|---|
+| `control` | none | The element, or elements, that started it. At once: `aria-disabled="true"` and `data-busy` (it keeps focus, its name and its pressed face; kit.js drops a second press). At the end each goes back to the `aria-disabled` it had, so a locked control stays locked. With no `target`, a `wk-button` control shows the spinner at 400 ms. |
+| `target` | none | The element that shows the state, such as a row's state cell. From 400 ms, a working dot and the words (`wk-task-state`) take its content's place; Cancel puts the content back, and Done does unless `visible: false`. Failed shows the attention dot and the words; Stopped shows the words. |
+| `bar` | none | A `wk-progress` the app placed where the work shows. Hidden until 400 ms, indeterminate until the work reports a total, hidden again at the end. |
+| `words` | required | What it does ("Exporting"); announced when the indicator appears. |
+| `expect` | `'short'` | `'maybe-long'` keeps the Stop button's space from the start and shows it at 10 s; `'long'` shows it at once. |
+| `stop` | `false` | `'cancel'`, `'stop'`, `'stop-asks'` (labelled "Stop…"), `'pause'` (Pause and Resume), `'unsafe'` (the words add "This can't be stopped" at 10 s) or `false`. |
+| `onStop`, `onPause`, `onResume` | none | The app stops, pauses or resumes the work. Resolving `false` leaves the task as it is (the person said no to "Stop…", or the app will report the end itself); otherwise the kit reports Cancelled, Stopped, Paused or Running. Without `onStop`, Stop aborts `task.signal`. While one runs, the Stop button is busy. |
+| `timeout` | `timings.timeout` (2 min) | Time without a report before it fails ("Timed out after 2 min", or `timeoutWords`), aborting `task.signal` with a `TimeoutError` and calling `onTimeout`. `false` for none. Off while queued, paused or stalled. |
+| `waitingWords` | the current words | After 30 s without a report it goes to Waiting with these words, and back to Running (with its words) on the next report. The switch doesn't restart the timeout. |
+| `queued` | none | Start Queued with these words: no indicator and no clocks, Cancel at once; `task.running()` or a progress report starts it. |
+| `scope` | the Sheet it is in, else the controls and the target's row | Where Esc applies, and where focus must still be for a failure to be assertive. |
+| `esc` | `stop === 'cancel'` and `expect !== 'long'` | Esc (and ⌘. on macOS only) cancels it while focus is in `scope`. The kit listens after the page, so an Escape a menu, a tooltip or the app already used (and prevented) is left alone, and so is one while a Stop is under way. In a Sheet the first Esc cancels the work and the Sheet stays open; a second closes it. |
+| `stopIn` | after the last control, else in the target | Where the Stop button goes. |
+| `subject`, `kind`, `id` | | Shown in the task list (`subject`, else the words). `id` defaults to `wk-task-<n>`. |
+| `unit`, `summary` | | Work in parts: see below. |
+
+The handle: `progress({ done, total, unit, step, steps, stage })`, `setWords(words)`,
+`waiting(words, { timeout })` (a named wait; `timeout: false` turns it off
+while it waits), `paused(words)`, `resumed(words)`, `stalled(words)`,
+`queued(words)`, `running(words)`, `done({ words, visible, show, showLabel })`
+(or `done(words)`), `fail({ words, error, retry })`, `stopped(words)` (default
+"Stopped · 12 of 40 files"), `cancelled()`, `stop()` (as the Stop button),
+`part(spec)`, and `id`, `state` and `signal` (aborted on Cancel, Stop, a
+timeout or a failure). `done` and `fail` need words (`TypeError` without):
+the outcome is always announced.
+
+**The clocks.** No indicator before 400 ms; once shown it stays at least
+500 ms, so `done`, `fail`, `stopped` and `cancelled` wait for that, then in one
+step remove the indicator and the Stop button, return the controls to rest,
+announce, fire `wk-task`, and resolve their promise: draw the result in that
+`.then`. The clocks count from the press; in a hidden window they run on
+(sleep and wake are the Go side's).
+
+**Announcements.** Once each: the words when the indicator appears (work
+done sooner announces only its outcome), each change of stage ("Step 2 of 3 ·
+Uploading"), new words on Waiting, Paused and Resume, and the end. Never a
+count. A failure is assertive only while focus is still in `scope`; otherwise
+it is polite and, when the window has a task list and the failure has
+`retry`, adds "Retry is in Tasks.". Cancelled is announced only once the
+indicator had shown. Focus never moves when work ends, or as the indicator
+redraws (the target's line changes in place); if it was on the Stop button, it
+goes to the control, else to the target's row, made focusable for it.
+
+**The bar's value** follows `setProgress`'s 5 s cap, and is set at once
+(`aria: 'now'`) on Waiting, Paused, Resume and each change of stage, so it
+never stays behind the fill while the work stands still.
+
+**Work in parts.** One task, a part per item, each in its own row; one
+summary when the last part ends.
+
+```js
+const review = wkTask({ control: runButton, words: 'Running reviewers', unit: 'reviewers' });
+const parts = reviewers.map(r => review.part({ target: cellOf(r), words: 'Reviewing' }));
+// each part: parts[i].done('Passed') / parts[i].fail('Couldn’t run')
+// → "2 of 3 reviewers finished · 1 failed", announced once; the task is Done only if every part is
+```
+
+Parts don't announce, have their own clocks and Stop mode (the task's, unless
+given), and count toward the task's bar ("1 of 3 reviewers"). Once it has
+parts, the task's own Waiting switch and timeout are off: its parts keep
+theirs. Stop on the task
+stops every part (unless it has its own `onStop`). `summary(counts)` replaces
+the words; the `wk-task` detail carries `parts: [{ id, state, words }]`. The
+task ends a microtask after its last part, so parts added in the same step as
+one that ends at once still count. Add every part before any `await`: once a
+microtask has passed with every part ended, the task is over.
+
+**Events.** Every change of state fires a bubbling `wk-task` on the target,
+else the first control, else the document (also when they have left the
+page): `detail: { id, state, words, ...payload }`, where `state` is one of
+the [Go states](../../tasks/README.md#states).
+
+### Go tasks: wkTask.connect and wkTask.follow
+
+The [`tasks`](../../tasks/README.md) service keeps the clocks, the words and
+the state; the kit draws them. Connect once per window, with the Wails
+runtime's events and the service's `Bindings()`:
+
+```js
+import { Events } from '@wailsio/runtime';
+import * as Tasks from '../bindings/github.com/jrschumacher/wails-kit/tasks/bindings.js';
+
+wkTask.connect({
+  subscribe: listener => Events.On('tasks:changed', e => listener(e.data)),
+  bindings: Tasks,                     // Tasks, Get, Stop, Pause, Resume, Retry, Dismiss, DismissFinished
+  confirmStop: snapshot => askStop(snapshot),  // optional: before a "stop-asks" task stops; resolve true to stop
+});
+
+const id = await App.StartExport();
+wkTask.follow(id, { control: exportButton, target, bar });
+```
+
+`connect` asks for `Tasks()` once (a reloaded window draws the tasks as they
+are) unless an event comes first, and returns a function that disconnects;
+disconnecting ends every followed task quietly, so its controls go back to
+rest. A binding call that fails (Stop, Retry, Dismiss…) is said in words
+("Couldn't stop the task"), assertively while focus is in the task list.
+`follow(id, { control, target, bar, scope, stopIn, expect })` draws the task
+as `wkTask` would, from its snapshots: the indicator from 400 ms after
+`startedAt`, Stop from 10 s (`expect` defaults to `'maybe-long'` when it can
+be stopped), Waiting, Paused, Resume, Stalled and the end from the Go state. A
+failure's words are the app's (`words`), else `error.userMsg`, and it offers
+Retry unless its `retry` is `unsafe`. Stop, Pause and Resume call the
+bindings; the next snapshot changes the state. A task already finished when
+it is first seen is drawn without being announced. A task that isn't in the
+list is asked for once with `Get`; if it isn't there, the control is left
+alone. It returns `{ id, state, stop(), unfollow() }`, and ends at the task's
+first end (a retried task runs on in the task list).
+
+### The summary and the task list
+
+```js
+footerBar.append(wkTask.summary());    // or the toolbar, beside the connection state
+Events.On('menu:tasks', () => wkTask.showList());  // Window > Tasks
+```
+
+`wkTask.summary()` returns a `<button class="wk-task-summary">`: a small dot
+and the tasks by state ("2 tasks running · 1 paused · 1 needs you · 1
+failed"; Waiting counts as running), shown while two or more tasks are under
+way or any has failed or is stalled (the working dot, or the attention dot),
+and while the list it opened is open or it has focus. It isn't a live region.
+Pressing it opens the list. `button.dispose()` stops it updating; one taken out
+of the page stops at the next change (make a new one to put back). A failure
+announced away from its control adds "Retry is in Tasks." only while the
+window has a task list: a summary in the page, or the list opened.
+
+`wkTask.showList({ opener })` opens the task list, a Sheet (`wk-dialog`) of
+the window's tasks: the Go side's (from `connect`), then the page's own
+top-level tasks while they run. Each row is a dot, the subject (else the
+words), the state's words with the stage, the count and "Next try in 8 s",
+then its actions: Cancel, Stop, Stop…, Pause or Resume while it runs (Retry
+now while an automatic retry waits), and Retry and Dismiss once it ends. A
+task's parts sit under it. A failed task stays until it is retried or
+dismissed; a page task that fails stays too, and its Retry runs the `retry`
+passed to `fail`. Clear finished calls `DismissFinished`. Rows update in
+place, moving no element that has focus; a row that goes while focus is in it hands focus to the next. Focus
+starts on the list, not on an action; Esc or Done closes it, and focus
+returns to the summary or wherever it was.
+
+### The kit's words
+
+`wkTask.words` holds the words the kit writes itself (Cancel, Stop, Stop…,
+Pause, Resume, Paused, Stopped, Cancelled, Failed, "This can't be stopped", "Timed out
+after 2 min", "12 of 40 files", "Step 2 of 3", the parts summary, Tasks, Retry,
+Dismiss, Clear finished, Done, "3 tasks running", "1 queued", "1 paused",
+"1 needs you", "1 failed", the "Couldn't stop the task" family, "Next try in
+8 s"). Replace them to write another language; the functions take the
+numbers.
+
+### Classes
+
+| Class | What it is |
+|---|---|
+| `wk-task-stop` | the Cancel, Stop or Pause button (a small `wk-button`); `data-reserved` keeps its space without drawing it |
+| `wk-task-state` (`data-state`), `wk-task-words` | the dot and words in a target |
+| `wk-task-show` | the Show link after done words that aren't visible |
+| `wk-task-summary`, `wk-task-summary-words` | the summary button |
+| `wk-task-list`, `wk-task-rows`, `wk-task-row` (`data-state`), `wk-task-text`, `wk-task-title`, `wk-task-line`, `wk-task-actions`, `wk-task-parts`, `wk-task-none` | the task list |
+| `wk-announcer` | the announcer's regions |
+
+In forced colours a failed or stalled task's words are underlined, and the
+summary is drawn as a button.
 
 ## Timings and motion
 
@@ -436,7 +657,10 @@ pane.append(wkDiff({
   (1-based, inclusive; returns the lines as strings, or a promise of them),
   each hunk header offers "Show more" for the unchanged lines above it,
   `contextStep` (20) at a time. If the callback throws or rejects, the button
-  stays and a note says "Couldn’t load lines" (announced politely); an empty
+  stays and a note says "Couldn’t load lines", which the window's
+  [announcer](#the-announcer) says (assertively while focus is still on the
+  button); while it loads the button is busy (`aria-disabled` and `data-busy`),
+  never disabled, so it keeps focus. An empty
   result removes the button. Lines that arrive after a view switch go into
   the view then shown. A wrapped line hangs under its own indent.
 - **Highlighting** is not built in: `highlight(file, line)` may return a node
@@ -551,8 +775,8 @@ diff.destroy();
   error in an ErrorBox (`wk-errorbox`, with a copy button), Retry (sends it
   again) and Edit (puts the text back in a box: a new one, or added to the
   end of a box already open there; if that box's `value` can't be set, the
-  failed comment stays). Outcomes are announced politely, in one
-  `aria-live="polite"` `aria-atomic="true"` region per diff.
+  failed comment stays). Outcomes, like selections, are said politely by the
+  window's [announcer](#the-announcer); the diff has no live region of its own.
   If the callback returns nothing, the app shows the comment itself; mark an
   entry `pending: true` to show it pending (the dot shows at once), or
   `error: 'raw message'` to show the ErrorBox, with Retry calling

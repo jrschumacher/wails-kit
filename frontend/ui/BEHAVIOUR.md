@@ -71,7 +71,7 @@ Answer these for every action:
 ## The action lifecycle
 
 Every action that does work follows the same states. The kit's task helper
-(*planned*, [`wkTask`](#wktask)) runs the clocks, the busy state and the ARIA; the app
+([`wkTask`](#wktask)) runs the clocks, the busy state and the ARIA; the app
 writes the words and does the work. The Owner column says which.
 
 | State | When | What the person sees | Owner |
@@ -308,9 +308,10 @@ make.
 - **Several tasks at once:** each task shows its state where it started. When two or
   more run, one summary ("3 tasks running · 1 failed") sits beside the connection state
   in the toolbar, or in the footer bar of a window with no toolbar, and opens the task
-  list (*planned*), also reachable from Window > Tasks. A failed task stays in the list
-  until the person retries or dismisses it, so a failure never depends on a toast or on
-  finding the control that started it. The taskbar shows the combined total, and
+  list ([`wkTask.summary` and `wkTask.showList`](README.md#the-summary-and-the-task-list)),
+  also reachable from Window > Tasks. A failed task stays in the list until the person
+  retries or dismisses it, so a failure never depends on a toast or on finding the
+  control that started it. The taskbar shows the combined total, and
   notifications are grouped ("3 jobs finished.").
 - **Work across reload, close and reopen:** task state lives on the Go side, not in the
   web view. A reloaded or reopened window asks for the current tasks and draws them as
@@ -458,8 +459,10 @@ increased contrast is in the tokens.
 
 They implement the rules above; an app uses these instead of its own. The timings and
 motion tokens, the progress bar and spinner (see the
-[README](README.md#busy-spinner-and-progress)), and [Go task events](#go-task-events)
-(the `tasks` package) ship; the rest are *planned*.
+[README](README.md#busy-spinner-and-progress)), [Go task events](#go-task-events)
+(the `tasks` package), [`wkTask`](#wktask), the [announcer](#announcer) and the task
+list (see the [README](README.md#tasks-and-the-announcer)) ship; the rest are
+*planned*.
 
 ### wkTask
 
@@ -565,7 +568,6 @@ indicator.
 
 ### Also planned
 
-- The task list, opened from the summary and from Window > Tasks.
 - App undo and redo in `shortcuts`: a stack, the menu item's label ("Undo Archive")
   and state, text fields first.
 - Copy behaviour and feedback for `wk-copy`.
@@ -576,11 +578,9 @@ indicator.
 
 Where shipped code doesn't yet follow this page:
 
-- The diff view's "Show more" button sets `disabled` while loading, which drops focus,
-  and each hunk has its own `aria-live` note instead of the shared announcer.
-- The diff's review comments announce outcomes ("Comment posted", "Couldn't post the
-  comment") through a polite region of their own, not the shared announcer, and Escape
-  in a comment box discards its draft with no Undo.
+- `wkTask` doesn't yet show time left ("About 3 min left") once the estimates are
+  stable; the app can put it beside the indicator itself.
+- Escape in a diff review comment box discards its draft with no Undo.
 - `wk-copy` is styling only: the app copies, and nothing gives feedback.
 - The Markdown editor (`@wails-kit/editor/markdown`) marks its submit button busy at
   once while `onsubmit`'s promise is pending, with no 400 ms indicator and nothing sent

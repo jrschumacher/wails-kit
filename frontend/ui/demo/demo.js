@@ -4,7 +4,7 @@
 // theme/example.css) and dist.html (the prebuilt dist/ files). The body's
 // data-module names the module the page loaded, so the charts and the diff
 // come from it.
-const { wkChart, wkDiff, setProgress, timings } = await import(document.body.dataset.module || '../src/index.js');
+const { wkChart, wkDiff, setProgress, wkTask } = await import(document.body.dataset.module || '../src/index.js');
 
 const themed = document.body.dataset.demo === 'themed';
 const pages = [['index.html', 'Neutral'], ['themed.html', 'Example theme'], ['dist.html', 'Prebuilt dist'], ['settings.html', 'Settings window']];
@@ -130,7 +130,7 @@ ${section('busy', 'Busy, spinner and progress', `
 <div class="demo-progress">
   <div class="demo-stack"><div class="wk-progress" role="progressbar" aria-label="Copying files" id="demo-progress"></div><span class="wk-caption">12 of 40 files</span></div>
   <div class="demo-stack"><div class="wk-progress" role="progressbar" aria-label="Fetching runs" id="demo-progress-sweep"></div><span class="wk-caption">Fetching runs…</span></div>
-</div>`, 'A busy control (aria-disabled plus data-busy) keeps its pressed face, its focus and its name; a second press does nothing. After 400 ms a spinner takes the label\'s place and the width holds. "Try it" runs the timings: busy at once, the spinner at 400 ms, done after 2 s. Below, a standalone spinner, a determinate bar (setProgress) and an indeterminate one; with reduced motion the sweep becomes a fade.')}
+</div>`, 'A busy control (aria-disabled plus data-busy) keeps its pressed face, its focus and its name; a second press does nothing. After 400 ms a spinner takes the label\'s place and the width holds. "Try it" runs a wkTask: busy at once, the spinner at 400 ms, done after 2 s. Below, a standalone spinner, a determinate bar (setProgress) and an indeterminate one; with reduced motion the sweep becomes a fade.')}
 
 ${section('fields', 'Fields', `
 <div class="demo-grid">
@@ -604,26 +604,17 @@ const rangeShare = r => {
 document.querySelectorAll('#demo-ranges .wk-range').forEach(rangeShare);
 document.getElementById('demo-ranges').addEventListener('input', e => rangeShare(e.target));
 // Progress and busy: a determinate bar, and a button that runs the
-// lifecycle's timings the way the task helper will.
+// lifecycle's timings with wkTask.
 setProgress(document.getElementById('demo-progress'), { done: 12, total: 40, unit: 'files' });
 {
+  // wkTask runs the lifecycle: busy at once, the spinner at 400 ms, done
+  // after 2 s, and the words to the announcer.
   const button = document.getElementById('demo-busy-try');
   const words = document.getElementById('demo-busy-words');
   button.addEventListener('click', () => {
     words.textContent = '';
-    button.setAttribute('aria-disabled', 'true');
-    button.dataset.busy = '';
-    const spinner = document.createElement('span');
-    spinner.className = 'wk-spinner';
-    spinner.setAttribute('aria-hidden', 'true');
-    const show = setTimeout(() => button.prepend(spinner), timings.indicatorDelay);
-    setTimeout(() => {
-      clearTimeout(show);
-      spinner.remove();
-      button.removeAttribute('aria-disabled');
-      delete button.dataset.busy;
-      words.textContent = 'Done';
-    }, 2_000);
+    const task = wkTask({ control: button, words: 'Exporting' });
+    setTimeout(() => task.done('Exported').then(() => { words.textContent = 'Exported'; }), 2_000);
   });
 }
 const log = document.getElementById('demo-log');

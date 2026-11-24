@@ -53,6 +53,7 @@
 // a range, and c opens a comment box. Copying copies code only: the gutter,
 // the markers and the screen-reader labels are left out.
 
+import { announce } from './announce.js';
 import { timings } from './motion.js';
 
 // ---- Rules with no DOM ---------------------------------------------------
@@ -475,18 +476,8 @@ export function wkDiff(spec) {
   const later = (fn, ms) => { const t = setTimeout(() => { timers.delete(t); if (!destroyed) fn(); }, ms); timers.add(t); return t; };
   const now = () => (spec.now ? +spec.now() : Date.now());
   const author = spec.author || {};
-  const live = reviewing ? sr('', root) : null;
-  live?.setAttribute('aria-live', 'polite');
-  live?.setAttribute('aria-atomic', 'true');
-  // The same words twice still read twice: every other time they carry a
-  // no-break space, so the region's text changes.
-  let lastSaid = '';
-  const announce = text => {
-    if (!live) return;
-    const say = text === lastSaid.replace(/ $/, '') && !lastSaid.endsWith(' ') ? `${text} ` : text;
-    lastSaid = say;
-    live.replaceChildren(document.createTextNode(say));
-  };
+  // Outcomes and selections are said by the window's announcer (announce.js),
+  // which also makes the same words twice read twice.
   const allowed = (file, side, line) => commenting && Number.isInteger(line)
     && (typeof spec.canComment !== 'function' || Boolean(spec.canComment(file, side, line)));
   // A thread's file: the one whose path is the thread's, else the one whose old path is.
@@ -1273,14 +1264,23 @@ export function wkDiff(spec) {
     if (canExpand) {
       const more = el('button', 'wk-link wk-diff-more', null, row);
       more.type = 'button';
-      more.disabled = Boolean(hunk.loading);
+      setBusy(more, hunk.loading);
       moreLabel(file, k, more);
-      const note = el('span', 'wk-diff-more-note', null, row);
-      note.setAttribute('aria-live', 'polite');
-      more.addEventListener('click', () => showMore(state, hunk, k));
+      // The note is not a live region: a failure goes to the window's
+      // announcer once (BEHAVIOUR.md, "Announcer").
+      el('span', 'wk-diff-more-note', null, row);
+      more.addEventListener('click', () => { if (!hunk.loading) showMore(state, hunk, k); });
     }
     el('span', 'wk-diff-hunk-text', hunk.header, row).setAttribute('aria-hidden', 'true');
     return row;
+  }
+
+  // Loading: busy, never disabled, so the button keeps focus (BEHAVIOUR.md,
+  // "Accessibility"); kit.js drops the presses a busy control gets.
+  function setBusy(more, on) {
+    if (!more) return;
+    if (on) { more.setAttribute('aria-disabled', 'true'); more.setAttribute('data-busy', ''); }
+    else { more.removeAttribute('aria-disabled'); more.removeAttribute('data-busy'); }
   }
 
   function moreLabel(file, k, more) {
@@ -1296,15 +1296,20 @@ export function wkDiff(spec) {
     const cur = gap(file, k);
     const from = Math.max(cur.from, cur.to - step + 1), to = cur.to;
     hunk.loading = true;
-    { const { more, note } = parts(header()); if (more) more.disabled = true; if (note) note.textContent = ''; }
+    { const { more, note } = parts(header()); setBusy(more, true); if (note) note.textContent = ''; }
     let got, failed = false;
     try { got = await spec.getContext(file, { oldStart: from, oldEnd: to, newStart: from + cur.shift, newEnd: to + cur.shift }); } catch { failed = true; }
     hunk.loading = false;
     const row = header();
     const { more, note } = parts(row);
     const hadFocus = more && document.activeElement === more;
-    if (more) more.disabled = false;
-    if (failed) { if (note) note.textContent = 'Couldn\u2019t load lines'; return; }
+    setBusy(more, false);
+    if (failed) {
+      if (note) note.textContent = 'Couldn\u2019t load lines';
+      // Assertive only while the person waits on it: focus still on the button.
+      announce('Couldn\u2019t load lines', { assertive: hadFocus });
+      return;
+    }
     const close = () => { more?.remove(); if (hadFocus) row.focus(); };
     if (!Array.isArray(got) || !got.length) { hunk.noMore = true; close(); return; }
     got = got.slice(-(to - from + 1));

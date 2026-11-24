@@ -1300,7 +1300,7 @@ try {
       document.body.append(race);
       race.querySelector('.wk-diff-more').click(); await tick();
       race.querySelector('#race-view-split').click(); await tick();
-      out.pendingDisabled = race.querySelector('.wk-diff-more').disabled;
+      out.pendingDisabled = race.querySelector('.wk-diff-more').getAttribute('aria-disabled');
       release(); await tick(); await tick();
       out.split = [...race.querySelectorAll('.wk-diff-half[data-side=old]')].map(h => h.dataset.old).join(',');
       out.label = race.querySelector('.wk-diff-more')?.textContent;
@@ -1316,7 +1316,7 @@ try {
         document.body.append(el);
         el.querySelector('.wk-diff-more').click(); await tick(); await tick();
         const more = el.querySelector('.wk-diff-more'), note = el.querySelector('.wk-diff-more-note');
-        out[kind] = { button: Boolean(more), disabled: more?.disabled, note: note.textContent, live: note.getAttribute('aria-live'), color: getComputedStyle(note).color };
+        out[kind] = { button: Boolean(more), disabled: more?.getAttribute('aria-disabled'), note: note.textContent, live: note.getAttribute('aria-live'), color: getComputedStyle(note).color };
         fail = false;
         more.click(); await tick(); await tick();
         out[kind].retry = [el.querySelector('.wk-diff-more-note').textContent, el.querySelectorAll('.wk-diff-line').length];
@@ -1331,12 +1331,12 @@ try {
       return out;
     });
     const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
-    assert.equal(r.pendingDisabled, true, 'the rebuilt button waits for the pending load');
+    assert.equal(r.pendingDisabled, 'true', 'the rebuilt button waits for the pending load');
     assert.equal(r.split, range(10, 32).join(','), 'the loaded lines appear in the view shown when they arrive');
     assert.equal(r.label, 'Show 9 hidden lines');
     assert.equal(r.unified, [...range(10, 31), '-', 32].join(','));
     for (const kind of ['rejects', 'throws']) {
-      assert.deepEqual(r[kind], { button: true, disabled: false, note: 'Couldn’t load lines', live: 'polite', color: r.secondary, retry: ['', 24] }, kind);
+      assert.deepEqual(r[kind], { button: true, disabled: null, note: 'Couldn’t load lines', live: null, color: r.secondary, retry: ['', 24] }, kind);
     }
     assert.deepEqual(r.empty, [0, true], 'an empty result removes the button and focus goes to the hunk');
     assert.deepEqual(problems, []);
@@ -1744,7 +1744,9 @@ try {
     assert.equal(await local.locator('.wk-errorbox').getAttribute('role'), 'group');
     assert.equal(await local.locator('.wk-errorbox pre').textContent(), 'HTTP 500: upstream timed out');
     assert.equal(await local.locator('.wk-copy').getAttribute('aria-label'), 'Copy error details');
-    assert.equal(await rv.locator('[aria-live=polite]').last().textContent(), 'Couldn’t post the comment');
+    // Said by the window's announcer, not a region of the diff's own.
+    assert.equal(await rv.locator('[aria-live]').count(), 0);
+    await until(page, () => document.querySelector('[data-wk-announcer] [aria-live=polite]').textContent.includes('Couldn’t post the comment'));
     assert.equal(await rvFocus(page), 'Comments on x/f.go, line 5', 'focus stays on the thread');
     // Retry: pending again, then it lands: the app adds the thread and resolves.
     await local.locator('[data-action=retry]').click();
@@ -1757,7 +1759,7 @@ try {
     });
     await until(page, () => !document.querySelector('#rv .wk-diff-thread[data-local]'));
     assert.equal(await rv.locator('.wk-diff-thread[data-thread="t2"] .wk-diff-comment-body').textContent(), '  looks wrong');
-    assert.equal(await rv.locator('[aria-live=polite]').last().textContent(), 'Comment posted');
+    await until(page, () => document.querySelector('[data-wk-announcer] [aria-live=polite]').textContent.includes('Comment posted'));
     assert.equal(await rvFocus(page), 'Comments on x/f.go, line 5', 'focus goes to the thread that landed in its place');
     // Edit after a failure puts the text back in a box.
     await rv.locator('.wk-diff-line[data-new="6"]').focus();
@@ -2064,7 +2066,7 @@ try {
     await page.keyboard.type('LATE');
     await page.keyboard.press('Control+Enter');
     await page.evaluate(() => window.rv.pending.shift().resolve());
-    await until(page, () => document.querySelector('#rv [aria-live]').textContent.startsWith('Comment posted'));
+    await until(page, () => document.querySelector('[data-wk-announcer] [aria-live=polite]').textContent.includes('Comment posted'));
     const local = rv.locator('.wk-diff-thread[data-local]');
     assert.equal(await local.count(), 1, 'the copy stays until the app redraws');
     assert.equal(await local.locator('.wk-diff-comment').getAttribute('data-state'), null, 'no longer pending');
@@ -2148,15 +2150,19 @@ try {
     await rv.locator('.wk-diff-thread[data-thread="a.b"] [data-action=toggle]').click();
     assert.equal(await rv.locator('.wk-diff-thread[data-thread="exact"] time').textContent(), 'vor 3 Stunden', 'a toggle elsewhere redraws only its own row');
     // Selections are announced, and the same words twice still change the region.
+    // Through the window's announcer: count each time the words are set.
+    await page.evaluate(() => {
+      const r = document.querySelector('[data-wk-announcer] [aria-live=polite]');
+      window.selSaid = 0;
+      new MutationObserver(() => { if (r.textContent === 'Lines 1 to 2 selected') window.selSaid++; }).observe(r, { childList: true, characterData: true, subtree: true });
+    });
     await rv.locator('#rv-file-0 .wk-diff-line[data-new="1"]').focus();
     await page.keyboard.press('Shift+ArrowDown');
-    const live = rv.locator('[aria-live=polite]');
-    assert.equal(await live.getAttribute('aria-atomic'), 'true');
-    assert.equal((await live.textContent()).trim(), 'Lines 1 to 2 selected');
-    const said = await live.textContent();
+    await until(page, () => window.selSaid === 1);
+    assert.equal(await page.evaluate(() => document.querySelector('[data-wk-announcer] [aria-live=polite]').getAttribute('aria-atomic')), 'true');
     await page.keyboard.press('Escape'); await page.keyboard.press('ArrowUp'); await page.keyboard.press('Shift+ArrowDown');
-    assert.equal((await live.textContent()).trim(), 'Lines 1 to 2 selected');
-    assert.notEqual(await live.textContent(), said, 'repeated words re-announce');
+    await until(page, () => window.selSaid === 2);
+    assert.equal(await page.evaluate(() => document.querySelector('[data-wk-announcer] [aria-live=polite]').textContent), 'Lines 1 to 2 selected', 'repeated words re-announce');
     await page.keyboard.press('Escape');
     // destroy(): open injected boxes are destroyed; setComments then does nothing.
     await rv.locator('#rv-file-1 .wk-diff-line[data-new="1"]').focus();
@@ -3578,6 +3584,753 @@ try {
     assert.deepEqual(problems, []);
     await page.close();
   });
+  // ---- wkTask, the announcer and the task list (BEHAVIOUR.md) ------------
+  // These checks run on Playwright's fake clock: the page's timers, Date and
+  // performance.now move only when the check says so (run(ms)).
+  const T0 = Date.parse('2026-01-05T10:00:00Z');
+  async function openTasks(url = '/demo/index.html') {
+    const page = await browser.newPage({ viewport: { width: 1100, height: 800 }, colorScheme: 'light' });
+    const problems = [];
+    page.on('pageerror', e => problems.push(`pageerror: ${e.message}`));
+    page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') problems.push(`console ${m.type()}: ${m.text()}`); });
+    page.on('request', r => { if (!r.url().startsWith(origin + '/') && !r.url().startsWith('data:')) problems.push(`network: ${r.url()}`); });
+    await page.clock.install({ time: T0 });
+    await page.goto(origin + url);
+    await page.waitForFunction(() => customElements.get('wk-dialog') && document.querySelector('#demo-values dt'));
+    await page.clock.pauseAt(T0 + 60_000);
+    await page.evaluate(async () => {
+      window.kit = await import('/src/index.js');
+      // Everything the live regions say, in order: [politeness, words].
+      window.said = [];
+      const host = document.querySelector('[data-wk-announcer]');
+      const last = new Map();
+      new MutationObserver(() => {
+        for (const r of document.querySelectorAll('[data-wk-announcer] [aria-live]')) {
+          const t = r.textContent;
+          if (t && t !== last.get(r)) window.said.push([r.getAttribute('aria-live'), t]);
+          last.set(r, t);
+        }
+      }).observe(host.parentNode, { subtree: true, childList: true, characterData: true });
+      window.taskEvents = [];
+      document.addEventListener('wk-task', e => window.taskEvents.push(`${e.detail.id}:${e.detail.state}`));
+      const box = document.createElement('div');
+      box.id = 'tbox';
+      document.querySelector('main').prepend(box);
+    });
+    const run = ms => page.clock.runFor(ms);
+    const said = () => page.evaluate(() => window.said.splice(0));
+    const taskEvents = () => page.evaluate(() => window.taskEvents.splice(0));
+    return { page, problems, run, said, taskEvents };
+  }
+
+  await check('announcer: two regions in the page from load; messages within 500 ms are joined; the same words again are heard again; one per window', async () => {
+    const { page, problems, run, said } = await openTasks();
+    const regions = await page.evaluate(() => [...document.querySelectorAll('[data-wk-announcer] [aria-live]')].map(r => [r.getAttribute('aria-live'), r.getAttribute('aria-atomic'), r.textContent]));
+    assert.deepEqual(regions, [['polite', 'true', ''], ['assertive', 'true', '']]);
+    assert.equal(await page.evaluate(() => { const r = document.querySelector('[data-wk-announcer]').getBoundingClientRect(); return r.width <= 1 && r.height <= 1; }), true, 'visually hidden');
+    await page.evaluate(() => kit.announce('Link copied'));
+    await run(300);
+    await page.evaluate(() => { kit.announce('Comment posted'); kit.announce('Comment posted'); kit.announce('Couldn’t save', { assertive: true }); });
+    await run(499);
+    assert.deepEqual(await said(), [], 'nothing until 500 ms after the last');
+    await run(1);
+    assert.deepEqual(await said(), [['polite', 'Link copied. Comment posted'], ['assertive', 'Couldn’t save']]);
+    // Apart: one each, and the same words twice are said twice.
+    await page.evaluate(() => kit.announce('Saved'));
+    await run(600);
+    await page.evaluate(() => kit.announce('Saved'));
+    await run(600);
+    assert.deepEqual(await said(), [['polite', 'Saved'], ['polite', 'Saved']]);
+    // A stream of messages still goes out within 2 s of the first.
+    await page.evaluate(() => { window.n = 0; window.iv = setInterval(() => kit.announce(`m${++window.n}`), 300); });
+    await run(2300);
+    await page.evaluate(() => clearInterval(window.iv));
+    assert.deepEqual(await said(), [['polite', 'm1. m2. m3. m4. m5. m6. m7']]);
+    await run(1000);
+    await said();
+    // A second copy of the kit (dist/) shares the regions; regions the app
+    // removed come back.
+    const count = await page.evaluate(async () => {
+      const dist = await import('/dist/wails-kit-ui.js');
+      dist.announce('From dist');
+      kit.announce('From src');
+      return document.querySelectorAll('[data-wk-announcer]').length;
+    });
+    assert.equal(count, 1);
+    await run(600);
+    assert.deepEqual(await said(), [['polite', 'From dist. From src']]);
+    await page.evaluate(() => { document.querySelector('[data-wk-announcer]').remove(); kit.announce('Back'); });
+    await run(600);
+    assert.deepEqual(await page.evaluate(() => [document.querySelectorAll('[data-wk-announcer]').length, document.querySelector('[data-wk-announcer] [aria-live="polite"]').textContent]), [1, 'Back']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('wkTask: no indicator for work under 400 ms; busy at once; a locked control stays locked; done always announces', async () => {
+    const { page, problems, run, said, taskEvents } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<button class="wk-button" type="button" id="t-go">Export</button><button class="wk-button wk-button--locked" type="button" id="t-locked" aria-disabled="true">Invite</button>';
+      window.t = kit.wkTask({ id: 'q', control: [document.getElementById('t-go'), document.getElementById('t-locked')], words: 'Exporting' });
+    });
+    const look = () => page.evaluate(() => ['t-go', 't-locked'].map(id => { const b = document.getElementById(id); return [b.getAttribute('aria-disabled'), b.hasAttribute('data-busy'), Boolean(b.querySelector('.wk-spinner'))]; }));
+    assert.deepEqual(await look(), [['true', true, false], ['true', true, false]], 'busy at once, no spinner');
+    await run(399);
+    assert.deepEqual((await look())[0], ['true', true, false], 'no spinner in the quiet wait');
+    await page.evaluate(() => { t.done('Report exported'); });
+    assert.deepEqual(await look(), [[null, false, false], ['true', false, false]], 'back to rest; the locked control keeps aria-disabled');
+    await run(1000);
+    assert.deepEqual(await said(), [['polite', 'Report exported']], 'no start announcement, the outcome once');
+    assert.deepEqual(await taskEvents(), ['q:running', 'q:done']);
+    assert.equal(await page.evaluate(() => { try { kit.wkTask({ words: 'x' }).done({}); } catch (e) { return e instanceof TypeError; } return false; }), true, 'done() without words throws');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('wkTask: the indicator shows at 400 ms and stays at least 500 ms; the result swaps in that step; focus never moves', async () => {
+    const { page, problems, run, said } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<button class="wk-button" type="button" id="t-go">Export</button>';
+      document.getElementById('t-go').focus();
+      window.t = kit.wkTask({ control: document.getElementById('t-go'), words: 'Exporting' });
+    });
+    const spinner = () => page.evaluate(() => Boolean(document.querySelector('#t-go > .wk-spinner[aria-hidden="true"]')));
+    await run(399);
+    assert.equal(await spinner(), false);
+    await run(1);
+    assert.equal(await spinner(), true, 'the spinner at 400 ms');
+    await run(100);
+    // Done 100 ms after it showed: held until 500 ms after.
+    await page.evaluate(() => { window.drawn = null; t.done('Exported').then(d => { window.drawn = [Boolean(document.querySelector('#t-go > .wk-spinner')), d.state]; }); });
+    await run(399);
+    assert.equal(await spinner(), true, 'held');
+    assert.equal(await page.evaluate(() => window.drawn), null);
+    await run(1);
+    assert.deepEqual(await page.evaluate(() => window.drawn), [false, 'done'], 'the promise resolves as the spinner goes');
+    assert.equal(await active(page), 't-go', 'focus stays on the control');
+    await run(1000);
+    assert.deepEqual(await said(), [['polite', 'Exporting'], ['polite', 'Exported']], 'the start when the indicator appears, then the end');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('wkTask: Stop shows at 10 s in space kept for it, with no layout shift; Waiting at 30 s; the timeout fails it and aborts its signal', async () => {
+    const { page, problems, run, said, taskEvents } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<div id="t-row"><button class="wk-button" type="button" id="t-go">Sync</button><span id="t-after">after</span></div><div class="wk-progress" role="progressbar" aria-label="Syncing" id="t-bar"></div>';
+      window.t = kit.wkTask({ id: 'long', control: document.getElementById('t-go'), bar: document.getElementById('t-bar'), words: 'Syncing', expect: 'maybe-long', stop: 'cancel', waitingWords: 'Waiting for the server…' });
+    });
+    const where = () => page.evaluate(() => {
+      const stop = document.querySelector('.wk-task-stop');
+      return { after: document.getElementById('t-after').getBoundingClientRect().left, go: document.getElementById('t-go').getBoundingClientRect().left, stop: stop && getComputedStyle(stop).visibility, label: stop?.textContent, bar: document.getElementById('t-bar').hidden };
+    });
+    const start = await where();
+    assert.equal(start.stop, 'hidden', 'the space is kept from the start');
+    assert.equal(start.bar, true, 'the bar waits for the indicator');
+    await run(400);
+    assert.equal((await where()).bar, false, 'an indeterminate bar at 400 ms');
+    assert.equal(await page.evaluate(() => document.getElementById('t-bar').hasAttribute('aria-valuenow')), false);
+    await page.evaluate(() => t.progress({ done: 3, total: 10, unit: 'files' }));
+    await run(9600 - 1);
+    assert.equal((await where()).stop, 'hidden');
+    await run(1);
+    const at10 = await where();
+    assert.deepEqual([at10.stop, at10.label, at10.after, at10.go], ['visible', 'Cancel', start.after, start.go], 'Cancel at 10 s; nothing moved');
+    // Waiting: 30 s after the last report (at 400 ms).
+    await run(30_400 - 10_000 - 1);
+    assert.equal(await page.evaluate(() => t.state), 'running');
+    await run(1);
+    assert.equal(await page.evaluate(() => t.state), 'waiting');
+    // Progress brings it back, with its words.
+    await page.evaluate(() => t.progress({ done: 4, total: 10, unit: 'files' }));
+    assert.equal(await page.evaluate(() => t.state), 'running');
+    await run(120_000 - 1);
+    assert.equal(await page.evaluate(() => [t.state, t.signal.aborted].join()), 'waiting,false');
+    await run(1);
+    assert.equal(await page.evaluate(() => [t.state, t.signal.aborted, t.signal.reason?.name].join()), 'failed,true,TimeoutError');
+    const look = await page.evaluate(() => ({ stop: document.querySelectorAll('.wk-task-stop').length, busy: document.getElementById('t-go').hasAttribute('data-busy'), bar: document.getElementById('t-bar').hidden }));
+    assert.deepEqual(look, { stop: 0, busy: false, bar: true });
+    await run(1000);
+    assert.deepEqual(await said(), [['polite', 'Syncing'], ['polite', 'Waiting for the server…'], ['polite', 'Waiting for the server…'], ['polite', 'Timed out after 2 min']]);
+    assert.deepEqual(await taskEvents(), ['long:running', 'long:waiting', 'long:running', 'long:waiting', 'long:failed']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+  await check('wkTask: a target row shows a working dot and words in place of its state; Cancel puts it back; Stop keeps what finished; onStop false keeps it running', async () => {
+    const { page, problems, run, said } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<table class="wk-table"><tbody>'
+        + ['a', 'b', 'c'].map(k => `<tr id="row-${k}"><th>${k}</th><td id="cell-${k}"><span class="wk-dot" aria-hidden="true"></span>Ready</td></tr>`).join('') + '</tbody></table>';
+      window.asked = 0;
+      window.ta = kit.wkTask({ id: 'a', target: document.getElementById('cell-a'), words: 'Copying', expect: 'long', stop: 'cancel' });
+      window.tb = kit.wkTask({ id: 'b', target: document.getElementById('cell-b'), words: 'Copying', expect: 'long', stop: 'stop' });
+      window.tc = kit.wkTask({ id: 'c', target: document.getElementById('cell-c'), words: 'Copying', expect: 'long', stop: 'stop-asks', onStop: () => { window.asked++; return false; } });
+    });
+    const cell = k => page.evaluate(id => {
+      const c = document.getElementById(`cell-${id}`), stop = c.querySelector('.wk-task-stop');
+      return { text: c.textContent, dot: c.querySelector('.wk-dot') ? c.querySelector('.wk-dot').dataset.tone ?? 'neutral' : null, stop: stop && [stop.textContent, getComputedStyle(stop).visibility] };
+    }, k);
+    assert.deepEqual(await cell('a'), { text: 'ReadyCancel', dot: 'neutral', stop: ['Cancel', 'visible'] }, 'expected long: Cancel at once; the row keeps its state through the quiet wait');
+    await run(400);
+    assert.deepEqual(await cell('a'), { text: 'CopyingCancel', dot: 'working', stop: ['Cancel', 'visible'] });
+    await page.evaluate(() => { tb.progress({ done: 12, total: 40, unit: 'files' }); tc.progress({ done: 1, total: 2 }); });
+    assert.deepEqual(await cell('b'), { text: 'Copying · 12 of 40 filesStop', dot: 'working', stop: ['Stop', 'visible'] });
+    assert.deepEqual(await cell('c'), { text: 'Copying · 1 of 2Stop…', dot: 'working', stop: ['Stop…', 'visible'] });
+    for (const k of ['a', 'b', 'c']) await page.$eval(`#cell-${k} .wk-task-stop`, b => b.click());
+    await run(500);
+    assert.deepEqual(await cell('a'), { text: 'Ready', dot: 'neutral', stop: null }, 'Cancel: the state from before');
+    assert.deepEqual(await cell('b'), { text: 'Stopped · 12 of 40 files', dot: null, stop: null }, 'Stop: what finished stays');
+    assert.equal(await page.evaluate(() => [window.asked, tc.state].join()), '1,running', 'a Stop… the person declined');
+    assert.equal(await page.evaluate(() => [ta.signal.aborted, tb.signal.aborted, tc.signal.aborted].join()), 'true,true,false');
+    // A failure in a row: the attention dot and the words, in place.
+    await page.evaluate(() => { tc.fail({ words: 'Couldn’t copy', error: new Error('EACCES') }); });
+    assert.deepEqual(await cell('c'), { text: 'Couldn’t copy', dot: 'attention', stop: null });
+    await run(1000);
+    assert.deepEqual(await said(), [['polite', 'Copying'], ['polite', 'Cancelled. Stopped · 12 of 40 files. Couldn’t copy']]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('wkTask: progress never ticks in a live region; a change of stage is announced once and sets the bar\'s value at once, as waiting and pause do', async () => {
+    const { page, problems, run, said } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<button class="wk-button" type="button" id="t-go">Upload</button><div class="wk-progress" role="progressbar" aria-label="Uploading" id="t-bar"></div>';
+      window.t = kit.wkTask({ control: document.getElementById('t-go'), bar: document.getElementById('t-bar'), words: 'Uploading', expect: 'maybe-long', stop: 'pause', onPause: () => {}, onResume: () => {} });
+    });
+    const value = () => page.evaluate(() => document.getElementById('t-bar').getAttribute('aria-valuetext'));
+    await run(400);
+    await page.evaluate(() => t.progress({ done: 1, total: 40, unit: 'files', step: 1, steps: 2, stage: 'Copying' }));
+    assert.equal(await value(), 'Step 1 of 2 · Copying · 1 of 40 files');
+    for (let i = 2; i <= 6; i++) { await run(500); await page.evaluate(n => t.progress({ done: n, total: 40, unit: 'files', step: 1, steps: 2, stage: 'Copying' }), i); }
+    assert.equal(await value(), 'Step 1 of 2 · Copying · 1 of 40 files', 'at most every 5 s');
+    // A new stage: the value and the words at once, and announced once.
+    await run(100);
+    await page.evaluate(() => t.progress({ done: 7, total: 40, unit: 'files', step: 2, steps: 2, stage: 'Checking' }));
+    assert.equal(await value(), 'Step 2 of 2 · Checking · 7 of 40 files');
+    await page.evaluate(() => t.progress({ done: 8, total: 40, unit: 'files', step: 2, steps: 2, stage: 'Checking' }));
+    // Pause: the value catches up with the fill at once; the button reads Resume.
+    await run(100);
+    await page.evaluate(() => t.progress({ done: 9, total: 40, unit: 'files', step: 2, steps: 2, stage: 'Checking' }));
+    assert.equal(await value(), 'Step 2 of 2 · Checking · 7 of 40 files');
+    await run(10_000);
+    await page.$eval('.wk-task-stop', b => b.click());
+    assert.equal(await page.evaluate(() => [t.state, document.querySelector('.wk-task-stop').textContent].join()), 'paused,Resume');
+    assert.equal(await value(), 'Step 2 of 2 · Checking · 9 of 40 files');
+    // Paused: no timeout.
+    await run(300_000);
+    assert.equal(await page.evaluate(() => t.state), 'paused');
+    await page.$eval('.wk-task-stop', b => b.click());
+    assert.equal(await page.evaluate(() => [t.state, document.querySelector('.wk-task-stop').textContent].join()), 'running,Pause');
+    await page.evaluate(() => t.progress({ done: 10, total: 40, unit: 'files', step: 2, steps: 2, stage: 'Checking' }));
+    await run(600);
+    // App-reported waiting with a named wait sets the value at once too.
+    await page.evaluate(() => t.waiting('Waiting for GitHub…', { timeout: false }));
+    assert.equal(await value(), 'Step 2 of 2 · Checking · 10 of 40 files');
+    await run(300_000);
+    assert.equal(await page.evaluate(() => t.state), 'waiting', 'no timeout while it waits on something named');
+    await page.evaluate(() => { t.done('Uploaded'); });
+    await run(1000);
+    const all = await said();
+    assert.deepEqual(all, [['polite', 'Uploading. Step 1 of 2 · Copying'], ['polite', 'Step 2 of 2 · Checking'], ['polite', 'Paused · Step 2 of 2 · Checking'], ['polite', 'Uploading · Step 2 of 2 · Checking'], ['polite', 'Waiting for GitHub… · Step 2 of 2 · Checking'], ['polite', 'Uploaded']]);
+    assert.ok(all.every(([, w]) => !/\d+ of 40/.test(w)), 'no count in a live region');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('wkTask: a failure is assertive only while focus is still in scope; focus never moves on done or fail; the summary for parts', async () => {
+    const { page, problems, run, said, taskEvents } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<button class="wk-button" type="button" id="t-go">Save</button><input class="wk-field" id="t-else"><ul id="t-parts">'
+        + ['r1', 'r2', 'r3'].map(k => `<li><span id="p-${k}">Idle</span></li>`).join('') + '</ul><button class="wk-button" type="button" id="t-review">Run reviewers</button>';
+      document.getElementById('t-go').focus();
+      window.t1 = kit.wkTask({ control: document.getElementById('t-go'), words: 'Saving' });
+      window.t2 = kit.wkTask({ control: document.getElementById('t-go'), words: 'Saving' });
+    });
+    await run(400);
+    // Still on the control: assertive. Moved away: polite.
+    await page.evaluate(() => { t1.fail({ words: 'Couldn’t save the file' }); });
+    await run(500);
+    await page.focus('#t-else');
+    await page.evaluate(() => { t2.fail({ words: 'Couldn’t save the copy' }); });
+    await run(1000);
+    assert.equal(await active(page), 't-else', 'focus stays where the person put it');
+    const s = await said();
+    assert.deepEqual(s.filter(([k]) => k === 'assertive'), [['assertive', 'Couldn’t save the file']]);
+    assert.deepEqual(s.filter(([k]) => k === 'polite').map(x => x[1]).join(' / '), 'Saving / Couldn’t save the copy');
+    assert.equal(await page.evaluate(() => document.getElementById('t-go').hasAttribute('data-busy')), false, 'both returned the control to rest');
+    await taskEvents();
+    // Parts: one task; each part shows its own state; one summary at the end.
+    await page.focus('#t-review');
+    await page.evaluate(() => {
+      window.review = kit.wkTask({ id: 'review', control: document.getElementById('t-review'), words: 'Running reviewers', unit: 'reviewers' });
+      window.parts = ['r1', 'r2', 'r3'].map(k => review.part({ target: document.getElementById(`p-${k}`), words: 'Reviewing' }));
+    });
+    await run(400);
+    assert.deepEqual(await page.evaluate(() => ['r1', 'r2', 'r3'].map(k => document.getElementById(`p-${k}`).textContent)), ['Reviewing', 'Reviewing', 'Reviewing']);
+    await page.evaluate(() => { parts[0].done('Passed'); parts[1].fail('Couldn’t run'); });
+    await run(1000);
+    assert.equal(await page.evaluate(() => review.state), 'running');
+    assert.deepEqual(await page.evaluate(() => ['r1', 'r2'].map(k => document.getElementById(`p-${k}`).textContent)), ['Idle', 'Couldn’t run']);
+    await page.evaluate(() => { parts[2].done('Passed'); });
+    await run(1000);
+    assert.equal(await page.evaluate(() => review.state), 'failed');
+    const words = await said();
+    assert.deepEqual(words, [['polite', 'Running reviewers'], ['assertive', '2 of 3 reviewers finished · 1 failed']], 'the start and one summary; no part announces itself');
+    assert.equal(await active(page), 't-review');
+    assert.deepEqual(await taskEvents(), ['review:running', 'review-1:running', 'review-2:running', 'review-3:running', 'review-1:done', 'review-2:failed', 'review-3:done', 'review:failed']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('wkTask: Esc and ⌘. cancel short work while focus is in scope; in a Sheet the first Esc cancels the work and the Sheet stays', async () => {
+    const { page, problems, run } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<input class="wk-field" id="t-field"><button class="wk-button" type="button" id="t-check">Check</button><input class="wk-field" id="t-else">'
+        + '<wk-dialog id="t-sheet"><dialog class="wk-dialog wk-dialog--sheet"><h2 class="wk-dialog-title">Add repo</h2><input class="wk-field" id="t-in"><button class="wk-button" type="button" id="t-add">Add</button></dialog></wk-dialog>';
+      window.c1 = kit.wkTask({ control: document.getElementById('t-check'), words: 'Checking token', stop: 'cancel' });
+      window.c2 = kit.wkTask({ control: document.getElementById('t-check'), words: 'Checking token', stop: 'stop' });
+    });
+    await page.focus('#t-else');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.evaluate(() => c1.state), 'running', 'focus outside the scope: Esc does nothing');
+    await page.focus('#t-check');
+    // ⌘. is macOS's: elsewhere Meta+. is the system's (the emoji picker on Windows).
+    await page.keyboard.press('Meta+Period');
+    assert.deepEqual(await page.evaluate(() => [c1.state, c2.state]), ['running', 'running'], 'Meta+. does nothing off macOS');
+    await page.evaluate(() => Object.defineProperty(navigator, 'userAgentData', { get: () => ({ platform: 'macOS' }), configurable: true }));
+    await page.keyboard.press('Meta+Period');
+    assert.deepEqual(await page.evaluate(() => [c1.state, c2.state]), ['cancelled', 'running'], '⌘. cancels on macOS; a Stop task is not cancelled by a key');
+    await page.evaluate(() => { c2.cancelled(); });
+    await page.evaluate(() => { document.getElementById('t-sheet').show(); window.c3 = kit.wkTask({ control: document.getElementById('t-add'), words: 'Adding', stop: 'cancel' }); });
+    await page.focus('#t-in');
+    await page.keyboard.press('Escape');
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => [c3.state, document.getElementById('t-sheet').open]), ['cancelled', true]);
+    await page.keyboard.press('Escape');
+    await run(10);
+    assert.equal(await page.evaluate(() => document.getElementById('t-sheet').open), false, 'the second Esc closes the Sheet');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+  // A fake Go tasks service: tasks:changed goes to the listeners wkTask.connect
+  // subscribed, and the bindings record their calls.
+  const fakeTasks = page => page.evaluate(() => {
+    window.listeners = [];
+    window.calls = [];
+    window.initial = window.initial || [];
+    const rec = name => async (...args) => { window.calls.push([name, ...args].join(':')); };
+    window.bindings = {
+      Tasks: async () => window.initial,
+      Get: async id => { window.calls.push(`Get:${id}`); throw new Error('tasks_not_found'); },
+      Stop: rec('Stop'), Pause: rec('Pause'), Resume: rec('Resume'), Retry: rec('Retry'), Dismiss: rec('Dismiss'), DismissFinished: rec('DismissFinished'),
+    };
+    window.disconnect = kit.wkTask.connect({ subscribe: fn => { window.listeners.push(fn); return () => {}; }, bindings: window.bindings });
+    window.snap = o => ({ id: 't1', parent: '', subject: '', kind: 'export', state: 'running', done: 0, total: 0, unit: '', step: 0, steps: 0, stage: '', words: 'Exporting', stop: 'stop', error: null, retry: 'manual', nextTry: null, startedAt: Date.now(), updatedAt: Date.now(), ...o });
+    window.send = tasks => window.listeners.forEach(fn => fn({ tasks }));
+  });
+
+  await check('wkTask.follow: draws a Go task from its snapshots (indicator, Stop, waiting, failure); a task finished before a reload is not announced; an unknown one leaves the control alone', async () => {
+    const { page, problems, run, said, taskEvents } = await openTasks();
+    await page.evaluate(() => {
+      window.initial = [{ id: 'old', parent: '', subject: '', kind: 'sync', state: 'done', done: 0, total: 0, unit: '', step: 0, steps: 0, stage: '', words: 'Synced', stop: false, error: null, retry: 'manual', nextTry: null, startedAt: 1, updatedAt: 2 }];
+      document.getElementById('tbox').innerHTML = '<button class="wk-button" type="button" id="t-go">Export</button><button class="wk-button" type="button" id="t-sync">Sync</button><button class="wk-button" type="button" id="t-ghost">Ghost</button>';
+    });
+    await fakeTasks(page);
+    await run(10);
+    // Finished before this window loaded: drawn as it is, quietly.
+    await page.evaluate(() => { window.fo = kit.wkTask.follow('old', { control: document.getElementById('t-sync') }); });
+    assert.deepEqual(await page.evaluate(() => [fo.state, document.getElementById('t-sync').hasAttribute('data-busy')]), ['done', false]);
+    await page.evaluate(() => { send([window.initial[0], snap({})]); window.f = kit.wkTask.follow('t1', { control: document.getElementById('t-go') }); });
+    assert.equal(await page.evaluate(() => document.getElementById('t-go').getAttribute('aria-disabled')), 'true');
+    await run(400);
+    assert.equal(await page.evaluate(() => Boolean(document.querySelector('#t-go > .wk-spinner'))), true);
+    await page.evaluate(() => send([window.initial[0], snap({ done: 3, total: 10, unit: 'files', updatedAt: Date.now() })]));
+    await run(9600);
+    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('.wk-task-stop')).visibility), 'visible', 'Stop at 10 s');
+    await page.$eval('.wk-task-stop', b => b.click());
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => [window.calls.join(), f.state]), ['Stop:t1', 'running'], 'Stop asks the Go side; its snapshot ends the task');
+    await page.evaluate(() => send([window.initial[0], snap({ state: 'waiting', words: 'Waiting for GitHub…', done: 3, total: 10, unit: 'files' })]));
+    assert.equal(await page.evaluate(() => f.state), 'waiting');
+    // The app's words, not the error code's generic message.
+    await page.evaluate(() => send([window.initial[0], snap({ state: 'failed', words: 'Couldn’t export the report', error: { code: 'x', userMsg: 'Couldn’t finish this', message: 'EIO' } })]));
+    await run(1000);
+    assert.deepEqual(await page.evaluate(() => [f.state, document.getElementById('t-go').hasAttribute('data-busy'), document.querySelectorAll('.wk-task-stop').length]), ['failed', false, 0]);
+    // An id the Go side doesn't know: asked once, then left alone.
+    await page.evaluate(() => { window.fg = kit.wkTask.follow('nope', { control: document.getElementById('t-ghost') }); });
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => [fg.state, document.getElementById('t-ghost').hasAttribute('data-busy'), window.calls.includes('Get:nope')]), [null, false, true]);
+    assert.deepEqual(await said(), [['polite', 'Exporting'], ['polite', 'Waiting for GitHub… Couldn’t export the report']]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('task list: the summary shows for two running tasks or a failure; it opens the list, whose rows stop, retry and dismiss by keyboard; a failed task stays; focus returns', async () => {
+    const { page, problems, run, said } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<div class="wk-footer-bar" id="t-foot"><span>Ready</span></div><button class="wk-button" type="button" id="t-save">Save</button>';
+    });
+    await fakeTasks(page);
+    await page.evaluate(() => { window.sum = kit.wkTask.summary(); document.getElementById('t-foot').append(sum); });
+    const look = () => page.evaluate(() => ({ hidden: sum.hidden, text: sum.textContent, tone: sum.querySelector('.wk-dot').dataset.tone ?? null }));
+    await page.evaluate(() => send([snap({ id: 'g1', subject: 'report.pdf' })]));
+    await run(1);
+    assert.equal((await look()).hidden, true, 'one task shows where it started');
+    // A page task joins the count only once its indicator shows: work that
+    // ends in the quiet wait never flashes the summary.
+    await page.evaluate(() => { window.pt = kit.wkTask({ id: 'p1', words: 'Saving' }); });
+    await run(399);
+    assert.equal((await look()).hidden, true);
+    await run(1);
+    assert.deepEqual(await look(), { hidden: false, text: '2 tasks running', tone: 'working' });
+    await page.evaluate(() => { pt.cancelled(); });
+    await run(1100);
+    assert.equal((await look()).hidden, true);
+    await said();
+    await page.evaluate(() => send([snap({ id: 'g1', subject: 'report.pdf', done: 12, total: 40, unit: 'files' }), snap({ id: 'g2', subject: 'notes.md', stop: 'pause' }), snap({ id: 'g3', state: 'done', words: 'Synced', stop: false })]));
+    await run(1);
+    assert.deepEqual(await look(), { hidden: false, text: '2 tasks running', tone: 'working' });
+    // A page task that fails stays in the list until retried or dismissed.
+    await page.evaluate(() => {
+      window.retried = 0;
+      const t = kit.wkTask({ id: 'k1', subject: 'settings.json', control: document.getElementById('t-save'), words: 'Saving' });
+      t.fail({ words: 'Couldn\u2019t save the file', retry: () => { window.retried++; } });
+    });
+    await run(120_000);
+    assert.deepEqual(await look(), { hidden: false, text: '2 tasks running · 1 failed', tone: 'attention' });
+    assert.deepEqual(await said(), [['polite', 'Couldn\u2019t save the file. Retry is in Tasks.']], 'a failure away from its control says where Retry is');
+    await page.focus('#t-save');
+    await page.keyboard.press('Shift+Tab');
+    await page.$eval('.wk-task-summary', b => b.focus());
+    await page.keyboard.press('Enter');
+    await run(10);
+    const rows = () => page.evaluate(() => [...document.querySelectorAll('.wk-task-list .wk-task-rows > li')].map(li => [li.dataset.id, li.querySelector('.wk-task-title').textContent, li.querySelector('.wk-task-line').hidden ? '' : li.querySelector('.wk-task-line').textContent, [...li.querySelectorAll(':scope > .wk-task-actions > button')].map(b => b.textContent).join('|')]));
+    assert.equal(await page.evaluate(() => document.querySelector('.wk-task-list').open), true);
+    assert.equal(await page.evaluate(() => document.activeElement.classList.contains('wk-dialog-scroll')), true, 'focus goes to the list, not to an action');
+    assert.deepEqual(await rows(), [
+      ['g1', 'report.pdf', 'Exporting · 12 of 40 files', 'Stop'],
+      ['g2', 'notes.md', 'Exporting', 'Pause'],
+      ['g3', 'Synced', '', 'Dismiss'],
+      ['k1', 'settings.json', 'Couldn\u2019t save the file', 'Retry|Dismiss'],
+    ]);
+    // By keyboard: Tab reaches the first row's action.
+    await page.keyboard.press('Tab');
+    assert.equal(await active(page), 'Stop');
+    await page.keyboard.press('Enter');
+    await run(10);
+    for (const name of ['Pause', 'Dismiss']) await page.$eval(`.wk-task-list button[data-action="${name.toLowerCase()}"]`, b => b.click());
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => window.calls), ['Stop:g1', 'Pause:g2', 'Dismiss:g3']);
+    // The Go side drops g3: the list follows, in place.
+    await page.evaluate(() => send([snap({ id: 'g1', subject: 'report.pdf', done: 12, total: 40, unit: 'files' }), snap({ id: 'g2', subject: 'notes.md', stop: 'pause', state: 'paused', words: 'Paused' })]));
+    await run(10);
+    assert.deepEqual((await rows()).map(r => r[0] + ':' + r[3]), ['g1:Stop', 'g2:Resume', 'k1:Retry|Dismiss']);
+    // Retry on the page's task: the app's retry runs, the row goes, and
+    // focus passes to the next row rather than being lost.
+    await page.$eval('.wk-task-list li[data-id="k1"] button[data-action="retry"]', b => b.focus());
+    await page.keyboard.press('Enter');
+    await run(10);
+    assert.equal(await page.evaluate(() => window.retried), 1);
+    assert.deepEqual((await rows()).map(r => r[0]), ['g1', 'g2']);
+    assert.equal(await page.evaluate(() => document.querySelector('.wk-task-list').contains(document.activeElement) && document.activeElement !== document.body), true, 'focus stays in the list');
+    // Clear finished: unavailable (aria-disabled, still focusable) while nothing has finished.
+    const clear = () => page.$eval('.wk-task-list button[data-action="clear"]', b => { b.click(); return b.getAttribute('aria-disabled'); });
+    assert.equal(await clear(), 'true');
+    await run(10);
+    assert.equal(await page.evaluate(() => window.calls.includes('DismissFinished')), false);
+    await page.evaluate(() => send([snap({ id: 'g1', subject: 'report.pdf', state: 'done', words: 'Exported', stop: false })]));
+    await run(10);
+    assert.equal(await clear(), 'false');
+    await run(10);
+    assert.equal(await page.evaluate(() => window.calls.includes('DismissFinished')), true);
+    await page.keyboard.press('Escape');
+    await run(10);
+    assert.equal(await page.evaluate(() => document.querySelector('.wk-task-list').open), false);
+    assert.equal(await page.evaluate(() => document.activeElement === sum), true, 'focus returns to the summary');
+    // With nothing left to show, it stays until focus leaves it.
+    assert.equal((await look()).hidden, false);
+    await page.focus('#t-save');
+    await run(10);
+    assert.equal((await look()).hidden, true);
+    // Window > Tasks opens it with no summary press.
+    await page.evaluate(() => kit.wkTask.showList());
+    assert.equal(await page.evaluate(() => document.querySelector('.wk-task-list').open), true);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('task list and task states: forced colours keep failed words apart and draw the summary as a button', async () => {
+    const { page, problems, run } = await openTasks();
+    await page.emulateMedia({ forcedColors: 'active' });
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<span id="t-cell">Ready</span><div class="wk-footer-bar" id="t-foot"></div>';
+      const sum = kit.wkTask.summary(); document.getElementById('t-foot').append(sum);
+      const t = kit.wkTask({ target: document.getElementById('t-cell'), words: 'Copying' });
+      t.fail('Couldn\u2019t copy');
+    });
+    await run(10);
+    const look = await page.evaluate(() => ({
+      words: getComputedStyle(document.querySelector('#t-cell .wk-task-words')).textDecorationLine,
+      dot: getComputedStyle(document.querySelector('#t-cell .wk-dot')).borderTopStyle,
+      summary: getComputedStyle(document.querySelector('.wk-task-summary')).forcedColorAdjust,
+    }));
+    assert.deepEqual(look, { words: 'underline', dot: 'solid', summary: 'none' });
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+  await check('diff: Show more is busy, not disabled, while it loads: focus stays and a second press does nothing; a failure goes to the announcer', async () => {
+    const { page, problems, run, said } = await openTasks();
+    await page.evaluate(() => {
+      const text = 'diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -30,3 +30,3 @@\n a\n-b\n+c\n d\n';
+      window.asks = 0;
+      const d = kit.wkDiff({ id: 'busy-diff', diff: text, getContext: () => { window.asks++; return new Promise((res, rej) => { window.reject = rej; }); } });
+      document.getElementById('tbox').append(d);
+    });
+    await page.focus('#busy-diff .wk-diff-more');
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Enter');
+    const look = await page.evaluate(() => { const b = document.querySelector('#busy-diff .wk-diff-more'); return [b.disabled, b.getAttribute('aria-disabled'), b.hasAttribute('data-busy'), document.activeElement === b, window.asks]; });
+    assert.deepEqual(look, [false, 'true', true, true, 1]);
+    await page.evaluate(() => window.reject(new Error('net')));
+    await run(600);
+    assert.deepEqual(await said(), [['assertive', 'Couldn\u2019t load lines']], 'assertive: focus is still on the button');
+    assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#busy-diff .wk-diff-more')), true);
+    // Pressed again and left: the failure is polite.
+    await page.keyboard.press('Enter');
+    await page.evaluate(() => { document.activeElement.blur(); window.reject(new Error('net')); });
+    await run(600);
+    assert.deepEqual(await said(), [['polite', 'Couldn\u2019t load lines']]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+  await check('announcer: while a modal Sheet is open the regions are inside it, so the accessibility tree still has what is said; they go back when it closes', async () => {
+    const { page, problems, run } = await openTasks();
+    const heard = async text => (await axTree(page)).some(n => String(n.name?.value ?? '').includes(text));
+    await page.evaluate(() => kit.wkTask.showList());
+    await run(100);
+    assert.equal(await page.evaluate(() => document.querySelector('.wk-task-list').contains(document.querySelector('[data-wk-announcer]'))), true);
+    await page.evaluate(() => kit.announce('Exported the report'));
+    await run(600);
+    assert.equal(await heard('Exported the report'), true, 'not inert under the modal');
+    // Closed by the script: the regions are back in the same task, before the
+    // dialog's close event (queued as a task of its own) has fired.
+    assert.equal(await page.evaluate(async () => {
+      const d = document.querySelector('.wk-task-list');
+      let closeFired = false;
+      d.addEventListener('close', () => { closeFired = true; }, { once: true });
+      d.close();
+      await Promise.resolve();
+      return [closeFired, document.querySelector('[data-wk-announcer]').parentNode === document.body].join();
+    }), 'false,true');
+    // Closed by Esc: the browser may close it a task later; wait for that.
+    await page.evaluate(() => kit.wkTask.showList());
+    await run(10);
+    assert.equal(await page.evaluate(() => document.querySelector('.wk-task-list').contains(document.querySelector('[data-wk-announcer]'))), true);
+    await page.keyboard.press('Escape');
+    for (let i = 0; i < 100 && await page.evaluate(() => document.querySelector('.wk-task-list').open); i++) await new Promise(res => setTimeout(res, 20));
+    assert.equal(await page.evaluate(() => document.querySelector('[data-wk-announcer]').parentNode === document.body), true);
+    await page.evaluate(() => kit.announce('Back in the window'));
+    await run(600);
+    assert.equal(await heard('Back in the window'), true);
+    // A plain <dialog> the app opens itself: the toggle event moves them too.
+    await page.evaluate(() => { const d = document.createElement('dialog'); d.id = 't-plain'; d.innerHTML = '<p>Plain</p>'; document.body.append(d); d.showModal(); });
+    await run(10);
+    await page.evaluate(() => kit.announce('Said in a plain dialog'));
+    await run(600);
+    assert.equal(await heard('Said in a plain dialog'), true);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('wkTask: focus on a Stop button in a target, or on a task list action, survives progress redraws; a target row without a focusable control keeps focus at the end', async () => {
+    const { page, problems, run } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<div id="t-row"><span id="t-cell">Idle</span></div><button class="wk-button" type="button" id="t-two">Two</button>';
+      window.t = kit.wkTask({ target: document.getElementById('t-cell'), words: 'Copying', stop: 'stop', expect: 'long' });
+      window.t2 = kit.wkTask({ control: document.getElementById('t-two'), words: 'Syncing', stop: 'stop', expect: 'long' });
+    });
+    await run(450);
+    await page.$eval('#t-cell .wk-task-stop', b => b.focus());
+    await page.evaluate(() => { t.progress({ done: 1, total: 4, unit: 'files' }); t.setWords('Copying files'); t.progress({ done: 2, total: 4, unit: 'files', step: 1, steps: 2, stage: 'Copying' }); });
+    assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('wk-task-stop')), true, 'focus stays on Stop in the target');
+    await page.evaluate(() => kit.wkTask.showList());
+    await run(50);
+    await page.$eval('.wk-task-list li[data-id="' + await page.evaluate(() => t.id) + '"] button[data-action="stop"]', b => b.focus());
+    await page.evaluate(() => { t.progress({ done: 3, total: 4, unit: 'files', step: 2, steps: 2, stage: 'Checking' }); t2.progress({ done: 1, total: 2 }); });
+    await run(10);
+    assert.equal(await page.evaluate(() => document.activeElement?.dataset.action), 'stop', 'focus stays on the row action');
+    await page.keyboard.press('Escape');
+    await run(10);
+    // Stop in a target whose row has no focusable control: the end moves focus to the row, not the page.
+    await page.$eval('#t-cell .wk-task-stop', b => b.focus());
+    await page.evaluate(() => { t.done('Copied'); });
+    await run(600);
+    assert.equal(await page.evaluate(() => document.activeElement !== document.body && document.getElementById('t-cell').contains(document.activeElement) || document.activeElement === document.getElementById('t-cell')), true);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('wkTask: a shared control keeps its spinner until its last task ends; a task in parts doesn\'t time out while its parts report; a part that ends at once doesn\'t end the task', async () => {
+    const { page, problems, run } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<button class="wk-button" type="button" id="t-go">Go</button><button class="wk-button" type="button" id="t-run">Run</button>';
+      window.a = kit.wkTask({ control: document.getElementById('t-go'), words: 'A' });
+      window.b = kit.wkTask({ control: document.getElementById('t-go'), words: 'B' });
+    });
+    await run(450);
+    await page.evaluate(() => { a.done('A done'); });
+    await run(600);
+    const shared = () => page.evaluate(() => { const g = document.getElementById('t-go'); return [g.getAttribute('aria-disabled'), g.querySelectorAll('.wk-spinner').length]; });
+    assert.deepEqual(await shared(), ['true', 1], 'B still runs: busy, one spinner');
+    await page.evaluate(() => { b.done('B done'); });
+    await run(600);
+    assert.deepEqual(await shared(), [null, 0]);
+    await page.evaluate(() => {
+      window.whole = kit.wkTask({ control: document.getElementById('t-run'), words: 'Running reviewers', unit: 'reviewers' });
+      window.ps = [whole.part({ words: 'A' }), whole.part({ words: 'B' })];
+    });
+    for (let i = 0; i < 15; i++) { await run(10_000); await page.evaluate(n => { ps[0].progress({ done: n, total: 20 }); ps[1].progress({ done: n, total: 20 }); }, i); }
+    assert.equal(await page.evaluate(() => whole.state), 'running', '150 s of progress in its parts');
+    const sync = await page.evaluate(() => {
+      const t = kit.wkTask({ words: 'Removing', unit: 'items' });
+      const p1 = t.part({ words: 'a' });
+      p1.done('a removed');
+      let threw = null;
+      try { t.part({ words: 'b' }).done('b removed'); } catch (e) { threw = e.message; }
+      return new Promise(res => queueMicrotask(() => queueMicrotask(() => res([threw, t.state]))));
+    });
+    assert.deepEqual(sync, [null, 'done']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('wkTask: Esc goes to an open menu inside the scope first; Esc while a Stop is under way is not swallowed', async () => {
+    const { page, problems, run } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<wk-dialog id="t-sheet"><dialog class="wk-dialog wk-dialog--sheet"><h2 class="wk-dialog-title">Sheet</h2>'
+        + '<wk-menu id="t-menu"><button class="wk-button" type="button" id="t-more">More</button><div role="menu" class="wk-menu" hidden><button role="menuitem" type="button">One</button></div></wk-menu>'
+        + '<button class="wk-button" type="button" id="t-chk">Check</button></dialog></wk-dialog>';
+      document.getElementById('t-sheet').show();
+      window.t = kit.wkTask({ control: document.getElementById('t-chk'), words: 'Checking', stop: 'cancel', onStop: () => new Promise(() => {}) });
+    });
+    await page.$eval('#t-more', b => { b.focus(); b.click(); });
+    await run(10);
+    await page.keyboard.press('Escape');
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => [t.state, document.getElementById('t-menu').open, document.querySelector('#t-sheet dialog').open]), ['running', false, true], 'the menu closes; the work and the Sheet stay');
+    // First Esc: Stop starts (onStop never settles); the second isn't held by it.
+    await page.keyboard.press('Escape');
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => [t.state, document.querySelector('#t-sheet dialog').open]), ['running', true]);
+    await page.keyboard.press('Escape');
+    await run(10);
+    assert.equal(await page.evaluate(() => document.querySelector('#t-sheet dialog').open), false);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('wkTask.follow: a resumed task reads Pause again and is announced; an unsafe failure has no Retry hint; disconnect() puts followed controls back; a failed binding is said in words', async () => {
+    const { page, problems, run, said } = await openTasks();
+    await page.evaluate(() => { document.getElementById('tbox').innerHTML = '<button class="wk-button" type="button" id="t-go">Export</button><button class="wk-button" type="button" id="t-two">Two</button>'; });
+    await fakeTasks(page);
+    await page.evaluate(() => {
+      window.sum = kit.wkTask.summary(); document.getElementById('tbox').append(sum);
+      send([snap({ stop: 'pause' })]);
+      window.f = kit.wkTask.follow('t1', { control: document.getElementById('t-go'), expect: 'long' });
+    });
+    await run(500);
+    await page.evaluate(() => send([snap({ stop: 'pause', state: 'paused', words: 'Paused · 3 of 9' })]));
+    await run(10);
+    assert.equal(await page.evaluate(() => document.querySelector('.wk-task-stop').textContent), 'Resume');
+    await run(600);
+    await said();
+    await page.evaluate(() => send([snap({ stop: 'pause', state: 'running', words: 'Exporting' })]));
+    await run(600);
+    assert.equal(await page.evaluate(() => [f.state, document.querySelector('.wk-task-stop').textContent].join()), 'running,Pause');
+    assert.deepEqual(await said(), [['polite', 'Exporting']]);
+    // An unsafe failure: no Retry, so no "Retry is in Tasks."
+    await page.evaluate(() => send([snap({ state: 'failed', words: 'Couldn’t confirm the comment was posted', retry: 'unsafe', error: { code: 'x', userMsg: 'x', message: 'x' } })]));
+    await run(600);
+    assert.deepEqual(await said(), [['polite', 'Couldn’t confirm the comment was posted']]);
+    // disconnect() ends what it follows, quietly.
+    await page.evaluate(() => { send([snap({ id: 't2' })]); window.f2 = kit.wkTask.follow('t2', { control: document.getElementById('t-two') }); });
+    await run(1000);
+    await said();
+    await page.evaluate(() => disconnect());
+    await run(600);
+    assert.deepEqual(await page.evaluate(() => { const b = document.getElementById('t-two'); return [b.getAttribute('aria-disabled'), b.querySelectorAll('.wk-spinner').length, f2.state]; }), [null, 0, 'cancelled']);
+    assert.deepEqual(await said(), []);
+    // A binding that fails is said in words.
+    await fakeTasks(page);
+    await page.evaluate(() => { window.bindings.Stop = async () => { throw new Error('boom'); }; send([snap({ id: 't3', subject: 'a' }), snap({ id: 't4', subject: 'b' })]); kit.wkTask.showList(); });
+    await run(10);
+    await page.$eval('.wk-task-list li[data-id="t3"] button[data-action="stop"]', b => { b.focus(); b.click(); });
+    await run(600);
+    assert.deepEqual(await said(), [['assertive', 'Couldn’t stop the task']]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('task list: the summary names running, queued, paused, stalled and failed apart; it can be disposed, and stops when taken out of the page', async () => {
+    const { page, problems, run } = await openTasks();
+    await fakeTasks(page);
+    await page.evaluate(() => { window.sum = kit.wkTask.summary(); document.getElementById('tbox').append(sum); });
+    const text = () => page.evaluate(() => [sum.hidden, sum.textContent].join('|'));
+    await page.evaluate(() => send([snap({ id: 'a' }), snap({ id: 'b', state: 'paused' })]));
+    await run(10);
+    assert.equal(await text(), 'false|1 task running · 1 paused');
+    await page.evaluate(() => send([snap({ id: 'a', state: 'waiting' }), snap({ id: 'c', state: 'queued' }), snap({ id: 'd', state: 'stalled' }), snap({ id: 'e', state: 'failed' })]));
+    await run(10);
+    assert.equal(await text(), 'false|1 task running · 1 queued · 1 needs you · 1 failed');
+    await page.evaluate(() => sum.remove());
+    await page.evaluate(() => send([snap({ id: 'a' })]));
+    await run(10);
+    await page.evaluate(() => send([snap({ id: 'a' }), snap({ id: 'z' })]));
+    await run(10);
+    assert.equal(await text(), 'false|1 task running · 1 queued · 1 needs you · 1 failed', 'out of the page: it stopped updating');
+    assert.equal(await page.evaluate(() => typeof sum.dispose), 'function');
+    // A summary made but never shown is no task list: a failure doesn't send the person to one.
+    await page.evaluate(() => { kit.wkTask.summary(); kit.wkTask({ words: 'Saving' }).fail({ words: 'Couldn\u2019t save', retry: () => {} }); });
+    await run(600);
+    assert.deepEqual(await page.evaluate(() => window.said.splice(0)), [['polite', 'Couldn\u2019t save']]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('announcer: one element per window; removed with an open modal, it is put back at once with the words it was about to say; moving it clears what was said', async () => {
+    const { page, problems, run } = await openTasks();
+    const heard = async text => (await axTree(page)).some(n => String(n.name?.value ?? '').includes(text));
+    await page.evaluate(() => { window.firstHost = document.querySelector('[data-wk-announcer]'); });
+    // Said, then the sheet opens: it lands in the sheet empty, not saying the old words again.
+    await page.evaluate(() => kit.announce('Before the sheet'));
+    await run(600);
+    await page.evaluate(() => kit.wkTask.showList());
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => { const h = document.querySelector('[data-wk-announcer]'); return [document.querySelector('.wk-task-list').contains(h), h.textContent]; }), [true, '']);
+    await page.keyboard.press('Escape');
+    for (let i = 0; i < 100 && await page.evaluate(() => document.querySelector('.wk-task-list').open); i++) await new Promise(res => setTimeout(res, 20));
+    // A plain modal, words queued, then the modal removed inside the 500 ms.
+    await page.evaluate(() => { const d = document.createElement('dialog'); d.id = 't-rm'; document.body.append(d); d.showModal(); });
+    await run(10);
+    const back = await page.evaluate(async () => {
+      kit.announce('Comment posted');
+      document.getElementById('t-rm').remove();
+      await Promise.resolve();
+      const h = document.querySelector('[data-wk-announcer]');
+      return [h === window.firstHost, h?.parentNode === document.body, document.querySelectorAll('[data-wk-announcer]').length];
+    });
+    assert.deepEqual(back, [true, true, 1], 'the same element, back in <body> in the same task');
+    await run(600);
+    assert.equal(await heard('Comment posted'), true, 'the queued words reach a region in the tree');
+    // Words just said, then their modal removed: set again on the next frame in <body>.
+    await page.evaluate(() => { const d = document.createElement('dialog'); d.id = 't-rm2'; document.body.append(d); d.showModal(); kit.announce('Report exported'); });
+    await run(600);
+    await page.evaluate(async () => { document.getElementById('t-rm2').remove(); await Promise.resolve(); });
+    await run(100);
+    assert.equal(await heard('Report exported'), true);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
 
 if (failures.length) {
