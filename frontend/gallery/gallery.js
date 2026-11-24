@@ -88,7 +88,7 @@ applySize();
 
 // ---- Toolbar ----------------------------------------------------------------
 toolbar.innerHTML = `
-  <h2 class="wk-toolbar-title">Component gallery <span class="wk-toolbar-subtitle" id="gallery-source-words"></span></h2>
+  <p class="wk-toolbar-title">Component gallery <span class="wk-toolbar-subtitle" id="gallery-source-words"></span></p>
   <span class="wk-toolbar-spacer"></span>
   <div class="wk-segmented" role="radiogroup" aria-label="Appearance" id="gallery-appearance">
     <label><input type="radio" name="gallery-appearance" value=""><span>System</span></label>
@@ -208,21 +208,48 @@ const codeBlock = (label, text) => {
   return box;
 };
 
-let cleanups = [];
 // Pending "Try it" runs: tests wait for none to be left.
 window.galleryPending = 0;
-const ctx = {
-  kit,
-  source,
-  // Runs a "Try it" press: the button keeps no state of its own, and the
-  // gallery counts the run until it settles.
-  async track(promise) {
-    window.galleryPending++;
-    try { return await promise; } finally { window.galleryPending--; }
-  },
-  cleanup(fn) { cleanups.push(fn); },
-  later: (ms, fn) => new Promise(resolve => { const t = setTimeout(() => resolve(fn?.()), ms); cleanups.push(() => clearTimeout(t)); }),
-};
+// Runs a "Try it" press: the gallery counts the run until it settles.
+async function track(promise) {
+  window.galleryPending++;
+  try { return await promise; } finally { window.galleryPending--; }
+}
+// What a drawn page's examples get. When the page goes, its waits settle at
+// once (so a run never hangs), any wait asked for afterwards settles at once
+// too, and every task it started is cancelled, with its parts: nothing it
+// started runs on in the task list or the summary.
+function pageContext() {
+  const cleanups = [];
+  const waits = new Set();
+  let alive = true;
+  const own = handle => {
+    cleanups.push(() => handle.cancelled());
+    return new Proxy(handle, { get: (h, key) => (key === 'part' ? spec => own(h.part(spec)) : h[key]) });
+  };
+  return {
+    kit,
+    source,
+    track,
+    get alive() { return alive; },
+    cleanup(fn) { cleanups.push(fn); },
+    later(ms, fn) {
+      if (!alive) return Promise.resolve();
+      return new Promise(resolve => {
+        const settle = () => { clearTimeout(timer); waits.delete(settle); resolve(alive ? fn?.() : undefined); };
+        const timer = setTimeout(settle, ms);
+        waits.add(settle);
+      });
+    },
+    task: spec => own(kit.wkTask(spec)),
+    end() {
+      alive = false;
+      for (const fn of cleanups.splice(0).reverse()) { try { fn(); } catch { /* the page is going */ } }
+      for (const settle of [...waits]) settle();
+    },
+  };
+}
+let ctx = pageContext();
 
 function renderExample(page, ex, index, depth) {
   const id = `${page.id}-ex-${index}`;
@@ -252,7 +279,7 @@ function renderExample(page, ex, index, depth) {
     if (ex.build) await ex.build(specimen, ctx);
     if (ex.after) {
       const done = await ex.after(specimen, ctx);
-      if (typeof done === 'function') cleanups.push(done);
+      if (typeof done === 'function') ctx.cleanup(done);
     }
   } };
 }
@@ -311,10 +338,22 @@ function overview() {
   return article;
 }
 
+// Scrolls the sidebar so its current entry shows. By hand: scrollIntoView
+// moves the sequential focus starting point (Chrome 153), so the first Tab
+// would skip the skip link and the filter.
+function reveal(link) {
+  const top = link.getBoundingClientRect().top - nav.getBoundingClientRect().top + nav.scrollTop;
+  if (top < nav.scrollTop) nav.scrollTop = top;
+  else if (top + link.offsetHeight > nav.scrollTop + nav.clientHeight) nav.scrollTop = top + link.offsetHeight - nav.clientHeight;
+}
+
 let rendering = Promise.resolve();
+// Only "#/…" names a page; any other hash (an in-page link) is left alone.
+const pageHash = () => (/^#\/|^#?$/.test(location.hash) ? location.hash.replace(/^#\/?/, '') : null);
 async function route({ focus = false } = {}) {
-  const hash = location.hash.replace(/^#\/?/, '');
-  for (const fn of cleanups.splice(0)) { try { fn(); } catch { /* the page is going */ } }
+  const hash = pageHash();
+  ctx.end();
+  ctx = pageContext();
   main.replaceChildren();
   main.scrollTop = 0;
   let runs = [];
@@ -347,8 +386,7 @@ async function route({ focus = false } = {}) {
   }
   document.title = `${title} · Component gallery`;
   for (const a of nav.querySelectorAll('a.wk-sidebar-item')) {
-    if (a.getAttribute('href') === `#/${hash}`) { a.setAttribute('aria-current', 'page'); a.scrollIntoView({ block: 'nearest' }); }
-    else a.removeAttribute('aria-current');
+    if (a.getAttribute('href') === `#/${hash}`) { a.setAttribute('aria-current', 'page'); reveal(a); } else a.removeAttribute('aria-current');
   }
   if (focus) document.getElementById('gallery-title').focus({ preventScroll: true });
   for (const run of runs) await run();
@@ -361,5 +399,10 @@ async function go(options) {
   await rendering;
   document.documentElement.dataset.galleryReady = location.hash || '#/';
 }
-window.addEventListener('hashchange', () => go({ focus: true }));
+window.addEventListener('hashchange', () => { if (pageHash() !== null) go({ focus: true }); });
+// The skip link moves focus to the page without changing the address.
+document.querySelector('.gallery-skip').addEventListener('click', e => {
+  e.preventDefault();
+  main.focus();
+});
 await go();

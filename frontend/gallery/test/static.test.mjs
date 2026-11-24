@@ -7,7 +7,9 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { resolve } from '../serve.mjs';
+import { resolve, hostAllowed, createServer, listen } from '../serve.mjs';
+import { symlinkSync, unlinkSync } from 'node:fs';
+import net from 'node:net';
 import { dedent, body } from '../source.js';
 import { parseCard } from '../card.js';
 import { pages, groups } from '../pages/index.js';
@@ -27,7 +29,7 @@ test('the server maps the four packages and the design-system cards, and refuses
   assert.equal(resolve('/diagram/dist/diagram.js'), path.join(frontend, 'diagram', 'dist', 'diagram.js'));
   assert.equal(resolve('/design-system/Button/README.md'), path.join(frontend, '..', 'docs', 'design-system', 'components', 'Button', 'README.md'));
   for (const refused of ['/', '/settings/package.json', '/types/index.ts', '/ui/../../go.mod', '/ui/node_modules/playwright-core/package.json',
-    '/gallery/node_modules/x.js', '/design-system/Button/preview.html', '/design-system/../README.md', '/design-system/a-b/README.md', '/ui\\..\\x', '/package.json']) {
+    '/gallery/node_modules/x.js', '/ui/.gitignore', '/gallery/.env', '/ui/.hidden/x.js', '/design-system/Button/preview.html', '/design-system/../README.md', '/design-system/a-b/README.md', '/ui\\..\\x', '/package.json']) {
     assert.equal(resolve(refused), null, refused);
   }
 });
@@ -94,4 +96,41 @@ test('a design-system card gives its "When to use" and "Do and don\'t" sections'
   assert.deepEqual(parseCard('# X\n\n## Classes\n\n- a\n\n## When to use\n\nOne line\nwraps.\n\n- b\n- c\n'), [
     { title: 'When to use', blocks: [{ kind: 'p', text: 'One line wraps.' }, { kind: 'list', items: ['b', 'c'] }] },
   ]);
+});
+
+test('the server checks the Host header, and serves nothing a symlink takes outside its folders', async () => {
+  assert.equal(hostAllowed('127.0.0.1:5178', 5178), true);
+  assert.equal(hostAllowed('localhost:5178', 5178), true);
+  for (const bad of ['evil.example:5178', '127.0.0.1:5179', '127.0.0.1', 'localhost', undefined, '']) assert.equal(hostAllowed(bad, 5178), false, String(bad));
+  const server = createServer();
+  const origin = await listen(server);
+  const port = new URL(origin).port;
+  const get = (p, host) => new Promise((done, fail) => {
+    const s = net.connect(Number(port), '127.0.0.1', () => s.write(`GET ${p} HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`));
+    let d = '';
+    s.on('data', c => { d += c; });
+    s.on('end', () => done(Number(d.split(' ')[1])));
+    s.on('error', fail);
+  });
+  const link = path.join(here, 'test', 'link-out.txt');
+  try {
+    assert.equal(await get('/gallery/index.html', `127.0.0.1:${port}`), 200);
+    assert.equal(await get('/gallery/index.html', `localhost:${port}`), 200);
+    assert.equal(await get('/gallery/index.html', 'evil.example'), 421);
+    assert.equal(await get('/gallery/index.html', `evil.example:${port}`), 421);
+    assert.equal(await get('/ui/.gitignore', `127.0.0.1:${port}`), 404);
+    symlinkSync(path.join(frontend, '..', 'go.mod'), link);
+    assert.equal(await get('/gallery/test/link-out.txt', `127.0.0.1:${port}`), 404);
+  } finally {
+    try { unlinkSync(link); } catch { /* not made */ }
+    server.close();
+  }
+});
+
+test('Dependabot keeps the gallery\'s and ui\'s playwright-core pins together', () => {
+  const yml = readFileSync(path.join(frontend, '..', '.github', 'dependabot.yml'), 'utf8');
+  const entry = yml.split(/\n  - package-ecosystem: /).find(e => e.includes('/frontend/gallery'));
+  assert.ok(entry, 'no Dependabot entry for /frontend/gallery');
+  assert.match(entry, /directories:\s*\n\s*- \/frontend\/ui\s*\n\s*- \/frontend\/gallery/);
+  assert.match(entry, /playwright:\s*\n\s*patterns:\s*\n\s*- "playwright-core"/);
 });

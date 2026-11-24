@@ -80,11 +80,11 @@ export default [
   ${tryButton('g-busy-fail', 'Failing')}
   <span class="wk-caption" id="g-busy-words" aria-hidden="true"></span>
 </div>`,
-      after(el, { kit, track, later }) {
+      after(el, { task: wkTask, track, later }) {
         const words = el.querySelector('#g-busy-words');
         const run = (button, ms, ok) => button.addEventListener('click', () => {
           words.textContent = '';
-          const task = kit.wkTask({ control: button, words: 'Exporting' });
+          const task = wkTask({ control: button, words: 'Exporting' });
           track(later(ms).then(() => (ok
             ? task.done('Exported').then(() => { words.textContent = 'Exported'; })
             : task.fail({ words: 'Couldn’t export', error: new Error('disk full') }).then(() => { words.textContent = 'Couldn’t export'; }))));

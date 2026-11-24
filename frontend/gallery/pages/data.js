@@ -166,7 +166,7 @@ export default [
   },
   {
     id: 'diagram', title: 'Diagram', group: 'data',
-    intro: '<code>@wails-kit/diagram</code>: Mermaid text drawn with the kit\'s tokens, with pan and zoom (drag, the wheel, or with focus the arrow keys, + and -, and 0 to fit). Mermaid loads on first use. A syntax error and an unsupported type show their error.',
+    intro: '<code>@wails-kit/diagram</code>: each of its six types (<code>diagramTypes</code>), Mermaid text drawn with the kit\'s tokens, with pan and zoom (drag, the wheel, or with focus the arrow keys, + and -, and 0 to fit). Mermaid loads on first use. A syntax error and an unsupported type show their error.',
     examples: [{
       title: 'Flowchart and sequence',
       async build(host) {
@@ -180,13 +180,28 @@ export default [
         await Promise.all([flow.ready, seq.ready]);
       },
     }, {
-      title: 'State, and the errors',
+      title: 'State, class, entity-relationship and Gantt',
       async build(host) {
         const { wkDiagram } = await import('../../diagram/dist/diagram.js');
         const grid = document.createElement('div');
         grid.className = 'g-grid-wide';
         const all = [
           wkDiagram({ id: 'g-state', label: 'Task states', source: 'stateDiagram-v2\n  [*] --> Queued\n  Queued --> Running: start\n  Running --> Done: finish\n  Running --> Failed: error\n  Failed --> Queued: retry\n  Done --> [*]' }),
+          wkDiagram({ id: 'g-class', label: 'Settings model', source: 'classDiagram\n  class Service {\n    +GetValues() map\n    +SetValues(values) error\n  }\n  class Field {\n    +string key\n    +bool advanced\n  }\n  Service "1" *-- "many" Field : schema' }),
+          wkDiagram({ id: 'g-er', label: 'Store', source: 'erDiagram\n  REPO ||--o{ RUN : has\n  RUN ||--|{ JOB : runs\n  RUN {\n    int id\n    string status\n  }' }),
+          wkDiagram({ id: 'g-gantt', label: 'Release plan', source: 'gantt\n  title Release 1.4\n  dateFormat YYYY-MM-DD\n  section Build\n  Diagram package :done, d1, 2026-11-02, 5d\n  Editor package  :active, d2, after d1, 6d\n  section Ship\n  Release         :milestone, after d2, 0d' }),
+        ];
+        grid.append(...all);
+        host.append(grid);
+        await Promise.all(all.map(d => d.ready));
+      },
+    }, {
+      title: 'The errors: a syntax error and an unsupported type',
+      async build(host) {
+        const { wkDiagram } = await import('../../diagram/dist/diagram.js');
+        const grid = document.createElement('div');
+        grid.className = 'g-grid-wide';
+        const all = [
           wkDiagram({ id: 'g-broken', label: 'Broken flowchart', source: 'flowchart LR\n  a --> b\n  b --> --> c' }),
           wkDiagram({ id: 'g-pie', label: 'Pie chart', source: 'pie title Pets\n  "Dogs" : 386\n  "Cats" : 85' }),
         ];

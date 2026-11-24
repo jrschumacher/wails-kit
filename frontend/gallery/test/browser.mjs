@@ -30,8 +30,16 @@ const routes = ['#/', ...pages.map(p => `#/${p.id}`)];
 const watch = () => {
   window.galleryClasses = new Set();
   window.galleryCsp = [];
+  window.galleryDiagrams = [];
   document.addEventListener('securitypolicyviolation', e => window.galleryCsp.push(`${e.violatedDirective} ${e.blockedURI}`));
-  const note = el => { if (el.classList) for (const c of el.classList) window.galleryClasses.add(c); };
+  document.addEventListener('wk-render', e => { if (e.detail?.type) window.galleryDiagrams.push(e.detail.type); }, true);
+  // The gallery's own frame (its sidebar, toolbar, notices and panes) uses
+  // kit classes too; only what the pages draw counts, and <html class="wk-root">.
+  const frame = '#gallery-nav, #gallery-toolbar, #gallery-forced, .gallery-app, .gallery-app > .wk-pane-list, #gallery-main, .gallery-skip';
+  const note = el => {
+    if (!el.classList || (el !== document.documentElement && (el.matches(frame) || el.closest('#gallery-nav, #gallery-toolbar, #gallery-forced')))) return;
+    for (const c of el.classList) window.galleryClasses.add(c);
+  };
   new MutationObserver(records => {
     for (const r of records) {
       if (r.type === 'attributes') note(r.target);
@@ -153,10 +161,13 @@ try {
           code: [...s.querySelectorAll('.gallery-code .wk-code pre')].map(p => p.textContent.length),
         })),
         documentTitle: document.title,
+        firstHeading: document.querySelector('h1, h2, h3, h4, h5, h6')?.id,
       }));
       assert.equal(shown.title, text, href);
       assert.equal(shown.current, href);
       assert.equal(shown.documentTitle, `${text} · Component gallery`);
+      // The page's own h1 is the first heading: the frame has none before it.
+      assert.equal(shown.firstHeading, 'gallery-title', href);
       assert.ok(shown.examples.length > 0, `${href} has no examples`);
       for (const ex of shown.examples) {
         assert.ok(ex.filled, `${href}: an empty example`);
@@ -338,6 +349,74 @@ try {
     assert.equal(await page.isVisible('#gallery-filter-none'), true);
     await page.fill('#gallery-filter', '');
     assert.equal(await page.evaluate(() => document.querySelectorAll('#gallery-nav li[hidden], #gallery-nav [hidden].wk-sidebar-heading').length), 0);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('the skip link moves focus to the page and leaves the address alone', async () => {
+    const { page, problems } = await open('/gallery/#/range');
+    await page.focus('.gallery-skip');
+    await page.keyboard.press('Enter');
+    await until(page, () => document.activeElement?.id === 'gallery-main');
+    assert.equal(new URL(page.url()).hash, '#/range');
+    assert.equal(await page.textContent('#gallery-title'), 'Range');
+    assert.equal(await page.title(), 'Range · Component gallery');
+    // A hash that isn't a page ("#gallery-main" typed in) doesn't route either.
+    await page.evaluate(() => { location.hash = '#gallery-main'; });
+    await page.evaluate(() => new Promise(r => setTimeout(r, 300)));
+    assert.equal(await page.textContent('#gallery-title'), 'Range');
+    assert.ok(await page.$('#g-ranges .wk-range'));
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('leaving a page cancels what its "Try it" started: no task runs on, nothing stays pending', async () => {
+    const { page, problems } = await open('/gallery/#/task');
+    for (const s of ['done', 'long', 'parts', 'queued']) await page.click(`tr[data-scenario="${s}"] [data-gallery-try]`);
+    await until(page, () => document.querySelector('tr[data-scenario="long"] .wk-task-state'));
+    assert.ok(await page.evaluate(() => window.galleryPending) > 0);
+    await go(page, '#/task-list');
+    await settled(page);
+    await until(page, () => document.querySelector('#g-tasks-footer .wk-task-summary')?.hidden === true);
+    await page.click('#g-tasks-open');
+    await until(page, () => document.querySelector('dialog[open]'));
+    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('dialog[open] .wk-task-row')].map(r => r.textContent)), []);
+    await page.keyboard.press('Escape');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('a design-system card is drawn as text: markup in it shows literally', async () => {
+    const page = await browser.newPage();
+    await page.route('**/design-system/Button/README.md', route => route.fulfill({
+      contentType: 'text/markdown',
+      body: '# Button\n\n## When to use\n\n- <img src=x onerror="window.pwned=1"> and **<b>x</b>** and `<i>c</i>`\n\n## Do and don\'t\n\nPlain <script>window.pwned=2</script> text.\n',
+    }));
+    await page.goto(`${origin}/gallery/#/button`);
+    await ready(page, '#/button');
+    await until(page, () => document.querySelectorAll('.gallery-card li').length > 0);
+    const card = await page.evaluate(() => ({
+      item: document.querySelector('.gallery-card li').textContent,
+      para: [...document.querySelectorAll('.gallery-card p')].map(p => p.textContent),
+      images: document.querySelectorAll('.gallery-card img').length,
+      scripts: document.querySelectorAll('.gallery-card script').length,
+      nested: document.querySelectorAll('.gallery-card b b, .gallery-card i').length,
+      bold: document.querySelector('.gallery-card li b')?.textContent,
+      pwned: window.pwned,
+    }));
+    assert.equal(card.item, '<img src=x onerror="window.pwned=1"> and <b>x</b> and <i>c</i>');
+    assert.ok(card.para.includes('Plain <script>window.pwned=2</script> text.'));
+    assert.equal(card.bold, '<b>x</b>');
+    assert.deepEqual([card.images, card.scripts, card.nested, card.pwned], [0, 0, 0, undefined]);
+    await page.close();
+  });
+
+  await check('the Diagram page draws all six diagram types', async () => {
+    const { page, problems } = await open('/gallery/#/diagram');
+    const types = await page.evaluate(async () => [...(await import('/diagram/dist/diagram.js')).diagramTypes]);
+    assert.equal(types.length, 6);
+    const drawn = await page.evaluate(() => [...new Set(window.galleryDiagrams)].sort());
+    assert.deepEqual(drawn, [...types].sort());
     assert.deepEqual(problems, []);
     await page.close();
   });

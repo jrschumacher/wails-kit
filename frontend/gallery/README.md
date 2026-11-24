@@ -27,8 +27,8 @@ dependencies; `npm ci` is only for the tests.
   component (`docs/design-system/components/<Name>/README.md`), the page ends
   with its "When to use" and "Do and don't".
 - **"Try it" buttons** for the behaviour in [`BEHAVIOUR.md`](../ui/BEHAVIOUR.md),
-  with the kit's real timings: a busy button, a bar a task moves, every state of
-  the action lifecycle on a row (quiet wait, working, done, measured progress,
+  with the kit's real timings: a busy button, a bar a task moves, the states of
+  the action lifecycle a page can show in seconds, each on a row (quiet wait, working, done, measured progress,
   long with Stop, paused, waiting, stalled, queued, failed, cancelled, stopped,
   work in parts), the task list and its summary, toasts with and without Undo,
   copy feedback (and a copy that fails), skeleton rows and a loading chart.

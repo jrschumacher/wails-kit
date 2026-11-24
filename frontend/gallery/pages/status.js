@@ -82,12 +82,12 @@ export default [
       note: 'Hidden until 400 ms, indeterminate until the work reports a total, then 1 of 10 to 10 of 10, hidden again at the end.',
       html: `<div class="g-row">${tryButton('g-bar-try', 'Copy 10 files')}</div>
 <div class="g-bars"><div class="g-stack"><div class="wk-progress" role="progressbar" aria-label="Copying files" id="g-bar"></div></div></div>`,
-      after(el, { kit, track, later }) {
+      after(el, { task: wkTask, track, later }) {
         const button = el.querySelector('#g-bar-try');
         const bar = el.querySelector('#g-bar');
         bar.hidden = true;
         button.addEventListener('click', () => track((async () => {
-          const task = kit.wkTask({ control: button, words: 'Copying files', bar });
+          const task = wkTask({ control: button, words: 'Copying files', bar });
           await later(1200);
           for (let n = 1; n <= 10; n++) { task.progress({ done: n, total: 10, unit: 'files' }); await later(250); }
           await task.done('Copied 10 files');
@@ -97,9 +97,9 @@ export default [
   },
   {
     id: 'task', title: 'Task lifecycle', group: 'status',
-    intro: 'Every state of BEHAVIOUR.md\'s action lifecycle, run by <code>wkTask</code> with its real timings on a row\'s state cell. Press a row\'s "Try it". Waiting and the timeout take 30 s and 2 min, so this page calls <code>waiting()</code> itself; each outcome goes to the announcer once.',
+    intro: 'The states of BEHAVIOUR.md\'s action lifecycle that a page can show in seconds, run by <code>wkTask</code> with its real timings on a row\'s state cell. Press a row\'s "Try it". Waiting and the timeout take 30 s and 2 min, so this page calls <code>waiting()</code> itself. Leaving the page cancels whatever is still running.',
     examples: [{
-      title: 'Try it: each state',
+      title: 'Try it: one state per row',
       wide: true,
       html: `<table class="wk-table g-tasks" id="g-tasks">
   <thead><tr><th>State</th><th>The row's state</th><th><span class="wk-visually-hidden">Actions</span></th></tr></thead>
@@ -119,7 +119,7 @@ export default [
     <tr data-scenario="parts"><th scope="row">Work in parts <span class="wk-caption">(one part fails)</span></th><td><span class="g-stack"><span>Reviewer 1</span><span>Reviewer 2</span><span>Reviewer 3</span></span></td><td></td></tr>
   </tbody>
 </table>`,
-      after(el, { kit, track, later }) {
+      after(el, { task: wkTask, track, later }) {
         const scenarios = {
           quick: async t => { await later(200); return t.done('Exported'); },
           done: async t => { await later(2000); return t.done({ words: 'Exported', visible: false }); },
@@ -166,9 +166,8 @@ export default [
             if (name !== 'parts') cell.textContent = 'Ready';
             let ended;
             const end = new Promise(resolve => { ended = resolve; });
-            const task = kit.wkTask({ words: 'Exporting', ...specs[name], control: button, target: name === 'parts' ? undefined : cell, subject: row.querySelector('th').firstChild.textContent.trim(), onEnd: ended });
-            scenarios[name](task, row);
-            track(end);
+            const task = wkTask({ words: 'Exporting', ...specs[name], control: button, target: name === 'parts' ? undefined : cell, subject: row.querySelector('th').firstChild.textContent.trim(), onEnd: ended });
+            track(Promise.all([end, scenarios[name](task, row)]));
           });
         }
       },
@@ -183,12 +182,12 @@ export default [
   <div class="g-window-body g-row">${tryButton('g-tasks-start', 'Start four tasks and show them')}${tryButton('g-tasks-open', 'Open the task list')}</div>
   <footer class="wk-footer-bar" id="g-tasks-footer"></footer>
 </div>`,
-      after(el, { kit, track, later }) {
+      after(el, { kit, task: wkTask, track, later }) {
         const summary = kit.wkTask.summary();
         el.querySelector('#g-tasks-footer').append(summary);
         const start = el.querySelector('#g-tasks-start');
         start.addEventListener('click', () => {
-          const run = (spec, fn) => new Promise(resolve => { const t = kit.wkTask({ ...spec, onEnd: resolve }); fn(t); });
+          const run = (spec, fn) => new Promise(resolve => { const t = wkTask({ ...spec, onEnd: resolve }); fn(t); });
           track(Promise.all([
             run({ words: 'Syncing the shared folder', subject: 'Shared folder', expect: 'long', stop: 'stop' }, t => later(5000).then(() => t.done('Synced'))),
             run({ words: 'Uploading figures.csv', subject: 'figures.csv', expect: 'long', stop: 'pause', onPause: () => true, onResume: () => true }, t => later(300).then(() => t.paused('Paused · 3 of 8 files')).then(() => later(5000)).then(() => t.done('Uploaded'))),
@@ -199,7 +198,7 @@ export default [
               later(4000).then(() => { parts[1].done('Reviewer 2 passed'); parts[2].done('Reviewer 3 passed'); });
             }),
             // The list opens once they have started, to show them running.
-            later(600).then(() => kit.wkTask.showList({ opener: start })),
+            later(600, () => kit.wkTask.showList({ opener: start })),
           ]));
         });
         el.querySelector('#g-tasks-open').addEventListener('click', e => kit.wkTask.showList({ opener: e.currentTarget }));
