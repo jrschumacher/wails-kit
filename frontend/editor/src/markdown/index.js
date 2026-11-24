@@ -11,11 +11,14 @@ import { EditorSelection, EditorState, Compartment, Prec } from '@codemirror/sta
 import { EditorView, keymap } from '@codemirror/view';
 import { StyleModule } from 'style-mod';
 import { createCodeEditor } from '../shared/code-editor.js';
-import { renderMarkdown, renderMarkdownElement, safeUrl, mountPreviewStyles, nestingDepth, MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH } from './render.js';
+import {
+  renderMarkdown, renderMarkdownElement, safeUrl, mountPreviewStyles, markdownLimits,
+  MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH, MAX_MARKDOWN_DELIMITERS,
+} from './render.js';
 import { resolve } from '../shared/languages.js';
 import { editorStyles } from './style-spec.js';
 
-export { renderMarkdown, renderMarkdownElement, MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH };
+export { renderMarkdown, renderMarkdownElement, MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH, MAX_MARKDOWN_DELIMITERS };
 
 const SVG = 'http://www.w3.org/2000/svg';
 const MODES = ['write', 'preview'];
@@ -163,7 +166,8 @@ export function wkMarkdownEditor(spec = {}) {
   let mode = 'write';
   let error = null;
 
-  const root = el('div', { class: 'wk-markdown-editor', id: spec.id || null });
+  // A named group, so focus parked on it (while disabled) has a name.
+  const root = el('div', { class: 'wk-markdown-editor', id: spec.id || null, role: 'group', 'aria-label': label });
   const base = root.id || freshId('wk-markdown-editor');
   const ids = { write: `${base}-write`, preview: `${base}-preview`, count: `${base}-count`, error: `${base}-error` };
 
@@ -184,10 +188,14 @@ export function wkMarkdownEditor(spec = {}) {
     }),
     ];
   };
-  // Markdown highlighting, off while the text nests deeper than the
-  // renderer's limit: Lezer's highlighter recurses per level and overflows
-  // the stack on hostile text (CodeMirror then logs a crashed plugin).
-  const tooDeep = doc => nestingDepth(doc) > MAX_MARKDOWN_DEPTH;
+  // Markdown highlighting, off while the text is past the renderer's depth
+  // or delimiter limit: Lezer's parser and highlighter recurse per level of
+  // nesting and per emphasis run, and overflow the stack on hostile text
+  // (building the editor, setting its value or a paste would throw).
+  const tooDeep = doc => {
+    const { depth, delimiters } = markdownLimits(doc);
+    return depth > MAX_MARKDOWN_DEPTH || delimiters > MAX_MARKDOWN_DELIMITERS;
+  };
   let deep = tooDeep(String(spec.value ?? ''));
   const language = new Compartment();
   const languageFor = () => (deep ? [] : resolve('markdown'));
@@ -291,8 +299,18 @@ export function wkMarkdownEditor(spec = {}) {
     const over = maxLength ? lengthOf(value) - maxLength : 0;
     return over > 0 ? `Shorten this by ${over} character${over === 1 ? '' : 's'}.` : null;
   };
-  function setError(next) {
-    if (next === error) return;
+  // repeat: the same message again (another submit) is announced again: the
+  // live region is emptied, then filled on the next frame.
+  let announce = 0;
+  function setError(next, { repeat = false } = {}) {
+    if (next === error) {
+      if (!repeat || !next) return;
+      errorEl.textContent = '';
+      const turn = ++announce;
+      requestAnimationFrame(() => { if (turn === announce && error === next && !destroyed) errorEl.textContent = next; });
+      return;
+    }
+    announce++;
     error = next;
     errorEl.textContent = next || '';
     refresh();
@@ -332,6 +350,13 @@ export function wkMarkdownEditor(spec = {}) {
       root.tabIndex = -1;
       // The element's own focus(), not the editor's (which focuses the text).
       HTMLElement.prototype.focus.call(root);
+    }
+    // Enabled again: focus parked on the editor goes back to the text, and
+    // the editor leaves the focus order's reach.
+    if (!disabled && root.hasAttribute('tabindex')) {
+      const parked = document.activeElement === root;
+      root.removeAttribute('tabindex');
+      if (parked) view.focus();
     }
   }
   // The busy state lives on the submit controls (BEHAVIOUR.md: aria-disabled
@@ -402,7 +427,7 @@ export function wkMarkdownEditor(spec = {}) {
     if (destroyed || disabled || busy) return false;
     const value = view.state.doc.toString();
     const why = problem(value);
-    setError(why);
+    setError(why, { repeat: true });
     if (why) {
       show('write');
       view.focus();

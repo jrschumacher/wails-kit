@@ -26,6 +26,8 @@ export function renderMarkdownElement(text: string, options?: RenderMarkdownOpti
 export const MAX_MARKDOWN_LENGTH: number;
 /** Text nesting quotes and lists deeper than this renders as its source, in one plain paragraph. */
 export const MAX_MARKDOWN_DEPTH: number;
+/** A paragraph with more emphasis and link delimiters (* _ ~ [ ]) than this makes the text render as its source. */
+export const MAX_MARKDOWN_DELIMITERS: number;
 
 export interface MarkdownEditorAction {
   label: string;

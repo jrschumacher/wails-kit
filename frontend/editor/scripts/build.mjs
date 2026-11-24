@@ -13,8 +13,9 @@
 //                                  read from node_modules, and the entries
 //                                  that load it
 // Usage: node scripts/build.mjs [outDir]  (default: dist). It removes the
-// .js and .d.ts files in outDir that it did not make (stale chunks, removed
-// entries).
+// files an earlier build made that this one did not (stale chunks, a removed
+// entry's module and types), recognised by their first line (madeByBuild),
+// and leaves every other file in outDir alone.
 // test/build.test.mjs builds in memory and checks that the committed dist/
 // matches.
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, unlinkSync } from 'node:fs';
@@ -140,13 +141,25 @@ export async function build() {
   return { files, inputs, imports, loads, packages: [...bundled.keys()].sort() };
 }
 
+// Whether a file in the output folder is one an earlier build made (an old
+// chunk, a removed entry's module or types), which this build may delete: a
+// module whose first line is the build's banner, or a types file whose first
+// line is an entry's types header. Anything else there (an app's own files,
+// when outDir is not dist/) is left alone.
+export function madeByBuild(file) {
+  const name = path.basename(file);
+  if (!/\.(js|d\.ts)$/.test(name)) return false;
+  let first;
+  try { first = readFileSync(file, 'utf8').split('\n', 1)[0]; } catch { return false; }
+  if (name.endsWith('.d.ts')) return /^\/\/ Types for @wails-kit\/editor\/[\w-]+ \(dist\/[\w-]+\.js\)\.$/.test(first);
+  return first.startsWith(`/* ${pkg.name} `) && first.includes(' Built by scripts/build.mjs from src/; do not edit.');
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const out = path.resolve(root, process.argv[2] || 'dist');
   mkdirSync(out, { recursive: true });
   const { files } = await build();
-  // dist/ is the build's own: a module or types file it did not make this
-  // time (an old chunk, a removed entry) goes.
-  for (const old of readdirSync(out)) if (/\.(js|d\.ts)$/.test(old) && !(old in files)) unlinkSync(path.join(out, old));
+  for (const old of readdirSync(out)) if (!(old in files) && madeByBuild(path.join(out, old))) unlinkSync(path.join(out, old));
   for (const [name, text] of Object.entries(files)) writeFileSync(path.join(out, name), text);
   console.log(`built ${Object.keys(files).map(f => `${path.relative(process.cwd(), out) || '.'}/${f}`).join(', ')}`);
 }

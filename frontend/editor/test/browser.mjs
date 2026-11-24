@@ -991,6 +991,83 @@ try {
     assert.deepEqual(problems, []);
     await page.close();
   });
+
+  await check('markdown: hostile emphasis text does not throw from the editor (built with it, set, pasted), in time; under the limit it stays highlighted', async () => {
+    const { page, problems } = await open(MD);
+    const cases = [
+      ['a 40,000-marker run', '*'.repeat(20000) + 'a' + '*'.repeat(20000)],
+      ['nested emphasis pairs', '*a '.repeat(20000)],
+      ['nested strong pairs', '**a '.repeat(15000)],
+      ['nested links', '[a '.repeat(5000) + 'b' + '](x)'.repeat(5000)],
+    ];
+    for (const [label, text] of cases) {
+      for (const how of ['spec', 'setter', 'paste']) {
+        const r = await page.evaluate(async ([v, how]) => {
+          const { wkMarkdownEditor } = await import('/editor/dist/markdown.js');
+          const start = performance.now();
+          try {
+            const ed = wkMarkdownEditor({ label: 'Hostile', value: how === 'spec' ? v : '' });
+            document.getElementById('demo').replaceChildren(ed);
+            if (how === 'setter') ed.value = v;
+            if (how === 'paste') {
+              const c = ed.querySelector('.cm-content');
+              c.focus();
+              const dt = new DataTransfer();
+              dt.setData('text/plain', v);
+              c.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+            }
+            await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+            ed.mode = 'preview';
+            return { length: ed.value.length, source: !!ed.querySelector('.wk-markdown-editor-preview > .wk-markdown-source'), ms: performance.now() - start };
+          } catch (e) { return { threw: String(e).slice(0, 120) }; }
+        }, [text, how]);
+        assert.equal(r.threw, undefined, `${label} (${how}) threw`);
+        assert.deepEqual([r.length, r.source], [text.length, true], `${label} (${how})`);
+        assert.ok(r.ms < 3000, `${label} (${how}): ${Math.round(r.ms)} ms`);
+      }
+    }
+    // Just under the delimiter limit: highlighted in Write, rendered in Preview.
+    const under = await page.evaluate(async () => {
+      const { wkMarkdownEditor, MAX_MARKDOWN_DELIMITERS } = await import('/editor/dist/markdown.js');
+      const n = MAX_MARKDOWN_DELIMITERS / 2;
+      const ed = wkMarkdownEditor({ label: 'Under', value: '*a '.repeat(n) + 'b' + ' a*'.repeat(n) });
+      document.getElementById('demo').replaceChildren(ed);
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const spans = ed.querySelectorAll('.cm-line span').length;
+      ed.mode = 'preview';
+      return { spans, ems: ed.querySelectorAll('.wk-markdown em').length };
+    });
+    assert.ok(under.spans > 0, 'no highlighting under the limit');
+    assert.ok(under.ems > 0, 'no emphasis rendered under the limit');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('markdown: the editor is a named group; focus parked on it while disabled goes back to the text on enable; a repeated error is announced again', async () => {
+    const { page, problems } = await open(MD);
+    const root = await page.evaluate(() => { const r = document.getElementById('demo-comment'); return [r.getAttribute('role'), r.getAttribute('aria-label'), r.getAttribute('tabindex')]; });
+    assert.deepEqual(root, ['group', 'Comment', null]);
+    await page.focus('#demo-comment [data-submit]');
+    await page.evaluate(() => { document.getElementById('demo-comment').disabled = true; });
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'demo-comment');
+    await page.evaluate(() => { document.getElementById('demo-comment').disabled = false; });
+    const back = await page.evaluate(() => ({ text: document.activeElement.matches('#demo-comment .cm-content'), tabindex: document.getElementById('demo-comment').getAttribute('tabindex') }));
+    assert.deepEqual(back, { text: true, tabindex: null });
+    // The same error twice: the region empties and refills, so a screen reader hears it again.
+    await mdSet(page, '');
+    await page.keyboard.press(`${mod}+Enter`);
+    await until(page, () => document.querySelector('#demo-comment .wk-markdown-editor-error').textContent === 'Write something first.');
+    await page.evaluate(() => {
+      window.seen = [];
+      const e = document.querySelector('#demo-comment .wk-markdown-editor-error');
+      new MutationObserver(() => window.seen.push(e.textContent)).observe(e, { childList: true, characterData: true, subtree: true });
+    });
+    await page.keyboard.press(`${mod}+Enter`);
+    await until(page, () => window.seen.length >= 2);
+    assert.deepEqual(await page.evaluate(() => window.seen), ['', 'Write something first.']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
 
 if (failures.length) {

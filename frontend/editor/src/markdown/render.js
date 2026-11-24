@@ -186,41 +186,85 @@ class Builder {
   }
 }
 
-// Limits. marked's lexer recurses for each nested quote, list and emphasis
-// run, so hostile text a few kilobytes long can overflow the stack, and a
-// deeply nested list takes time quadratic in its depth. Text past a limit,
-// or that fails to parse, renders as its source in one plain paragraph.
+// Limits. marked's lexer (and CodeMirror's Markdown parser and highlighter)
+// recurse for each nested quote, list, emphasis run and bracket, so hostile
+// text a few kilobytes long can overflow the stack, and a deeply nested list
+// takes time quadratic in its depth. Text past a limit, or that fails to
+// parse, renders as its source in one plain paragraph.
 /** Longest text rendered as Markdown, in characters (UTF-16 code units). */
 export const MAX_MARKDOWN_LENGTH = 100000;
 /** Deepest nesting of quotes and lists rendered as Markdown. */
 export const MAX_MARKDOWN_DEPTH = 32;
+/** Most emphasis and link delimiters (* _ ~ [ ]) in one paragraph rendered as Markdown. */
+export const MAX_MARKDOWN_DELIMITERS = 2000;
 
-const fence = /^ {0,3}(`{3,}|~{3,})/;
 const container = /^[ \t]*(?:>|[-*+](?=[ \t]|$)|\d{1,9}[.)](?=[ \t]|$))[ \t]?/;
+// A fence opening: three or more backticks (whose info string has none) or tildes.
+const opening = /^( {0,3})(`{3,}|~{3,})(.*)$/;
+const closing = /^[ \t]*(`{3,}|~{3,})[ \t]*$/;
+const columns = ws => ws.replace(/\t/g, '    ').length;
+const leading = line => columns(line.match(/^[ \t]*/)[0]);
 
 /**
- * An upper bound on how deeply a line of the text nests quotes and lists:
- * per line outside fenced code, the quote and list markers it starts with,
- * plus its list indentation (two columns per level). Plain data, for the
- * limit above.
+ * Scans the text for the limits above: { depth, delimiters }, the deepest
+ * nesting of quotes and lists on a line (the markers it starts with, plus
+ * its list indentation at two columns a level) and the most delimiters in
+ * one paragraph, both outside fenced code. Either stops counting once past
+ * its limit. It errs on the high side: where the parser might read a line
+ * as code or not (a fence in a list item that a less indented line ends), it
+ * is counted.
  */
-export function nestingDepth(text) {
-  let max = 0, open = null;
-  for (const line of String(text ?? '').split('\n')) {
-    const f = line.match(fence);
-    if (open) { if (f && f[1][0] === open[0] && f[1].length >= open.length) open = null; continue; }
-    if (f) { open = f[1]; continue; }
-    let rest = line, depth = 0, m;
-    const indent = rest.match(/^[ \t]*/)[0].replace(/\t/g, '    ').length;
-    while ((m = rest.match(container))) {
-      depth++;
-      rest = rest.slice(m[0].length);
-      if (depth > MAX_MARKDOWN_DEPTH) return depth;
+export function markdownLimits(text) {
+  let depth = 0, delimiters = 0, paragraph = 0, fence = null;
+  for (const line of String(text ?? '').split(/\r\n?|\n/)) {
+    if (fence) {
+      const c = line.match(closing);
+      if (c && c[1][0] === fence.char && c[1].length >= fence.length) { fence = null; continue; }
+      // Fenced code ends with its container: a non-blank line less indented
+      // than the fence is read as text again.
+      if (!line.trim() || leading(line) >= fence.column) continue;
+      fence = null;
     }
-    if (depth) depth += Math.floor(indent / 2);
-    if (depth > max) max = depth;
+    if (!line.trim()) { paragraph = 0; continue; }
+    let rest = line, level = 0, m;
+    while ((m = rest.match(container))) {
+      level++;
+      rest = rest.slice(m[0].length);
+      if (level > MAX_MARKDOWN_DEPTH) break;
+    }
+    if (level) level += Math.floor(leading(line) / 2);
+    if (level > depth) depth = level;
+    const f = rest.match(opening);
+    if (f && !(f[2][0] === '`' && f[3].includes('`'))) {
+      fence = { char: f[2][0], length: f[2].length, column: columns(line.slice(0, line.length - rest.length)) + f[1].length };
+      paragraph = 0;
+      continue;
+    }
+    for (let i = 0; i < rest.length; i++) {
+      const ch = rest.charCodeAt(i);
+      // * _ ~ [ ]
+      if (ch === 42 || ch === 95 || ch === 126 || ch === 91 || ch === 93) paragraph++;
+    }
+    if (paragraph > delimiters) delimiters = paragraph;
+    if (depth > MAX_MARKDOWN_DEPTH && delimiters > MAX_MARKDOWN_DELIMITERS) break;
   }
-  return max;
+  return { depth, delimiters };
+}
+
+/** markdownLimits(text).depth. */
+export function nestingDepth(text) {
+  return markdownLimits(text).depth;
+}
+
+/**
+ * Whether the text is past a limit (length, depth or delimiters), so it
+ * renders as its source. The editor uses it to drop Markdown highlighting.
+ */
+export function pastMarkdownLimits(text) {
+  text = String(text ?? '');
+  if (text.length > MAX_MARKDOWN_LENGTH) return true;
+  const { depth, delimiters } = markdownLimits(text);
+  return depth > MAX_MARKDOWN_DEPTH || delimiters > MAX_MARKDOWN_DELIMITERS;
 }
 
 // The text as it is, in one paragraph that keeps its line breaks.
@@ -236,7 +280,8 @@ function asSource(text) {
 /**
  * Markdown text as a DocumentFragment, under the rules above. Put it in an
  * element with the class wk-markdown, which the module styles. It does not
- * throw: text over MAX_MARKDOWN_LENGTH or MAX_MARKDOWN_DEPTH, or that the
+ * throw: text past MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH or
+ * MAX_MARKDOWN_DELIMITERS (see markdownLimits), or that the
  * parser cannot handle, comes back as its source in a plain paragraph
  * (p.wk-markdown-source).
  *
@@ -246,7 +291,7 @@ function asSource(text) {
 export function renderMarkdown(text, options = {}) {
   mountPreviewStyles();
   text = String(text ?? '');
-  if (text.length > MAX_MARKDOWN_LENGTH || nestingDepth(text) > MAX_MARKDOWN_DEPTH) return asSource(text);
+  if (pastMarkdownLimits(text)) return asSource(text);
   try {
     const tokens = Lexer.lex(text, { gfm: true, breaks: false, async: false });
     return new Builder(options).blocks(tokens, document.createDocumentFragment());

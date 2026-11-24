@@ -8,7 +8,7 @@ import { readFileSync, readdirSync, writeFileSync, mkdtempSync, rmSync } from 'n
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { build, root, ENTRIES, CHUNK, STYLE_MOD_PATCH } from '../scripts/build.mjs';
+import { build, root, ENTRIES, CHUNK, STYLE_MOD_PATCH, madeByBuild } from '../scripts/build.mjs';
 
 const built = await build();
 const read = p => readFileSync(path.join(root, p), 'utf8');
@@ -112,11 +112,28 @@ test('dependencies are pinned exactly and locked', () => {
   }
 });
 
-test('the build removes .js and .d.ts files it did not make (an old chunk, a removed entry), and nothing else', () => {
+test('the build removes only files an earlier build made (an old chunk, a removed entry), never foreign files', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'wk-editor-out-'));
+  const banner = built.files['code.js'].split('\n', 1)[0];
   try {
-    for (const stale of ['chunk-OLD00000.js', 'removed.js', 'removed.d.ts', 'keep.txt']) writeFileSync(path.join(dir, stale), 'stale');
+    const files = {
+      // An earlier build's: the banner, or an entry's types header.
+      'chunk-OLD00000.js': `${banner}\nvar x=1;`,
+      'removed.js': `${banner}\nexport{};`,
+      'removed.d.ts': '// Types for @wails-kit/editor/removed (dist/removed.js).\nexport {};',
+      // Not the build's: an app's own files, whatever their names.
+      'app.js': 'export const app = 1;',
+      'app.d.ts': 'export declare const app: number;',
+      'chunk-FOREIGN1.js': 'console.log(1);',
+      'vendor.js': '/* @wails-kit/editor lookalike */',
+      'keep.txt': 'notes',
+    };
+    for (const [name, text] of Object.entries(files)) writeFileSync(path.join(dir, name), text);
     execFileSync(process.execPath, [path.join(root, 'scripts', 'build.mjs'), dir], { cwd: root });
-    assert.deepEqual(readdirSync(dir).sort(), [...Object.keys(built.files), 'keep.txt'].sort());
+    assert.deepEqual(readdirSync(dir).sort(), [...Object.keys(built.files), 'app.js', 'app.d.ts', 'chunk-FOREIGN1.js', 'vendor.js', 'keep.txt'].sort());
+    assert.equal(readFileSync(path.join(dir, 'app.js'), 'utf8'), files['app.js']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+  // The entries' own types files carry the header the check reads.
+  for (const name of ENTRIES) assert.ok(madeByBuild(path.join(root, 'dist', `${name}.d.ts`)), `dist/${name}.d.ts`);
+  for (const name of ENTRIES) assert.ok(madeByBuild(path.join(root, 'dist', `${name}.js`)), `dist/${name}.js`);
 });

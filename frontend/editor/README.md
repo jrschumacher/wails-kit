@@ -62,10 +62,10 @@ Minified, then gzipped, as built from this tree:
 |---|---|---|---|
 | `chunk-*.js` (CodeMirror, Lezer, the theme, the nine languages) | 601 KiB | 208 KiB | both entries |
 | `code.js` | under 1 KiB | under 1 KiB | |
-| `markdown.js` (the editor, the renderer, marked) | 69 KiB | 22 KiB | |
+| `markdown.js` (the editor, the renderer, marked) | 70 KiB | 22 KiB | |
 
 So the code editor costs about 601 KiB (208 KiB gzipped), the Markdown editor
-about 670 KiB (230 KiB), and both together the same 670 KiB: the second editor
+about 671 KiB (230 KiB), and both together the same 671 KiB: the second editor
 adds only its own entry. These are loaded from the app's own files, never the
 network.
 
@@ -285,7 +285,7 @@ It returns a `<div class="wk-markdown-editor">`:
 | `minHeight`, `maxHeight` | CSS lengths, or numbers of pixels: the text grows between them, then scrolls | `100px`, `360px` |
 | `maxLength` | shows `n / max` under the text; past it, the count turns attention-coloured and bold (underlined in forced colours), and submitting says how much to cut | none |
 | `required` | an empty (or blank) text does not submit | `true` |
-| `disabled` | the text is read-only and the toolbar and actions are disabled (a `cancel` action stays usable); the tabs and the preview still work. Disabling while focus is on a toolbar button or an action moves focus to the editor element | `false` |
+| `disabled` | the text is read-only and the toolbar and actions are disabled (a `cancel` action stays usable); the tabs and the preview still work. Disabling while focus is on a toolbar button or an action moves focus to the editor element (a `role="group"` named by `label`); enabling it again moves that focus back to the text | `false` |
 | `actions` | the buttons under it, in order: `{ label, primary?, submit?, cancel?, onclick?(editor) }`. A `submit` action submits, a `cancel` action cancels; the others call `onclick` | none |
 | `onchange(value)` | after each edit, not when the app sets `value` | |
 | `onsubmit(value)` | on submit. Return a promise to keep the submit actions busy until it settles (below) | |
@@ -321,7 +321,7 @@ submitted), `cancel()` and `destroy()` (the element is left empty; then
 | **Mod-K** | link: `[text](url)` with `url` selected to type over; a selected URL becomes the target |
 | toolbar only | bulleted list (`- `) and quote (`> `) on each selected line; again to remove |
 | **Mod-Enter** | submit |
-| **Escape** | cancel, when `oncancel` is set. Not while an input method is composing or a find panel is open (Escape closes the panel first), and not when the same press collapses a selection; from the text, the tabs, the preview, the toolbar or the actions |
+| **Escape** | cancel, when `oncancel` is set. Not while an input method is composing or a find panel is open (Escape closes the panel first), and not when the same press collapses a selection; from the text, the tabs, the preview, the toolbar or the actions. It calls `preventDefault()` but does not stop propagation, so an outer listener sees the key with `defaultPrevented` set. It cancels while a submit is pending too: the app decides what that means for the request in flight |
 
 Mod is Cmd on macOS, Ctrl elsewhere. The toolbar's buttons carry the keys in
 `aria-keyshortcuts` and their `title`. The code editor's keys (find, undo) work
@@ -354,6 +354,16 @@ view can insert one under a line and remove it again: create it with
 `focus()` once it is in the document, post in `onsubmit`, and `destroy()` it
 on cancel or when the thread closes. A posted comment's body is
 `renderMarkdownElement(body, { onlink })`.
+
+Two things to know when the diff view handles keys itself:
+
+- **Escape** in the editor calls `preventDefault()` and does not stop
+  propagation (with `oncancel` set). A diff-level Escape handler (closing a
+  thread, leaving a hunk) should skip a keydown whose `defaultPrevented` is
+  set, or the press would act twice.
+- **Escape cancels while a submit is pending.** The submit actions are busy,
+  but `oncancel` still runs: abort the request, or keep the box until it
+  settles, as the app needs.
 
 ### Classes
 
@@ -425,15 +435,27 @@ Named character references cover the common ones (`&amp;`, `&copy;`,
 `&mdash;`, …) and every numeric one; an unknown name shows as written.
 
 **Limits.** `renderMarkdown` never throws. marked's parser recurses for
-each nested quote, list and emphasis run, so a few kilobytes of hostile text
-can overflow the stack, and deep lists take time quadratic in their depth.
-Text longer than `MAX_MARKDOWN_LENGTH` (100,000 characters), nesting quotes
-and lists deeper than `MAX_MARKDOWN_DEPTH` (32 levels, counted per line
-outside fenced code, from the quote and list markers it starts with and its
-indentation), or that the parser fails on, renders as its source: one
-`<p class="wk-markdown-source">` that keeps its line breaks. Both limits are
-exported. The editor's Write tab drops Markdown highlighting while the text
-nests past the same depth, since CodeMirror's highlighter recurses too.
+each nested quote, list, emphasis run and bracket, so a few kilobytes of
+hostile text can overflow the stack, and deep lists take time quadratic in
+their depth. A quick scan (`markdownLimits`, outside fenced code) checks
+three limits first, and text past any of them renders as its source, one
+`<p class="wk-markdown-source">` that keeps its line breaks, without reaching
+the parser:
+
+| Limit | | Value |
+|---|---|---|
+| `MAX_MARKDOWN_LENGTH` | characters (UTF-16 code units) in the text | 100,000 |
+| `MAX_MARKDOWN_DEPTH` | nesting of quotes and lists on a line: the quote and list markers it starts with, plus its list indentation at two columns a level | 32 |
+| `MAX_MARKDOWN_DELIMITERS` | emphasis and link delimiters (`*`, `_`, `~`, `[`, `]`) in one paragraph | 2,000 |
+
+The scan reads fences as CommonMark does (a backtick fence's info string has
+no backtick; `\r\n`, `\r` and `\n` end lines) and errs on the high side: a
+fence in a list item or quote stops hiding its lines at the first line less
+indented than the fence. Text the parser still fails on renders as its source
+too. The limits are exported. The editor's Write tab drops Markdown
+highlighting while the text is past the depth or delimiter limit, since
+CodeMirror's Markdown parser and highlighter recurse too (without this,
+building the editor with such text, setting it or pasting it would throw).
 
 ## Layout
 
@@ -456,7 +478,7 @@ esbuild puts the code entries share into `dist/chunk-*.js`.
 
 ```sh
 npm ci
-npm run build          # after any change in src/ or a dependency update (removes .js and .d.ts files it did not make)
+npm run build          # after any change in src/ or a dependency update (removes the files an earlier build made that this one did not)
 npm test               # static checks and the build check: node --test
 npm run test:browser   # the editor in Chrome
 ```

@@ -31,7 +31,7 @@ class Text {
 }
 // Imported before the fake document exists, so CodeMirror loads as it does
 // in node; the renderer reads the global document when it builds.
-const { renderMarkdown, renderMarkdownElement, safeUrl, decodeEntities, nestingDepth, MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH } = await import('../src/markdown/render.js');
+const { renderMarkdown, renderMarkdownElement, safeUrl, decodeEntities, nestingDepth, markdownLimits, pastMarkdownLimits, MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH, MAX_MARKDOWN_DELIMITERS } = await import('../src/markdown/render.js');
 globalThis.document = {
   createElement: tag => new Node(tag),
   createTextNode: t => new Text(t),
@@ -232,6 +232,56 @@ test('nesting deeper than MAX_MARKDOWN_DEPTH renders as its source at once; shal
   const fenced = '```yaml\n' + list(100).replace(/- /g, '- ') + '\n```\n\nafter';
   assert.equal(nestingDepth(fenced), 0);
   assert.equal(render(fenced).all(n => n.tag === 'pre').length, 1);
+});
+
+test('emphasis and bracket runs past MAX_MARKDOWN_DELIMITERS render as their source at once, without reaching the parser', () => {
+  for (const [label, text] of [
+    ['a 40,000-marker run', '*'.repeat(20000) + 'a' + '*'.repeat(20000)],
+    ['a 99,999-marker run', '*'.repeat(49999) + 'a' + '*'.repeat(49999)],
+    ['20,000 nested emphasis pairs', '*a '.repeat(20000)],
+    ['15,000 nested strong pairs', '**a '.repeat(15000)],
+    ['alternating markers', '*_'.repeat(20000) + 'a' + '_*'.repeat(20000)],
+    ['nested links', '[a '.repeat(5000) + 'b' + '](x)'.repeat(5000)],
+  ]) {
+    // About 1.5 s in marked before it overflowed; the scan refuses it first.
+    const f = timed(250, label, () => render(text));
+    assert.ok(f.html.startsWith(SOURCE), label);
+    assert.equal(f.textContent, text);
+  }
+  // Under the limit, in one paragraph, it is still Markdown; the count is per paragraph.
+  const under = '*a* '.repeat(MAX_MARKDOWN_DELIMITERS / 2);
+  assert.equal(render(under).all(n => n.tag === 'em').length, MAX_MARKDOWN_DELIMITERS / 2);
+  const paragraphs = Array.from({ length: 4 }, () => '*a* '.repeat(MAX_MARKDOWN_DELIMITERS / 4)).join('\n\n');
+  assert.equal(markdownLimits(paragraphs).delimiters, MAX_MARKDOWN_DELIMITERS / 2);
+  assert.equal(pastMarkdownLimits(paragraphs), false);
+  assert.equal(pastMarkdownLimits(`${under} *`), true);
+  // Fenced code does not count (Python's __dunders__, say).
+  assert.equal(markdownLimits('```py\n' + '__init__ '.repeat(1000) + '\n```').delimiters, 0);
+});
+
+test('the limits scan cannot be dodged by text the parser does not read as fenced code', () => {
+  const quotes = '>'.repeat(20000) + ' x';
+  for (const [label, text] of [
+    // CommonMark: a backtick fence's info string has no backtick, so this is a paragraph.
+    ['a backtick in the info string', '```x`\n' + quotes],
+    ['CR line endings', '```\r```\r' + quotes],
+    ['CRLF line endings', '```\r\n```\r\n' + quotes],
+    // A fence in a list item ends with the item: the quotes are top-level text.
+    ['a fence in a list item', '- a\n  ```\n' + quotes],
+    ['a fence after a list marker', '- ```\n' + quotes],
+    ['a fence in a quote', '> ```\n' + quotes],
+  ]) {
+    assert.ok(nestingDepth(text) > MAX_MARKDOWN_DEPTH, `${label}: depth ${nestingDepth(text)}`);
+    const f = timed(500, label, () => render(text));
+    assert.ok(f.html.startsWith(SOURCE), label);
+  }
+  // A real fence still hides its content, tildes and longer fences included.
+  // (A fence line with an info string does not close one: the quotes below are still code.)
+  for (const text of ['```\n' + quotes + '\n```', '~~~~\n' + quotes + '\n~~~~', '```js\r\n' + quotes + '\r\n```', '```\n```x\n' + quotes + '\n```']) {
+    assert.equal(nestingDepth(text), 0, JSON.stringify(text.slice(0, 8)));
+  }
+  // Fenced code indented in a list item stays code while its lines keep the indent.
+  assert.equal(nestingDepth('- a\n\n  ```yaml\n' + Array.from({ length: 40 }, (_, i) => `  ${'  '.repeat(i)}- k`).join('\n') + '\n  ```'), 1);
 });
 
 test('text longer than MAX_MARKDOWN_LENGTH renders as its source', () => {
