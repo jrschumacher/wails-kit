@@ -5,7 +5,7 @@
 import { wkCodeEditor, highlighter, languages } from '../dist/code.js';
 
 const themed = document.body.dataset.demo === 'themed';
-const pages = [['index.html', 'Neutral'], ['themed.html', 'Example theme']];
+const pages = [['index.html', 'Neutral'], ['themed.html', 'Example theme'], ['markdown.html', 'Markdown editor']];
 const here = location.pathname.split('/').pop() || 'index.html';
 const other = pages.filter(([href]) => href !== here).map(([href, text]) => `<a class="wk-link" href="${href}">${text}</a>`).join('');
 

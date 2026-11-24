@@ -4,6 +4,7 @@ export type {
   DynamicOptions,
   Condition,
   Validation,
+  Check,
   Field,
   Group,
   Schema,
@@ -11,20 +12,26 @@ export type {
 
 export {
   SettingsChanged,
+  SettingsCheckFailed,
   UpdateAvailable,
   UpdateDownloading,
   UpdateReady,
   UpdateError,
   TasksChanged,
+  DesktopShowTasks,
+  DesktopQuitPending,
 } from "./events";
 
 export type {
   SettingsChangedPayload,
+  SettingsCheckFailedPayload,
   UpdateAvailablePayload,
   UpdateDownloadingPayload,
   UpdateReadyPayload,
   UpdateErrorPayload,
   TasksChangedPayload,
+  DesktopShowTasksPayload,
+  DesktopQuitPendingPayload,
   EventMap,
 } from "./events";
 

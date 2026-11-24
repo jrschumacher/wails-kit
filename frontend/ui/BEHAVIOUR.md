@@ -407,8 +407,9 @@ Never put an error a person must act on in a toast: it disappears.
 
 ## Desktop
 
-A desktop app has places to show work that a web page doesn't. All of these are
-*planned* for the kit's Go side and frontend.
+A desktop app has places to show work that a web page doesn't. The kit's Go
+[`desktop`](../../desktop/README.md) package does these, following the Go tasks service;
+increased contrast is in the tokens.
 
 - **Window not focused:** long work (over 10 s) that finishes or fails sends one
   system notification, as a sentence ("Export finished.", "Export failed while
@@ -421,7 +422,7 @@ A desktop app has places to show work that a web page doesn't. All of these are
   in a window that isn't in front goes unseen.
 - **Taskbar and Dock:**
   - Windows: progress on the taskbar button in the Normal and Indeterminate states.
-    Wails doesn't expose it; the kit will call `ITaskbarList3` itself. Error (red)
+    Wails doesn't expose it; the kit calls `ITaskbarList3` itself. Error (red)
     only for a failure that needs the person, cleared when the window is focused; set
     the value to full first, because Error over Indeterminate draws a made-up
     percentage. Never Paused, which draws yellow; show paused work in the window's
@@ -447,8 +448,9 @@ A desktop app has places to show work that a web page doesn't. All of these are
   on failure keeps the old data and offers to copy diagnostics. Windows reopen at
   their last size and position (the kit's `state` package).
 - **System appearance:** follow it live, including reduced motion and increased
-  contrast, without a restart. Appearance and reduced motion are followed today;
-  increased contrast isn't yet.
+  contrast, without a restart. Under increased contrast (`prefers-contrast: more`)
+  the tokens mix lines, outlines, secondary text and tints from the theme's text and
+  bg, so they're stronger in any theme.
 - **Sound:** none, except an optional completion sound for very long (over 2 min),
   infrequent, important work, and then the system's.
 
@@ -567,9 +569,6 @@ indicator.
 - App undo and redo in `shortcuts`: a stack, the menu item's label ("Undo Archive")
   and state, text fields first.
 - Copy behaviour and feedback for `wk-copy`.
-- Desktop: notifications for background work, Windows taskbar progress, the badge,
-  quit-while-running, sleep and wake, the launch background per theme, increased
-  contrast.
 - The Sheet card notes that while it holds work, the first Esc cancels the work (the
   `<dialog>`'s `cancel` event is prevented) and a second closes it.
 
@@ -580,16 +579,16 @@ Where shipped code doesn't yet follow this page:
 - The diff view's "Show more" button sets `disabled` while loading, which drops focus,
   and each hunk has its own `aria-live` note instead of the shared announcer.
 - The diff's review comments announce outcomes ("Comment posted", "Couldn't post the
-  comment") through a polite region of their own, not the shared announcer. Escape in a
-  comment box discards its draft with no Undo, and Resolve shows no busy state while
-  the app works.
-- The settings window validates on `change` only: it doesn't re-check as the person
-  types once a field shows an error, and it has no pending state for a field whose
-  check is still running. It marks a tab with attention but shows no window Notice
-  ("2 settings need attention."), and an empty required setting shows its error only
-  after the app passes errors in, not when the window opens.
+  comment") through a polite region of their own, not the shared announcer, and Escape
+  in a comment box discards its draft with no Undo.
 - `wk-copy` is styling only: the app copies, and nothing gives feedback.
+- The Markdown editor (`@wails-kit/editor/markdown`) marks its submit button busy at
+  once while `onsubmit`'s promise is pending, with no 400 ms indicator and nothing sent
+  to the announcer; it waits for `wkTask`.
 - The design system's Button card documents `disabled` and the locked state, but no
   busy state; the kit's README documents it.
+- On Windows, Wails's question dialog offers only Yes and No, so the `desktop`
+  package's own quit question there has no Quit When Done; an app that wants it sets
+  its own `Asker` (a sheet in the window).
 - `shortcuts` adds Edit > Undo only as the native role, which undoes text editing; an
   app can't yet label it or route it to its own undo.

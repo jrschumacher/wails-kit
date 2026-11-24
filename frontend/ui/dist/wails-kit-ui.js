@@ -2616,15 +2616,22 @@ export function dependentResets(schema, key, values) {
   return out;
 }
 
+/** A required field the person must fill: visible, not a toggle or computed, and empty. */
+const emptyRequired = (field, value) => Boolean(field.validation?.required) && field.type !== 'toggle' && field.type !== 'computed' && (value == null || value === '');
+
 /**
  * What the window shows for a schema, its values and the errors to show:
- *   { groups: [{ key, label, attention, rows, advanced }] }
+ *   { groups: [{ key, label, attention, rows, advanced }], attention }
  * rows and advanced hold one row per field, in schema order (advanced holds
  * the fields marked advanced): { key, type, label, description, placeholder,
  * visible, value, text, options, missing, disabled, error, min, max,
  * required }. attention is true when a visible field in the group has an
  * error. A select whose value is not among its options has missing: true; a
  * select with no options is disabled.
+ * A visible required field that is empty shows "<label> is required" (as
+ * settings.Validate words it) when no error is given for it, so the window
+ * marks it from the moment it opens. The model's attention is the number of
+ * visible fields with an error, for the window's Notice.
  */
 export function settingsModel(schema, values = {}, errors = []) {
   const byField = errorsByField(errors);
@@ -2646,7 +2653,7 @@ export function settingsModel(schema, values = {}, errors = []) {
         options: null,
         missing: false,
         disabled: false,
-        error: visible ? byField.get(field.key) ?? null : null,
+        error: visible ? byField.get(field.key) ?? (emptyRequired(field, value) ? `${field.label || field.key} is required` : null) : null,
         min: v.min ?? null,
         max: v.max ?? null,
         required: Boolean(v.required),
@@ -2661,7 +2668,8 @@ export function settingsModel(schema, values = {}, errors = []) {
     const attention = [...rows, ...advanced].some(r => r.error);
     return { key: group.key, label: group.label || group.key, attention, rows, advanced };
   });
-  return { groups };
+  const attention = groups.reduce((n, g) => n + [...g.rows, ...g.advanced].filter(r => r.error).length, 0);
+  return { groups, attention };
 }
 
 // ---- settings.js ----
@@ -2680,14 +2688,36 @@ export function settingsModel(schema, values = {}, errors = []) {
 //   computed  read-only text
 //
 // Data in through properties: schema, values, errors (settings.ValidationError[]
-// from SetValues), icons ({ groupKey: svg markup or a Node }) and validate (an
-// optional (schema, values) => errors, such as @wails-kit/settings' validate).
-// Data out through one bubbling event, wk-settings-change, fired when a control
-// commits a value: detail { key, value, values, errors }. values holds every
-// field; errors is what validate returned ([] without it). The app saves
-// (SetValues) and sets errors from the reply.
+// from SetValues), icons ({ groupKey: svg markup or a Node }), validate (an
+// optional (schema, values) => errors, such as @wails-kit/settings' validate)
+// and check (an optional (key, values) => Promise<errors>, the app's
+// settings.Service.CheckValue binding, for fields with a back-end check).
+// Data out through one bubbling event, wk-settings-change, fired when a value
+// applies: detail { key, value, values, errors, checked }. values holds every
+// field; errors is what validate returned ([] without it); checked is true
+// when the value passed a back-end check, which has already saved it. The app
+// saves the rest (SetValues) and sets errors from the reply.
+//
+// Validation timing follows BEHAVIOUR.md's "Forms and validation": a field is
+// checked when it commits (change), and once it shows an error it is
+// re-checked on every keystroke, so the error clears as soon as it's fixed. A
+// field with a back-end check applies only once the check passes: its words
+// ("Checking token…") show beside it after 400 ms and stay at least 500 ms;
+// once it shows an error, the check runs again 500 ms after typing stops.
+// Typing is never blocked. An empty required field shows its error from the
+// moment the window opens, and the window's Notice counts the fields that need
+// attention ("2 settings need attention.").
 let settingsSeq = 0;
 const SETTINGS_EVENT = 'wk-settings-change';
+const CODE_CHECK = 'check';
+const CODE_REQUIRED = 'required';
+const TYPED = new Set(['text', 'password', 'number']);
+// A label mid-sentence: its first letter lowercased unless its first word has
+// other capitals ("API key", "GitHub token"), as the Go settings package does.
+const inSentence = label => {
+  const first = label.split(/\s/)[0];
+  return /^\p{Lu}/u.test(first) && !/\p{Lu}/u.test(first.slice(1)) ? label[0].toLowerCase() + label.slice(1) : label;
+};
 const make = (tag, cls, text) => {
   const el = document.createElement(tag);
   if (cls) el.className = cls;
@@ -2700,7 +2730,17 @@ class WkSettings extends HTMLElement {
   constructor() {
     super();
     this.idPrefix = `wk-settings-${++settingsSeq}`;
-    this.state = { schema: null, values: {}, errors: [], icons: {}, validate: null };
+    this.state = { schema: null, values: {}, errors: [], icons: {}, validate: null, check: null };
+    // drafts: key -> the text a control holds that hasn't applied (being
+    // re-checked as typed, or waiting on or failed by its back-end check).
+    // live: keys re-checked as typed, from when they show an error until a
+    // value applies with none. checks: key -> the back-end check running.
+    this.drafts = new Map();
+    this.live = new Set();
+    this.checks = new Map();
+    this.rechecks = new Map();
+    this.noticeTimer = null;
+    this.noticeCount = 0;
     this.rowsByKey = new Map();
     this.fieldsByKey = new Map();
     this.tabsByGroup = new Map();
@@ -2715,16 +2755,50 @@ class WkSettings extends HTMLElement {
   set schema(schema) { this.state.schema = schema || null; this.render(); }
 
   get values() { return { ...this.state.values }; }
-  set values(values) { this.state.values = { ...(values || {}) }; this.sync(); }
+  set values(values) {
+    const next = { ...(values || {}) };
+    // A field whose value the app changes drops what the window kept for it:
+    // the person's unapplied text and a check's failure, both about another value.
+    for (const key of new Set([...Object.keys(next), ...Object.keys(this.state.values)])) {
+      if (Object.is(next[key], this.state.values[key])) continue;
+      this.drafts.delete(key);
+      this.live.delete(key);
+      this.state.errors = this.state.errors.filter(e => !(e.field === key && e.code === CODE_CHECK));
+    }
+    this.state.values = next;
+    this.sync();
+  }
 
   get errors() { return [...this.state.errors]; }
-  set errors(errors) { this.state.errors = Array.isArray(errors) ? [...errors] : []; this.sync(); }
+  set errors(errors) {
+    const next = Array.isArray(errors) ? [...errors] : [];
+    // A failed back-end check stays on its field until that field commits or
+    // is checked again, unless these errors say something new about it.
+    const failed = this.state.errors.filter(e => e.code === CODE_CHECK && !next.some(n => n.field === e.field));
+    this.state.errors = [...next, ...failed];
+    this.sync();
+  }
 
   get icons() { return this.state.icons; }
   set icons(icons) { this.state.icons = icons || {}; this.render(); }
 
   get validate() { return this.state.validate; }
   set validate(fn) { this.state.validate = typeof fn === 'function' ? fn : null; }
+
+  get check() { return this.state.check; }
+  set check(fn) { this.state.check = typeof fn === 'function' ? fn : null; }
+
+  /** Shows a field: selects its tab, opens Advanced if it's there, and focuses its control. False when the field isn't shown. */
+  reveal(key) {
+    const parts = this.rowsByKey.get(key);
+    if (!parts || parts.row.hidden) return false;
+    const pane = parts.row.closest('.wk-settings-pane');
+    const tabs = this.querySelector(':scope > wk-tabs');
+    if (tabs && pane) tabs.selectedIndex = [...this.tabsByGroup.values()].findIndex(t => t.getAttribute('aria-controls') === pane.id);
+    if (parts.row.closest('[hidden]') && pane) this.expand(pane.dataset.group, true);
+    parts.control.focus();
+    return true;
+  }
 
   idFor(key, part) { return `${this.idPrefix}-${String(key).replace(/[^\w-]/g, '_')}-${part}`; }
 
@@ -2733,6 +2807,14 @@ class WkSettings extends HTMLElement {
     const schema = this.state.schema;
     this.replaceChildren();
     this.rowsByKey.clear(); this.fieldsByKey.clear(); this.tabsByGroup.clear(); this.advancedByGroup.clear();
+    for (const run of this.checks.values()) clearTimeout(run.timer);
+    for (const timer of this.rechecks.values()) clearTimeout(timer);
+    this.checks.clear(); this.rechecks.clear(); this.drafts.clear(); this.live.clear();
+    clearTimeout(this.noticeTimer);
+    this.noticeCount = 0;
+    // The window's Notice: a polite region, empty until a field needs attention.
+    this.notice = make('div', 'wk-settings-status');
+    this.notice.setAttribute('role', 'status');
     this.built = Boolean(schema);
     if (!schema) return;
     const model = settingsModel(schema, this.state.values, this.state.errors);
@@ -2745,6 +2827,7 @@ class WkSettings extends HTMLElement {
     }
     const panes = model.groups.map(g => this.pane(g, model.groups.length === 1));
     if (model.groups.length === 1) {
+      panes[0].querySelector(':scope > .wk-settings-heading').after(this.notice);
       this.append(panes[0]);
     } else {
       const tabs = document.createElement('wk-tabs');
@@ -2766,7 +2849,7 @@ class WkSettings extends HTMLElement {
         list.append(tab);
         this.tabsByGroup.set(g.key, tab);
       });
-      tabs.append(list, ...panes);
+      tabs.append(list, this.notice, ...panes);
       this.append(tabs);
     }
     this.sync();
@@ -2869,33 +2952,205 @@ class WkSettings extends HTMLElement {
     if (r.type !== 'computed') {
       control.addEventListener('change', () => this.commit(field, r.type === 'toggle' ? control.checked : control.value));
     }
+    if (TYPED.has(r.type)) control.addEventListener('input', () => this.typed(field, control.value));
+    // A back-end check's words: a polite region, empty until the check has
+    // run for timings.indicatorDelay, then a small spinner and the words.
+    let pending = null;
+    if (field?.check) {
+      pending = make('p', 'wk-settings-pending');
+      pending.id = this.idFor(r.key, 'pending');
+      pending.setAttribute('role', 'status');
+      row.append(pending);
+    }
     row.append(error);
-    this.rowsByKey.set(r.key, { row, control, error, helpId: r.description ? helpId : null, options: null });
+    this.rowsByKey.set(r.key, { row, control, error, pending, helpId: r.description ? helpId : null, options: null });
     return row;
   }
 
+  // A control committed a value (change). A field with a back-end check runs
+  // it; any other applies at once.
   commit(field, raw) {
+    const key = field.key;
+    clearTimeout(this.rechecks.get(key));
+    this.rechecks.delete(key);
+    // Every value of a checked field goes through the check, an empty one
+    // included: the back end saves it (and drops a recorded failure) without
+    // checking it.
+    if (field.check && this.state.check) { this.runCheck(field, raw); return; }
+    this.drafts.delete(key);
+    this.apply(field, readValue(field, raw));
+  }
+
+  apply(field, value, { checked = false } = {}) {
+    const key = field.key;
     const values = this.state.values;
-    values[field.key] = readValue(field, raw);
-    Object.assign(values, dependentResets(this.state.schema, field.key, values));
+    values[key] = value;
+    Object.assign(values, dependentResets(this.state.schema, key, values));
     let errors = [];
+    // A back-end check's failure stays on its field until that field commits or is checked again.
+    const failed = this.state.errors.filter(e => e.code === CODE_CHECK && e.field !== key);
     if (this.state.validate) {
       errors = this.state.validate(this.state.schema, { ...values }) || [];
-      this.state.errors = [...errors];
+      this.state.errors = [...errors, ...failed.filter(e => !errors.some(n => n.field === e.field))];
     } else {
       // The app's errors stay until it sets new ones, except on the field just changed.
-      this.state.errors = this.state.errors.filter(e => e.field !== field.key);
+      this.state.errors = this.state.errors.filter(e => e.field !== key);
     }
+    if (!this.shownErrors().has(key)) this.live.delete(key);
     this.sync();
-    this.dispatchEvent(new CustomEvent(SETTINGS_EVENT, { bubbles: true, detail: { key: field.key, value: values[field.key], values: { ...values }, errors: [...errors] } }));
+    this.dispatchEvent(new CustomEvent(SETTINGS_EVENT, { bubbles: true, detail: { key, value: values[key], values: { ...values }, errors: [...errors], checked } }));
+  }
+
+  // The person typed in a field. Once it shows an error, re-check it now
+  // with the draft, and its back-end check 500 ms after typing stops.
+  typed(field, raw) {
+    const key = field.key;
+    if (this.shownErrors().has(key)) this.live.add(key);
+    if (this.rowsByKey.get(key)?.pending?.hasAttribute('data-outcome')) this.showPending(key, null);
+    if (!this.live.has(key)) return;
+    this.drafts.set(key, raw);
+    const own = this.ownErrors(field, raw);
+    const kept = own.length ? [] : this.state.errors.filter(e => e.field === key && e.code === CODE_CHECK);
+    const appKept = this.state.validate ? [] : this.state.errors.filter(e => e.field === key && e.code !== CODE_CHECK && e.code !== CODE_REQUIRED);
+    this.state.errors = [...this.state.errors.filter(e => e.field !== key), ...own, ...appKept, ...kept];
+    // The field and its tab follow each keystroke; the window's Notice waits
+    // until typing stops, so its count doesn't flicker or announce per key.
+    this.sync({ notice: false });
+    clearTimeout(this.noticeTimer);
+    this.noticeTimer = setTimeout(() => this.updateNotice(), timings.recheckDelay);
+    clearTimeout(this.rechecks.get(key));
+    this.rechecks.delete(key);
+    // A checked field goes to the back end once typing stops: a valid draft
+    // to be checked, an invalid one so a check of an earlier value can't save it.
+    if (field.check && this.state.check) {
+      this.rechecks.set(key, setTimeout(() => { this.rechecks.delete(key); this.runCheck(field, raw); }, timings.recheckDelay));
+    }
+  }
+
+  // The field's own errors with this draft: validate's, else none (the model
+  // marks an empty required field itself).
+  ownErrors(field, raw) {
+    if (!this.state.validate) return [];
+    const values = { ...this.state.values, [field.key]: readValue(field, raw) };
+    return (this.state.validate(this.state.schema, values) || []).filter(e => e.field === field.key);
+  }
+
+  // Runs a field's back-end check on raw. The value applies only if it
+  // passes; until then the control keeps the person's text and typing goes on.
+  runCheck(field, raw) {
+    const key = field.key;
+    const value = readValue(field, raw);
+    const values = { ...this.state.values, [key]: value };
+    Object.assign(values, dependentResets(this.state.schema, key, values));
+    this.drafts.set(key, raw);
+    const prior = this.checks.get(key);
+    if (prior) clearTimeout(prior.timer);
+    const own = this.ownErrors(field, raw);
+    const label = field.label || key;
+    if (prior?.shownAt == null) this.showPending(key, null);
+    if (own.length) {
+      this.checks.delete(key);
+      this.showPending(key, null);
+      this.state.errors = [...this.state.errors.filter(e => e.field !== key), ...own];
+      this.live.add(key);
+      this.sync();
+      // Still tell the back end: the value it may be checking was abandoned,
+      // so an older check that passes mustn't save it. CheckValue validates
+      // the field first, overtakes that check, and saves nothing; its reply
+      // repeats the errors shown, so it is ignored.
+      Promise.resolve().then(() => this.state.check(key, values)).catch(() => {});
+      return;
+    }
+    const run = { raw, value, timer: null, shownAt: null };
+    this.checks.set(key, run);
+    // Keep the indicator a run already shows; else show it after 400 ms.
+    if (prior?.shownAt != null) run.shownAt = prior.shownAt;
+    else run.timer = setTimeout(() => { run.shownAt = Date.now(); this.showPending(key, field.check.pending || 'Checking…'); }, timings.indicatorDelay);
+    this.sync();
+    Promise.resolve()
+      .then(() => this.state.check(key, values))
+      .then(errs => (Array.isArray(errs) ? errs : []), () => [{ field: key, message: `Couldn't check your ${inSentence(label)}. Edit it to check again.`, code: CODE_CHECK }])
+      .then(errs => this.settle(field, run, errs));
+  }
+
+  settle(field, run, errs) {
+    const key = field.key;
+    if (this.checks.get(key) !== run) return;
+    clearTimeout(run.timer);
+    const finish = () => {
+      if (this.checks.get(key) !== run) return;
+      this.checks.delete(key);
+      const label = field.label || key;
+      // No errors means the value was saved (CheckValue's contract). Errors
+      // only on other fields mean it wasn't: they show where they belong, and
+      // this field says so.
+      let mine = errs.filter(e => e.field === key);
+      const others = errs.filter(e => e.field !== key);
+      if (others.length && !mine.length) mine = [{ field: key, message: `Your ${inSentence(label)} wasn't saved. Fix the other settings, then enter it again.`, code: CODE_CHECK }];
+      if (mine.length) {
+        mine = mine.map(e => ({ ...e, code: e.code || CODE_CHECK }));
+        const replaced = new Set(errs.map(e => e.field));
+        this.state.errors = [...this.state.errors.filter(e => !replaced.has(e.field)), ...others, ...mine];
+        this.live.add(key);
+        this.showPending(key, null, mine[0].message);
+        return;
+      }
+      if (this.drafts.get(key) === run.raw) this.drafts.delete(key);
+      this.showPending(key, null, `${label} checked`, false);
+      this.apply(field, run.value, { checked: true });
+    };
+    // Once shown, the words stay at least 500 ms; the result waits and both change in one step.
+    const wait = run.shownAt == null ? 0 : run.shownAt + timings.indicatorMin - Date.now();
+    if (wait > 0) run.timer = setTimeout(finish, wait);
+    else finish();
+  }
+
+  // The check's status region: the pending words with a small spinner, or the
+  // outcome in words for screen readers (visually hidden: the field shows
+  // its error or its value), or nothing.
+  showPending(key, words, outcome, sync = true) {
+    const parts = this.rowsByKey.get(key);
+    if (!parts?.pending) return;
+    if (!words && !outcome && !parts.pending.firstChild) return;
+    parts.pending.toggleAttribute('data-outcome', Boolean(outcome));
+    if (outcome) {
+      parts.pending.replaceChildren(make('span', null, outcome));
+      delete parts.row.dataset.pending;
+    } else if (words) {
+      const spinner = make('span', 'wk-spinner');
+      spinner.setAttribute('aria-hidden', 'true');
+      parts.pending.replaceChildren(spinner, make('span', null, words));
+      parts.row.dataset.pending = '';
+    } else {
+      parts.pending.replaceChildren();
+      delete parts.row.dataset.pending;
+    }
+    if (sync) this.sync();
+  }
+
+  // The values the window shows: the applied ones with the drafts typed over them.
+  shownValues() {
+    const out = { ...this.state.values };
+    for (const [key, raw] of this.drafts) {
+      const field = this.fieldsByKey.get(key);
+      if (field) out[key] = readValue(field, raw);
+    }
+    return out;
+  }
+
+  shownErrors() {
+    const out = new Set();
+    const model = settingsModel(this.state.schema, this.shownValues(), this.state.errors);
+    for (const g of model.groups) for (const r of [...g.rows, ...g.advanced]) if (r.error) out.add(r.key);
+    return out;
   }
 
   // Brings every control in line with the values and errors, keeping the DOM
   // (and focus) as it is.
-  sync() {
+  sync({ notice = true } = {}) {
     const schema = this.state.schema;
     if (!this.built || !schema) return;
-    const model = settingsModel(schema, this.state.values, this.state.errors);
+    const model = settingsModel(schema, this.shownValues(), this.state.errors);
     for (const group of model.groups) {
       for (const r of [...group.rows, ...group.advanced]) {
         const parts = this.rowsByKey.get(r.key);
@@ -2918,10 +3173,10 @@ class WkSettings extends HTMLElement {
           control.value = r.missing ? '' : String(r.value);
           control.disabled = r.disabled;
         } else if (document.activeElement !== control || control.value === '') {
-          control.value = r.text;
+          control.value = this.drafts.has(r.key) ? this.drafts.get(r.key) : r.text;
         }
         if (r.type === 'number') syncSteppers(row);
-        const describedBy = [parts.helpId, r.error ? error.id : null].filter(Boolean);
+        const describedBy = [parts.helpId, parts.row.hasAttribute('data-pending') ? parts.pending.id : null, r.error ? error.id : null].filter(Boolean);
         if (describedBy.length) control.setAttribute('aria-describedby', describedBy.join(' '));
         else control.removeAttribute('aria-describedby');
         if (r.error) { control.setAttribute('aria-invalid', 'true'); error.textContent = r.error; error.hidden = false; }
@@ -2930,6 +3185,27 @@ class WkSettings extends HTMLElement {
       this.tabsByGroup.get(group.key)?.toggleAttribute('data-attention', group.attention);
       if (group.advanced.some(r => r.error)) this.expand(group.key, true);
     }
+    if (notice) this.updateNotice(model);
+  }
+
+  // The window's Notice: the count of fields that need attention. Its words
+  // change, and so are announced, only when the count does.
+  updateNotice(model = settingsModel(this.state.schema, this.shownValues(), this.state.errors)) {
+    clearTimeout(this.noticeTimer);
+    if (!this.notice) return;
+    const count = model.attention;
+    if (count === this.noticeCount && (count === 0) === !this.notice.firstChild) return;
+    this.noticeCount = count;
+    if (!count) { this.notice.replaceChildren(); return; }
+    const words = count === 1 ? '1 setting needs attention.' : `${count} settings need attention.`;
+    const shown = this.notice.querySelector('b');
+    if (shown) { shown.textContent = words; return; }
+    const box = make('div', 'wk-notice wk-notice--inline');
+    box.dataset.tone = 'attention';
+    const body = make('div', 'wk-notice-body');
+    body.append(make('b', null, words));
+    box.append(body);
+    this.notice.append(box);
   }
 }
 

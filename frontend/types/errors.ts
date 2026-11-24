@@ -1,4 +1,4 @@
-// Error types — mirrors errors/errors.go, updates/service.go and tasks/tasks.go
+// Error types — mirrors errors/errors.go, updates/service.go, settings/check.go and tasks/tasks.go
 // Kept in sync via Go reflection test in frontend/types_test.go
 
 export type ErrorCode =
@@ -23,12 +23,18 @@ export type ErrorCode =
   | "update_download"
   | "update_apply"
   | "update_verify"
+  // Settings check error codes (settings package)
+  | "settings_check_failed"
+  | "settings_check_timeout"
+  | "settings_unknown_setting"
   // Task error codes (tasks package)
   | "tasks_not_found"
   | "tasks_duplicate_id"
   | "tasks_invalid_spec"
   | "tasks_invalid_state"
-  | "tasks_unsupported";
+  | "tasks_unsupported"
+  // Desktop error codes (desktop package)
+  | "desktop_invalid_colour";
 
 export interface UserError {
   code: ErrorCode;
