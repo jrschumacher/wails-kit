@@ -4316,6 +4316,9 @@ try {
     await page.keyboard.press('Escape');
     await run(10);
     assert.equal(await page.evaluate(() => document.querySelector('.wk-task-list').open), false);
+    // Focus goes back from wk-dialog's close handler, which runs on the
+    // dialog's close event: a task of its own, after open is already false.
+    await until(page, () => document.activeElement === sum).catch(() => {});
     assert.equal(await page.evaluate(() => document.activeElement === sum), true, 'focus returns to the summary');
     // With nothing left to show, it stays until focus leaves it.
     assert.equal((await look()).hidden, false);

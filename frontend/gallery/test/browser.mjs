@@ -463,6 +463,11 @@ try {
     await press(page, `${row('asks')} [data-gallery-try]`);
     const stop = page.locator(`${row('asks')} .wk-task-stop`);
     const alert = page.locator('#g-stop-alert dialog');
+    // The Alert answers onStop on wk-close, which wk-dialog fires from the
+    // dialog's close event: a task queued by dialog.close(), which may run
+    // after the test's next look. dialog.open is false before it does, so the
+    // test waits for the event itself.
+    await page.evaluate(() => { window.alertCloses = 0; document.getElementById('g-stop-alert').addEventListener('wk-close', () => window.alertCloses++); });
     await page.clock.runFor(2_600);
     assert.equal(await stop.isVisible(), true, 'work expected to be long shows Stop at once');
     assert.equal(await stop.textContent(), 'Stop…');
@@ -472,16 +477,14 @@ try {
     assert.match(await page.textContent('#g-stop-alert-body'), /^\d+ of 40 files are copied; the rest won’t be\.$/);
     assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Keep copying');
     await press(page, '#g-stop-alert button[value="keep"]');
-    // The dialog's close event is a task of its own: wait for it, then move the clock.
-    await until(page, () => !document.querySelector('#g-stop-alert dialog').open);
+    await until(page, () => window.alertCloses === 1);
     await page.clock.runFor(1_000);
     assert.equal(await alert.isVisible(), false);
     assert.deepEqual(await page.evaluate(() => window.taskStates), ['running'], 'Keep copying keeps it running');
     await stop.evaluate(el => { el.focus(); el.click(); });
     await page.clock.runFor(10);
     await press(page, '#g-stop-alert button[value="stop"]');
-    // The dialog's close event is a task of its own: wait for it, then move the clock.
-    await until(page, () => !document.querySelector('#g-stop-alert dialog').open);
+    await until(page, () => window.alertCloses === 2);
     await page.clock.runFor(1_000);
     assert.deepEqual(await page.evaluate(() => window.taskStates), ['running', 'stopped']);
     assert.match(await cell(page, 'asks').textContent(), /^Stopped · \d+ of 40 files$/);
