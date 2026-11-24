@@ -30,6 +30,7 @@
     "./src/kit.js",
     "./src/settings.js",
     "./src/announce.js",
+    "./src/copy.js",
     "./dist/wails-kit-ui.js",
     "*.css"
   ],

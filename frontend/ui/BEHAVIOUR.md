@@ -177,7 +177,7 @@ it changes.
 |---|---|---|
 | One control (Copy, Check token) | In the control | Words beside it, which stay until the person changes something there again. On a control they'll press again, "Copied" or its like shows for 2 s (see [Patterns](#patterns)). A toast only when there's nowhere beside it. |
 | One item in a list or table | On that row: a working dot and words in its state cell, in place of the item's own state until the task ends | The row itself. A removed item stays in place, muted ("Removed"), until the view is refreshed; rows never close up under the pointer or focus. A failed row shows the attention dot and words ("Couldn't remove"). In a Table, Retry is a row action; in a List, it's in the inspector and the row's context menu. Several failures: see [Work in parts](#work-in-parts). |
-| A whole view (load, refresh) | Skeleton rows in place of the content (*planned*) | The content; an EmptyState or ErrorBox in its place on failure |
+| A whole view (load, refresh) | Skeleton rows in place of the content | The content; an EmptyState or ErrorBox in its place on failure |
 | The whole app (connect, sync) | The connection's state in the toolbar ("Reconnecting", with its small dot) | See [Connection and retries](#connection-and-retries) |
 | Background work started earlier | A row in the relevant list and in the task list; the taskbar or Dock badge | A system notification if the window isn't focused |
 
@@ -230,8 +230,8 @@ make.
 
 - **Undo is never only in a toast.** The same Undo is in Edit > Undo (⌘Z / Ctrl+Z),
   named for the action ("Undo Archive"), with Redo beside it on the platform's
-  shortcut: a stack for the session (*planned*, an app undo stack in the `shortcuts`
-  package). While focus is in a text field, Edit > Undo undoes typing first. A toast
+  shortcut: a stack for the session (the `shortcuts` package's `UndoStack`, with
+  `wkUndo` in the kit). While focus is in a text field, Edit > Undo undoes typing first. A toast
   replaced by a newer one doesn't take its Undo with it. After an undo, show what came
   back, scrolling to it if needed.
 - Don't ask "Are you sure?". Ask the specific question and name the thing.
@@ -272,10 +272,10 @@ make.
 ## Loading content
 
 - **Within the quiet wait:** show nothing; render when the data arrives.
-- **Longer:** skeleton rows (*planned*) in the shape of the real content: the same row
+- **Longer:** skeleton rows ([`wkSkeleton`](#skeleton-rows)) in the shape of the real content: the same row
   heights and columns, no text, still (no shimmer). Keep headings, toolbars and
   filters real and usable.
-- **Charts** (*planned*): a loading chart keeps its frame, and its legend when the
+- **Charts** (`wkChart`'s `loading`): a loading chart keeps its frame, and its legend when the
   series are known, and shows a spinner in the plot. There's no skeleton for a chart.
 - **After 3 s:** add a line saying what's loading and from where, in secondary text.
 - **Empty:** an EmptyState that says what's true now and what would change it, never
@@ -329,7 +329,7 @@ make.
   above the row under the pointer or with focus; hold them and show "3 new · Show".
 - **Stale data:** data older than its refresh interval says "As of 2:14 pm". Past twice
   the interval, the numbers drop to secondary text and the view offers Refresh.
-- **Copy to clipboard** (*planned* for `wk-copy`): the accessible name stays ("Copy
+- **Copy to clipboard** (`wk-copy`, which the kit wires): the accessible name stays ("Copy
   join code"). "Copied" goes to the polite announcer and shows for 2 s in a tooltip
   above the button. The glyph doesn't change. On failure, "Couldn't copy".
 - **Drag and drop:** show the drop target on enter, and say what a drop will do ("Drop
@@ -345,7 +345,7 @@ make.
 | Use | For |
 |---|---|
 | Words next to the thing | The result of the action the person just took, when there's room |
-| Toast (*planned*) | A brief, non-blocking outcome with nowhere inline to show it ("Link copied"), and Undo. At the bottom of the window, one at a time. It may carry an action only if the same action exists elsewhere (Undo in Edit > Undo, Show in the list). |
+| Toast ([`wkToast`](#toast)) | A brief, non-blocking outcome with nowhere inline to show it ("Link copied"), and Undo. At the bottom of the window, one at a time. It may carry an action only if the same action exists elsewhere (Undo in Edit > Undo, Show in the list). |
 | Notice | Something about the current view that stays true until it changes. One per view: attention beats neutral, then the newest wins, and the rest are counted ("and 2 more problems"). A form's own Notice sits inside the form and doesn't count against the view's. |
 | ErrorBox | The raw details of a failure, to read or copy. |
 | Alert | A question that must be answered before going on. |
@@ -460,9 +460,10 @@ increased contrast is in the tokens.
 They implement the rules above; an app uses these instead of its own. The timings and
 motion tokens, the progress bar and spinner (see the
 [README](README.md#busy-spinner-and-progress)), [Go task events](#go-task-events)
-(the `tasks` package), [`wkTask`](#wktask), the [announcer](#announcer) and the task
-list (see the [README](README.md#tasks-and-the-announcer)) ship; the rest are
-*planned*.
+(the `tasks` package), [`wkTask`](#wktask), the [announcer](#announcer), the task
+list (see the [README](README.md#tasks-and-the-announcer)), the [toast](#toast), app
+undo and redo, copy feedback and [skeleton rows](#skeleton-rows) (see the
+[README](README.md#toast-undo-copy-and-skeleton-rows)) ship; the rest are *planned*.
 
 ### wkTask
 
@@ -546,9 +547,11 @@ same values as the tokens) and `reducedMotion()`. `tokens.css` sets `--wk-durati
 ### Toast
 
 `wkToast({ words, action: { label, run } })`: one element at the bottom centre of the
-window, above any footer bar, outside the tab order until it appears. F6 (or the task
-list) reaches it, and Esc dismisses it while focus is inside. It isn't a live region:
-its words go through the polite announcer. A newer toast replaces it.
+window, above any footer bar, outside the tab order until it appears, and it never
+takes focus. F6 moves focus to its action and back, and Esc dismisses it while focus
+is inside; focus then returns to where it was. It isn't a live region: its words go
+through the polite announcer. A newer toast replaces it. `wkUndo.action(id)` gives it
+the Undo of the `shortcuts` package's stack, the same one Edit > Undo uses.
 
 ### Announcer
 
@@ -568,9 +571,6 @@ indicator.
 
 ### Also planned
 
-- App undo and redo in `shortcuts`: a stack, the menu item's label ("Undo Archive")
-  and state, text fields first.
-- Copy behaviour and feedback for `wk-copy`.
 - The Sheet card notes that while it holds work, the first Esc cancels the work (the
   `<dialog>`'s `cancel` event is prevented) and a second closes it.
 
@@ -581,7 +581,6 @@ Where shipped code doesn't yet follow this page:
 - `wkTask` doesn't yet show time left ("About 3 min left") once the estimates are
   stable; the app can put it beside the indicator itself.
 - Escape in a diff review comment box discards its draft with no Undo.
-- `wk-copy` is styling only: the app copies, and nothing gives feedback.
 - The Markdown editor (`@wails-kit/editor/markdown`) marks its submit button busy at
   once while `onsubmit`'s promise is pending, with no 400 ms indicator and nothing sent
   to the announcer; it waits for `wkTask`.
@@ -590,5 +589,8 @@ Where shipped code doesn't yet follow this page:
 - On Windows, Wails's question dialog offers only Yes and No, so the `desktop`
   package's own quit question there has no Quit When Done; an app that wants it sets
   its own `Asker` (a sheet in the window).
-- `shortcuts` adds Edit > Undo only as the native role, which undoes text editing; an
-  app can't yet label it or route it to its own undo.
+- Without `shortcuts.WithUndo`, Edit > Undo is the native role, which undoes text
+  editing only; an app that keeps its own undo uses `UndoStack`.
+- Skeleton rows are for tables (`<tbody>`); a list (`wk-list`) has none yet. Neither
+  they nor the loading chart add the line saying what's loading after 3 s; the app
+  adds it.

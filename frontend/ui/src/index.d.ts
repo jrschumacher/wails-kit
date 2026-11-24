@@ -137,8 +137,14 @@ export interface ChartSpec {
   legendValues?: boolean; shadeLabel?: string; categoryHeader?: string; emptyText?: string;
   view?: 'chart' | 'table'; onview?: (view: 'chart' | 'table') => void;
   selection?: number; onselection?: (index: number) => void; retainSelectionOnBlur?: boolean;
+  /** Loading: the frame and legend stay, the plot shows a spinner named by these words after 400 ms. */
+  loading?: string;
 }
-export function wkChart(spec: ChartSpec): HTMLElement;
+export const wkChart: {
+  (spec: ChartSpec): HTMLElement;
+  /** Resolves when a loading chart may be replaced: at once if its spinner hasn't shown, else after 500 ms of it. */
+  ready(fig: HTMLElement): Promise<void>;
+};
 export function niceTicks(max: number, count?: number, integer?: boolean): number[];
 export function labelStep(band: number, width: number): number;
 export function runs(values: (number | null)[]): [number, number][][];
@@ -241,10 +247,54 @@ export class WkSettings extends HTMLElement {
   reveal(key: string): boolean;
 }
 
+// ---- Toast, undo, copy and skeleton rows (toast.js, undo.js, copy.js, skeleton.js) ----
+export interface ToastAction {
+  label: string;
+  run(): unknown;
+  /** Set by wkUndo.action(): the toast closes once the undo stack moves past this action. */
+  undoId?: string | null;
+  current?(): string | null;
+}
+export function wkToast(options: { words: string; action?: ToastAction }): { element: HTMLElement; dismiss(): void };
+
+export interface UndoEntryLike { id: string; name: string; label: string }
+export interface UndoStateLike { undo: UndoEntryLike | null; redo: UndoEntryLike | null; busy: boolean; textFocus: boolean }
+/** The Go UndoStack's Bindings(), as Wails binds it. */
+export interface UndoBindings {
+  State?(): Promise<UndoStateLike>; Undo?(): Promise<void>; Redo?(): Promise<void>;
+  UndoID?(id: string): Promise<void>; SetTextFocus?(focused: boolean): Promise<void>;
+}
+export const wkUndo: {
+  /** on(name, listener) subscribes to a Go event (undo:changed, undo:text, undo:failed) and may return an unsubscribe. */
+  connect(options: { on: (name: string, listener: (payload: any) => void) => (() => void) | void; bindings?: UndoBindings }): () => void;
+  state(): UndoStateLike;
+  undo(): Promise<boolean>;
+  redo(): Promise<boolean>;
+  /** A toast's Undo for the action with this ID (else the most recent). */
+  action(id?: string): Required<ToastAction>;
+  words: { undo: string; couldNot: (op: 'undo' | 'redo', name: string) => string };
+};
+
+export const wkCopy: {
+  (button: HTMLElement, text: string): Promise<boolean>;
+  /** The clipboard writer; replace it with Wails's Clipboard.SetText, say. */
+  write: (text: string) => Promise<unknown>;
+  words: { copied: string; failed: string };
+};
+
+export function wkSkeleton(body: HTMLTableSectionElement | HTMLTableElement, options?: { rows?: number; columns?: number; region?: Element }): {
+  /** Takes the skeleton rows out, calls draw in the same step, and resolves; waits for the 500 ms minimum once they've shown. */
+  done(draw?: () => void): Promise<void>;
+  /** Takes them out and puts the old rows back. */
+  cancel(): Promise<void>;
+  readonly shown: boolean;
+};
+
 declare global {
   interface HTMLElementTagNameMap {
     'wk-menu': WkMenu; 'wk-context-menu': WkContextMenu; 'wk-tabs': WkTabs; 'wk-tooltip': WkTooltip;
     'wk-dialog': WkDialog; 'wk-settings': WkSettings;
   }
-  interface HTMLElementEventMap { 'wk-settings-change': CustomEvent<SettingsChangeDetail>; 'wk-task': CustomEvent<TaskEventDetail> }
+  interface HTMLElementEventMap { 'wk-settings-change': CustomEvent<SettingsChangeDetail>; 'wk-task': CustomEvent<TaskEventDetail>; 'wk-copy': CustomEvent<{ ok: boolean }> }
+  interface DocumentEventMap { 'wk-undo-change': CustomEvent<UndoStateLike> }
 }

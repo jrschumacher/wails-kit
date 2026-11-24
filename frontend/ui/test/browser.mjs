@@ -4331,6 +4331,432 @@ try {
     await page.close();
   });
 
+  // ---- Toast, app undo, copy feedback, skeleton rows, loading chart (#144) ----
+  // The toast's box and state: [words, action label, leaving, role, live regions inside].
+  const toastLook = page => page.evaluate(() => [...document.querySelectorAll('.wk-toast')].map(t => [
+    t.querySelector('.wk-toast-words').textContent, t.querySelector('.wk-toast-action')?.textContent ?? null,
+    t.hasAttribute('data-leaving'), t.getAttribute('role'), t.querySelectorAll('[aria-live], [role="status"], [role="alert"]').length + (t.hasAttribute('aria-live') ? 1 : 0)]));
+
+  await check('toast: bottom centre above a footer bar, 6 s or 10 s with an action, announced through the announcer once, no live region of its own; a newer one replaces it', async () => {
+    const { page, problems, run, said } = await openTasks();
+    const liveRegions = () => page.evaluate(() => document.querySelectorAll('[aria-live], [role="status"], [role="alert"]').length);
+    const regionsBefore = await liveRegions();
+    await page.evaluate(() => kit.wkToast({ words: 'Link copied' }));
+    assert.deepEqual(await toastLook(page), [['Link copied', null, false, 'group', 0]]);
+    assert.equal(await liveRegions(), regionsBefore, 'no live region added');
+    // Where it comes to rest: the entry transition (on the real clock) finished.
+    const settle = () => page.evaluate(() => document.querySelector('.wk-toast').getAnimations().forEach(a => a.finish()));
+    await settle();
+    const box = await page.evaluate(() => { const r = document.querySelector('.wk-toast').getBoundingClientRect(); return { mid: Math.round(r.left + r.width / 2), gap: Math.round(innerHeight - r.bottom) }; });
+    assert.deepEqual(box, { mid: 550, gap: 16 }, 'bottom centre');
+    await run(500);
+    assert.deepEqual(await said(), [['polite', 'Link copied']]);
+    await run(5499);
+    assert.equal((await toastLook(page))[0][2], false, 'still there at 5999 ms');
+    await run(1);
+    assert.equal((await toastLook(page))[0][2], true, 'leaving at 6 s');
+    assert.match(await page.evaluate(() => getComputedStyle(document.querySelector('.wk-toast')).transitionDuration), /^0\.13\d*s$/, 'it fades out in two-thirds of 200 ms');
+    await run(132);
+    assert.equal((await toastLook(page)).length, 1, 'fading out');
+    await run(1);
+    assert.deepEqual(await toastLook(page), [], 'gone two-thirds of 200 ms later');
+    // With an action: 10 s.
+    await page.evaluate(() => kit.wkToast({ words: 'Conversation archived', action: { label: 'Undo', run() {} } }));
+    await run(9999);
+    assert.equal((await toastLook(page))[0][2], false, 'still there at 9999 ms');
+    await run(1);
+    assert.equal((await toastLook(page))[0][2], true, 'leaving at 10 s');
+    await run(200);
+    // A newer toast replaces it at once; the old one's clock goes with it.
+    await page.evaluate(() => { kit.wkToast({ words: 'Comment posted' }); });
+    await run(3000);
+    await page.evaluate(() => { kit.wkToast({ words: 'Report exported' }); });
+    assert.deepEqual(await toastLook(page), [['Report exported', null, false, 'group', 0]]);
+    await run(5999);
+    assert.equal((await toastLook(page))[0][2], false, 'the new one has its own 6 s');
+    await run(1);
+    assert.equal((await toastLook(page))[0][2], true);
+    await run(200);
+    // Above a footer bar along the bottom of the window.
+    await page.evaluate(() => {
+      const bar = document.createElement('div');
+      bar.className = 'wk-footer-bar';
+      bar.id = 't-footer';
+      bar.textContent = 'Connected';
+      for (const [p, v] of [['position', 'fixed'], ['left', '0'], ['right', '0'], ['bottom', '0'], ['height', '30px']]) bar.style.setProperty(p, v);
+      document.body.append(bar);
+      kit.wkToast({ words: 'Saved' });
+    });
+    await settle();
+    assert.equal(await page.evaluate(() => Math.round(document.getElementById('t-footer').getBoundingClientRect().top - document.querySelector('.wk-toast').getBoundingClientRect().bottom)), 16, 'above the footer bar');
+    assert.equal(await page.evaluate(() => { try { kit.wkToast({ words: ' ' }); } catch (e) { return e instanceof TypeError; } return false; }), true, 'words are required');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('toast: its clock pauses while the pointer or focus is on it and while the window isn\'t focused, and runs on from where it stopped', async () => {
+    const { page, problems, run } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<button class="wk-button" type="button" id="t-a">Archive</button>';
+      document.getElementById('t-a').focus();
+      kit.wkToast({ words: 'Conversation archived', action: { label: 'Undo', run() {} } });
+    });
+    const leaving = async () => (await toastLook(page))[0]?.[2];
+    await run(4000);
+    // Pointer on it: paused.
+    const r = await page.evaluate(() => { const b = document.querySelector('.wk-toast').getBoundingClientRect(); return [b.left + 10, b.top + 10]; });
+    await page.mouse.move(r[0], r[1]);
+    await run(20_000);
+    assert.equal(await leaving(), false, 'paused under the pointer');
+    await page.mouse.move(5, 5);
+    await run(3000);
+    // Window not focused: paused.
+    await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+    await run(20_000);
+    assert.equal(await leaving(), false, 'paused while the window is in the background');
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await run(2000);
+    // Focus on it: paused.
+    await page.keyboard.press('F6');
+    await run(20_000);
+    assert.equal(await leaving(), false, 'paused while focus is on it');
+    await page.keyboard.press('F6');
+    assert.equal(await active(page), 't-a');
+    // 4 + 3 + 2 = 9 s ran: 1 s is left.
+    await run(999);
+    assert.equal(await leaving(), false, 'resumes where it stopped');
+    await run(1);
+    assert.equal(await leaving(), true, 'gone after 10 s of running');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('toast: it never takes focus; F6 and Shift+F6 move to its action and back; Esc dismisses it and focus returns; a newer toast keeps focus in the toast', async () => {
+    const { page, problems, run } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<button class="wk-button" type="button" id="t-a">Archive</button>';
+      document.getElementById('t-a').focus();
+      window.ran = 0;
+      kit.wkToast({ words: 'Conversation archived', action: { label: 'Undo', run() { window.ran++; } } });
+    });
+    assert.equal(await active(page), 't-a', 'showing it leaves focus where it was');
+    await page.keyboard.press('F6');
+    assert.equal(await active(page), 'Undo');
+    assert.equal(await page.evaluate(() => document.activeElement.closest('.wk-toast').getAttribute('aria-labelledby') === document.querySelector('.wk-toast-words').id), true, 'named by its words');
+    await page.keyboard.press('Shift+F6');
+    assert.equal(await active(page), 't-a', 'F6 again goes back');
+    await page.keyboard.press('F6');
+    // A newer toast while focus is in it: its action takes focus; Esc then goes back.
+    await page.evaluate(() => kit.wkToast({ words: 'Message moved', action: { label: 'Undo', run() { window.ran += 10; } } }));
+    assert.deepEqual([await active(page), (await toastLook(page)).map(t => t[0])], ['Undo', ['Message moved']]);
+    await page.keyboard.press('Escape');
+    assert.equal(await active(page), 't-a', 'Esc returns focus');
+    assert.equal((await toastLook(page))[0][2], true, 'Esc dismisses it');
+    await run(200);
+    // The action: runs once, the toast closes, focus goes back.
+    await page.evaluate(() => kit.wkToast({ words: 'Conversation archived', action: { label: 'Undo', run() { window.ran++; } } }));
+    await page.keyboard.press('F6');
+    await page.keyboard.press('Enter');
+    assert.deepEqual([await page.evaluate(() => window.ran), await active(page), (await toastLook(page))[0][2]], [1, 't-a', true]);
+    await run(200);
+    // Without an action, F6 is left alone and nothing in it takes focus.
+    await page.evaluate(() => kit.wkToast({ words: 'Link copied' }));
+    await page.keyboard.press('F6');
+    assert.equal(await active(page), 't-a');
+    // Esc in the page outside it doesn't dismiss it.
+    await page.keyboard.press('Escape');
+    assert.equal((await toastLook(page))[0][2], false);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('toast: reduced motion fades in 100 ms with no slide; forced colours keep its outline', async () => {
+    const { page, problems, run } = await openTasks();
+    const look = () => page.evaluate(() => { const s = getComputedStyle(document.querySelector('.wk-toast')); return [s.transitionProperty, s.transitionDuration, s.transform]; });
+    await page.evaluate(() => kit.wkToast({ words: 'Saved' }));
+    const [prop, dur] = await look();
+    assert.match(prop, /transform/);
+    assert.equal(dur.split(', ')[0], '0.2s');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.evaluate(() => kit.wkToast({ words: 'Saved again' }));
+    const [rprop, rdur, rtransform] = await look();
+    assert.deepEqual([rprop, rdur], ['opacity', '0.1s'], 'only a fade of 100 ms');
+    assert.match(rtransform, /^matrix\(1, 0, 0, 1, -?[\d.]+, 0\)$/, 'no vertical offset');
+    await page.evaluate(() => document.querySelector('.wk-toast [class]') && kit.wkToast({ words: 'Third' }));
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await run(6000);
+    await run(99);
+    assert.equal(await page.evaluate(() => document.querySelectorAll('.wk-toast').length), 1);
+    await run(1);
+    assert.equal(await page.evaluate(() => document.querySelectorAll('.wk-toast').length), 0, 'gone after a 100 ms fade');
+    await page.emulateMedia({ reducedMotion: 'no-preference', forcedColors: 'active' });
+    await page.evaluate(() => kit.wkToast({ words: 'Saved' }));
+    const border = await page.evaluate(() => { const s = getComputedStyle(document.querySelector('.wk-toast')); const p = document.createElement('i'); p.style.setProperty('color', 'CanvasText'); document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return [s.borderTopStyle, s.borderTopColor === c]; });
+    assert.deepEqual(border, ['solid', true]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  // A stand-in for the Go UndoStack and its Wails events, in the page.
+  async function fakeUndo(page) {
+    await page.evaluate(() => {
+      const go = window.go = {
+        undo: [], redo: [], seq: 0, calls: [], textFocus: false, listeners: {}, failNext: null,
+        emit(name, payload) { for (const f of go.listeners[name] || []) f(payload); },
+        state() {
+          const e = (x, verb) => (x ? { id: x.id, name: x.name, label: `${verb} ${x.name}` } : null);
+          return { undo: e(go.undo.at(-1), 'Undo'), redo: e(go.redo.at(-1), 'Redo'), busy: false, textFocus: go.textFocus };
+        },
+        changed() { go.emit('undo:changed', go.state()); },
+        push(name) { const id = `undo-${++go.seq}`; go.undo.push({ id, name }); go.redo = []; go.changed(); return id; },
+        doUndo(id) {
+          const top = go.undo.at(-1);
+          if (!top) throw { code: 'undo_empty' };
+          if (id && top.id !== id) throw { code: 'undo_stale' };
+          if (go.failNext) { const e = go.failNext; go.failNext = null; throw e; }
+          go.undo.pop(); go.redo.push(top); go.changed();
+        },
+        // Edit > Undo, as UndoStack.MenuUndo does it.
+        menuUndo() {
+          if (go.textFocus) { go.emit('undo:text', { op: 'undo' }); return; }
+          try { go.doUndo(go.undo.at(-1)?.id); } catch (e) { if (e.code === 'undo_failed') go.emit('undo:failed', { op: 'undo', id: '', name: go.undo.at(-1).name, error: e }); }
+        },
+      };
+      window.disconnectUndo = kit.wkUndo.connect({
+        on: (name, fn) => { (go.listeners[name] ??= []).push(fn); return () => { go.listeners[name] = go.listeners[name].filter(f => f !== fn); }; },
+        bindings: {
+          State: async () => go.state(),
+          Undo: async () => { go.calls.push('Undo'); go.doUndo(); },
+          Redo: async () => { go.calls.push('Redo'); },
+          UndoID: async id => { go.calls.push(`UndoID ${id}`); go.doUndo(id); },
+          SetTextFocus: async on => { go.calls.push(`SetTextFocus ${on}`); go.textFocus = on; go.changed(); },
+        },
+      });
+      window.undoChanges = [];
+      document.addEventListener('wk-undo-change', e => window.undoChanges.push(e.detail.undo?.label ?? null));
+    });
+  }
+
+  await check('app undo: the toast\'s Undo and Edit > Undo use the same stack and agree; Edit > Undo closes the toast for the action it undid', async () => {
+    const { page, problems, run, said } = await openTasks();
+    await fakeUndo(page);
+    await run(10);
+    // The toast's Undo undoes exactly the action it named.
+    await page.evaluate(() => { const id = go.push('Archive'); kit.wkToast({ words: 'Conversation archived', action: kit.wkUndo.action(id) }); });
+    assert.deepEqual(await toastLook(page), [['Conversation archived', 'Undo', false, 'group', 0]]);
+    await page.$eval('.wk-toast-action', b => { b.focus(); b.click(); });
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => [go.calls.splice(0).filter(c => !c.startsWith('SetTextFocus')), kit.wkUndo.state().undo, kit.wkUndo.state().redo?.label]), [['UndoID undo-1'], null, 'Redo Archive']);
+    await run(200);
+    // Edit > Undo undoes the same action the toast offers, and the toast closes.
+    await page.evaluate(() => { go.push('Move'); const id = go.push('Archive'); kit.wkToast({ words: 'Conversation archived', action: kit.wkUndo.action(id) }); });
+    await page.evaluate(() => go.menuUndo());
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => [go.undo.map(e => e.name), go.redo.map(e => e.name)]), [['Move'], ['Archive']]);
+    assert.equal((await toastLook(page))[0][2], true, 'the toast for the undone action closes');
+    await run(200);
+    // A toast replaced by a newer one doesn't take its Undo with it: Edit > Undo still has it.
+    await page.evaluate(() => { const id = go.push('Archive'); kit.wkToast({ words: 'Conversation archived', action: kit.wkUndo.action(id) }); kit.wkToast({ words: 'Link copied' }); });
+    assert.equal(await page.evaluate(() => kit.wkUndo.state().undo.label), 'Undo Archive');
+    // A stale toast Undo (the stack moved on) undoes nothing else and says nothing.
+    await page.evaluate(() => { window.stale = kit.wkUndo.action(); go.push('Rename'); });
+    await page.evaluate(() => window.stale.run());
+    await run(600);
+    assert.deepEqual(await page.evaluate(() => [go.undo.map(e => e.name), go.calls.splice(0).filter(c => c.startsWith('UndoID'))]), [['Move', 'Archive', 'Rename'], ['UndoID undo-4']]);
+    await said();
+    // A failure is said, assertively; the action stays.
+    await page.evaluate(() => { go.failNext = { code: 'undo_failed' }; kit.wkUndo.undo(); });
+    await run(600);
+    assert.deepEqual(await said(), [['assertive', 'Couldn’t undo Rename']]);
+    await page.evaluate(() => { go.failNext = { code: 'undo_failed' }; go.menuUndo(); });
+    await run(600);
+    assert.deepEqual(await said(), [['assertive', 'Couldn’t undo Rename']], 'from the menu too');
+    assert.equal(await page.evaluate(() => window.undoChanges.length > 0), true, 'wk-undo-change for the app');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('app undo: text focus is reported to Go; Edit > Undo undoes typing first, then the app\'s action', async () => {
+    const { page, problems, run } = await openTasks();
+    await page.evaluate(() => { document.getElementById('tbox').innerHTML = '<input class="wk-field" id="t-name" aria-label="Name"><button class="wk-button" type="button" id="t-b">Other</button>'; });
+    await fakeUndo(page);
+    await page.evaluate(() => go.push('Archive'));
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => go.calls.splice(0)), ['SetTextFocus false'], 'reported once on connect');
+    await page.focus('#t-name');
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => go.calls.splice(0)), ['SetTextFocus true']);
+    await page.keyboard.type('abc');
+    await page.evaluate(() => go.menuUndo());
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => [document.getElementById('t-name').value, go.undo.length, go.calls.slice()]), ['', 1, []], 'the typing goes first');
+    await page.evaluate(() => go.menuUndo());
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => [go.undo.length, go.calls.splice(0)]), [0, ['Undo']], 'with no typing left, the app\'s action');
+    await page.focus('#t-b');
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => go.calls.splice(0)), ['SetTextFocus false']);
+    await page.evaluate(() => window.disconnectUndo());
+    assert.equal(await page.evaluate(() => kit.wkUndo.state().undo), null);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('copy: the kit copies; "Copied" shows above the button for 2 s and is announced once; the accessible name and glyph stay; failure says "Couldn\'t copy"', async () => {
+    const { page, problems, run, said } = await openTasks();
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+    await page.evaluate(() => {
+      document.getElementById('tbox').style.setProperty('padding-top', '60px');
+      document.getElementById('tbox').innerHTML = '<button class="wk-copy" type="button" id="t-copy" aria-label="Copy join code" data-wk-copy="JOIN-42"><svg viewBox="0 0 16 16" aria-hidden="true"><rect width="8" height="8"></rect></svg></button>'
+        + '<div class="wk-code"><code>npm i @wails-kit/ui</code><button class="wk-copy" type="button" id="t-code" aria-label="Copy command"></button></div>';
+      window.copyEvents = [];
+      document.addEventListener('wk-copy', e => window.copyEvents.push(e.detail.ok));
+    });
+    const before = await page.evaluate(() => document.getElementById('t-copy').outerHTML);
+    const tip = () => page.evaluate(() => [...document.querySelectorAll('.wk-copy-tip')].map(t => [t.textContent, t.getAttribute('aria-hidden')]));
+    await page.$eval('#t-copy', b => { b.focus(); b.click(); });
+    await run(10);
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'JOIN-42');
+    assert.deepEqual(await tip(), [['Copied', 'true']]);
+    assert.equal(await page.evaluate(() => { const t = document.querySelector('.wk-copy-tip').getBoundingClientRect(), b = document.getElementById('t-copy').getBoundingClientRect(); return t.bottom <= b.top && Math.abs((t.left + t.right) / 2 - (b.left + b.right) / 2) < 1; }), true, 'centred above the button');
+    assert.equal(await page.evaluate(() => document.getElementById('t-copy').outerHTML), before, 'name, description and glyph unchanged');
+    const name = (await axTree(page)).find(n => n.role?.value === 'button' && n.name?.value === 'Copy join code');
+    assert.ok(name, 'the accessible name stays');
+    await run(600);
+    assert.deepEqual(await said(), [['polite', 'Copied']], 'announced once');
+    {
+      // The tip is hidden from assistive tech: only the announcer says it.
+      const cdp = await page.context().newCDPSession(page);
+      const { root } = await cdp.send('DOM.getDocument', { depth: -1 });
+      const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector: '.wk-copy-tip' });
+      assert.equal((await cdp.send('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false })).nodes[0].ignored, true, 'the tip is hidden from assistive tech');
+      await cdp.detach();
+    }
+    await run(1389);
+    assert.equal((await tip()).length, 1, 'still there before 2 s');
+    await run(1);
+    assert.deepEqual(await tip(), [], 'gone at 2 s');
+    // Inside a wk-code, it copies the code beside it.
+    await page.$eval('#t-code', b => { b.focus(); b.click(); });
+    await run(10);
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'npm i @wails-kit/ui');
+    await run(2000);
+    // A failure: assertive while focus is still on the button.
+    await page.evaluate(() => { window.keepWrite = kit.wkCopy.write; kit.wkCopy.write = () => Promise.reject(new Error('denied')); });
+    await said();
+    await page.$eval('#t-copy', b => { b.focus(); b.click(); });
+    await run(10);
+    assert.deepEqual(await tip(), [['Couldn’t copy', 'true']]);
+    await run(600);
+    assert.deepEqual(await said(), [['assertive', 'Couldn’t copy']]);
+    await run(2000);
+    // A busy copy button does nothing.
+    await page.evaluate(() => { kit.wkCopy.write = window.keepWrite; const b = document.getElementById('t-copy'); b.setAttribute('aria-disabled', 'true'); b.setAttribute('data-busy', ''); });
+    await page.$eval('#t-copy', b => { b.focus(); b.click(); });
+    await run(10);
+    assert.deepEqual(await tip(), []);
+    assert.deepEqual(await page.evaluate(() => window.copyEvents), [true, true, false]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('skeleton rows: only after 400 ms, at the real row height, hidden from assistive tech, with aria-busy on the table; at least 500 ms once shown; the same count next time', async () => {
+    const { page, problems, run } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<table class="wk-table" id="t-runs" aria-label="Runs"><thead><tr><th>Name</th><th>State</th><th class="wk-num">Time</th></tr></thead><tbody></tbody></table>'
+        + '<table class="wk-table" id="t-real"><thead><tr><th>Name</th><th>State</th><th>Time</th></tr></thead><tbody><tr><td>build</td><td>Done</td><td>0:42</td></tr></tbody></table>';
+      window.tbody = document.querySelector('#t-runs tbody');
+      window.load = kit.wkSkeleton(window.tbody);
+    });
+    const look = () => page.evaluate(() => [document.getElementById('t-runs').getAttribute('aria-busy'), tbody.querySelectorAll('tr.wk-skeleton[aria-hidden="true"]').length, tbody.rows.length]);
+    assert.deepEqual(await look(), ['true', 0, 0], 'busy at once, no rows');
+    await run(399);
+    assert.deepEqual(await look(), ['true', 0, 0], 'nothing in the quiet wait');
+    await run(1);
+    const [busy, n] = await look();
+    assert.equal(busy, 'true');
+    assert.ok(n >= 1 && n <= 12, `${n} rows, up to 12`);
+    const shape = await page.evaluate(() => {
+      const row = tbody.rows[0], real = document.querySelector('#t-real tbody tr');
+      return [row.cells.length, row.textContent, Math.round(row.getBoundingClientRect().height) === Math.round(real.getBoundingClientRect().height), row.querySelectorAll('.wk-skeleton-bar').length, getComputedStyle(row.querySelector('.wk-skeleton-bar')).animationName];
+    });
+    assert.deepEqual(shape, [3, '', true, 3, 'none'], 'one still bar per column, no text, the real row height');
+    // In the accessibility tree: the table, its header row, and no skeleton row.
+    const cdp = await page.context().newCDPSession(page);
+    const { root } = await cdp.send('DOM.getDocument', { depth: -1 });
+    const axOf = async selector => {
+      const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: root.nodeId, selector });
+      return (await cdp.send('Accessibility.getPartialAXTree', { nodeId, fetchRelatives: false })).nodes[0];
+    };
+    assert.equal((await axOf('#t-runs')).role.value, 'table');
+    assert.equal((await axOf('#t-runs thead tr')).ignored, false);
+    for (const sel of ['#t-runs tbody tr.wk-skeleton', '#t-runs tbody tr.wk-skeleton td', '#t-runs tbody tr.wk-skeleton:last-child td']) assert.equal((await axOf(sel)).ignored, true, `${sel} is hidden from assistive tech`);
+    await cdp.detach();
+    // Done 200 ms after they showed: they stay until 500 ms, then swap in one step.
+    await run(200);
+    const done = page.evaluate(() => window.load.done(() => { tbody.innerHTML = '<tr><td>a</td><td>Done</td><td>1:00</td></tr><tr><td>b</td><td>Done</td><td>2:00</td></tr>'; }).then(() => 'resolved'));
+    await run(299);
+    assert.deepEqual((await look()).slice(0, 2), ['true', n], 'held for the minimum');
+    await run(1);
+    assert.equal(await done, 'resolved');
+    assert.deepEqual(await look(), [null, 0, 2], 'content in, busy gone');
+    // Next time: as many rows as there were.
+    await page.evaluate(() => { window.load = kit.wkSkeleton(tbody); });
+    await run(400);
+    assert.deepEqual(await look(), ['true', 2, 2]);
+    await page.evaluate(() => { window.load.cancel(); });
+    await run(500);
+    assert.deepEqual(await page.evaluate(() => [...tbody.rows].map(r => r.cells[0].textContent)), ['a', 'b'], 'cancel puts the rows back');
+    // Done within the quiet wait: no rows ever, the content at once.
+    await page.evaluate(() => { tbody.replaceChildren(); window.load = kit.wkSkeleton(tbody, { rows: 4 }); });
+    await run(100);
+    await page.evaluate(() => window.load.done(() => { tbody.innerHTML = '<tr><td>c</td><td>Done</td><td>0:10</td></tr>'; }));
+    assert.deepEqual(await look(), [null, 0, 1]);
+    await run(1000);
+    assert.deepEqual(await look(), [null, 0, 1]);
+    // An explicit count.
+    await page.evaluate(() => { tbody.replaceChildren(); window.load = kit.wkSkeleton(tbody, { rows: 4 }); });
+    await run(400);
+    assert.deepEqual(await look(), ['true', 4, 4]);
+    // Forced colours: outlined in GrayText.
+    await page.emulateMedia({ forcedColors: 'active' });
+    const fc = await page.evaluate(() => { const s = getComputedStyle(tbody.querySelector('.wk-skeleton-bar')); const p = document.createElement('i'); p.style.setProperty('color', 'GrayText'); document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return [s.outlineStyle, s.outlineColor === c]; });
+    assert.deepEqual(fc, ['solid', true]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('loading chart: the frame, title and legend stay, aria-busy, the plot keeps its height, a named spinner from 400 ms; ready() holds it 500 ms', async () => {
+    const { page, problems, run } = await openTasks();
+    await page.evaluate(() => {
+      window.fig = kit.wkChart({ id: 't-chart', kind: 'bars', label: 'Jobs per day', loading: 'Fetching runs', series: [{ label: 'Succeeded', tone: 1 }, { label: 'Failed', tone: 2 }] });
+      document.getElementById('tbox').append(window.fig);
+    });
+    const look = () => page.evaluate(() => {
+      const s = fig.querySelector('.wk-chart-loading > .wk-spinner');
+      return [fig.getAttribute('aria-busy'), fig.querySelector('.wk-chart-title').textContent, [...fig.querySelectorAll('.wk-chart-legend-item')].map(li => li.textContent), Math.round(fig.querySelector('.wk-chart-loading').getBoundingClientRect().height), s.getAttribute('role'), s.getAttribute('aria-label'), getComputedStyle(s).display !== 'none'];
+    });
+    assert.deepEqual(await look(), ['true', 'Jobs per day', ['Succeeded', 'Failed'], 220, 'progressbar', 'Fetching runs', false]);
+    await run(399);
+    assert.equal((await look())[6], false, 'no spinner in the quiet wait');
+    await run(1);
+    assert.equal((await look())[6], true, 'the spinner at 400 ms');
+    assert.ok((await axTree(page)).find(n => n.role?.value === 'progressbar' && n.name?.value === 'Fetching runs'));
+    await run(100);
+    await page.evaluate(() => { window.chartReady = false; kit.wkChart.ready(fig).then(() => { window.chartReady = true; }); });
+    await run(399);
+    assert.equal(await page.evaluate(() => window.chartReady), false, 'held until the spinner has shown for 500 ms');
+    await run(1);
+    assert.equal(await page.evaluate(() => window.chartReady), true);
+    // Ready before the spinner: at once.
+    await page.evaluate(() => { window.fig2 = kit.wkChart({ kind: 'line', label: 'Runs', loading: 'Fetching runs', series: [] }); document.getElementById('tbox').append(window.fig2); });
+    assert.equal(await page.evaluate(() => [fig2.querySelector('.wk-chart-legend'), kit.wkChart.ready(fig2) instanceof Promise][0]), null, 'no legend while the series are unknown');
+    await run(1000);
+    assert.equal(await page.evaluate(() => getComputedStyle(fig2.querySelector('.wk-spinner')).display), 'none', 'ready() before 400 ms: no spinner ever');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
 
 if (failures.length) {
