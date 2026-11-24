@@ -259,10 +259,11 @@ const box = wkMarkdownEditor({
 document.querySelector('#reply').append(box);
 ```
 
-**The page must load `@wails-kit/ui`'s script** (`kit.js`, or
-`dist/wails-kit-ui.js`): the Write and Preview tabs are its `<wk-tabs>`.
-Without it the editor logs a one-time `console.warn` and the tabs do not
-switch.
+**The page must load `@wails-kit/ui`'s script** (`src/index.js`, or
+`dist/wails-kit-ui.js`): the Write and Preview tabs are its `<wk-tabs>`, and
+a busy submit and the submit error go through its `wkTask` and announcer
+([below](#submitting)). Without `<wk-tabs>` the editor logs a one-time
+`console.warn` and the tabs do not switch.
 
 It returns a `<div class="wk-markdown-editor">`:
 
@@ -292,6 +293,8 @@ It returns a `<div class="wk-markdown-editor">`:
 | `actions` | the buttons under it, in order: `{ label, primary?, submit?, cancel?, onclick?(editor) }`. A `submit` action submits, a `cancel` action cancels; the others call `onclick` | none |
 | `onchange(value)` | after each edit, not when the app sets `value` | |
 | `onsubmit(value)` | on submit. Return a promise to keep the submit actions busy until it settles (below) | |
+| `submitTask` | the busy submit's words and timeout, for the window's `wkTask` (below): `{ words, doneWords, failWords, timeout, timeoutWords }` | `{ words: 'Sending…', doneWords: 'Sent', failWords: 'Couldn’t send', timeoutWords: 'Couldn’t confirm it was sent' }`, no timeout |
+| `kit` | `{ wkTask, announce }` from `@wails-kit/ui`, for a page where the kit doesn't publish them (below) | `document.wkTask`, `document.wkAnnounce` |
 | `oncancel(editor)` | on cancel: a `cancel` action, `cancel()`, or Escape (below). Without it, Escape is left to the page (a dialog around the editor) | |
 | `onmode(mode)` | when the person switches tabs | |
 | `onlink(url)` | a click on a preview link (see `renderMarkdown`) | |
@@ -335,19 +338,57 @@ too.
 Submitting (Mod-Enter, a `submit` action or `submit()`) checks the text
 first. An empty text (with `required`) says "Write something first."; one past
 `maxLength` says "Shorten this by 3 characters.". The message sits under the
-text (`aria-describedby`, `aria-invalid`) in a polite live region
-(`role="status"`, in the page from the start and empty until needed), so it is
-announced even when focus is already in the text (Mod-Enter). Focus goes to
-the text (on Write), and the message clears as the person types it right. The submit button stays enabled,
-as the [behaviour guidelines](../ui/BEHAVIOUR.md#forms-and-validation) ask.
+text (`aria-describedby`, `aria-invalid`), and each submit sends it to the
+window's [announcer](../ui/README.md#the-announcer), so it is heard even when
+focus is already in the text (Mod-Enter), the same message again too. Focus
+goes to the text (on Write), and the message clears as the person types it
+right; while they type, its changes (the count to cut) are not announced, since
+nothing that ticks goes to the announcer. The submit button stays enabled, as
+the [behaviour guidelines](../ui/BEHAVIOUR.md#forms-and-validation) ask.
 
 Then `wk-submit` fires, then `onsubmit(value)`. When `onsubmit` returns a
-promise, the submit actions get `aria-disabled="true"` and `data-busy` (they
-keep focus and their name; the busy state is on the control, as
-[BEHAVIOUR.md](../ui/BEHAVIOUR.md#accessibility) says, not `aria-busy` on the
-editor) until it settles, and another submit does nothing. The editor does not clear the
-text or report a failure itself: on success the app sets `value = ''` (or
-removes the editor), and on failure it shows the error.
+promise, the submit is a [`wkTask`](../ui/README.md#wktask) on the submit
+actions (`control`), named by `label` in the task list:
+
+- at once, the submit actions get `aria-disabled="true"` and `data-busy` (they
+  keep focus and their name; the busy state is on the control, as
+  [BEHAVIOUR.md](../ui/BEHAVIOUR.md#accessibility) says, not `aria-busy` on the
+  editor), and another submit does nothing;
+- after 400 ms, a spinner in the first submit button, and `submitTask.words`
+  ("Sending…") announced; once shown, it stays at least 500 ms;
+- when the promise resolves, `doneWords` ("Sent") are announced; when it
+  rejects, `failWords` ("Couldn’t send"), assertively while focus is still on
+  the actions, and the task waits in the window's task list with Retry, which
+  sends the value that failed again (not what the editor holds now); while the
+  editor is disabled or another submit is pending, Retry sends nothing and the
+  announcer says why ("Couldn’t send: Comment is turned off"). The failure
+  leaves the list when the next submit starts, or on `destroy()`;
+- at the end each action gets back the `aria-disabled` it had, so an action
+  the app locked stays locked;
+- there is no timeout unless `submitTask.timeout` (ms) sets one: the request
+  is the app's, and it knows how long it may take. After that time the task
+  fails with `timeoutWords` ("Couldn’t confirm it was sent", since the request
+  may still land), and the spinner goes; the actions stay busy
+  (`aria-disabled`, `data-busy`) and another submit does nothing until
+  `onsubmit`'s promise settles, so nothing is sent twice.
+
+The editor does not clear the text or show a failure itself: on success the
+app sets `value = ''` (or removes the editor), and on failure it shows the
+error.
+
+**Without `@wails-kit/ui`'s module.** The editor bundles no part of the kit:
+`wkTask` needs the kit's `kit.js`, which defines the custom elements the app
+loads itself, so the editor uses the window's own: `spec.kit` when the app
+gives it (`{ wkTask, announce }` imported from `@wails-kit/ui`), else what the
+kit publishes as `document.wkTask` and `document.wkAnnounce` (the first copy of
+the kit in the window, whose task list the submits join). It looks them up as
+it needs them, so an editor built before the kit loaded uses it once it has;
+without them it works as before:
+the error is a polite live region of its own (`role="status"`, in the page from
+the start and empty until needed, every change heard, the same message again
+emptied and set on the next frame), and the submit actions are busy at once
+until the promise settles, with no spinner and nothing announced, then get
+back the `aria-disabled` they had.
 
 ### As a comment box on a diff
 
@@ -528,6 +569,7 @@ returns a `<div class="wk-richtext-editor">` (a `role="group"` named by
 | `actions` | the buttons under it: `{ label, primary?, submit?, cancel?, onclick?(editor) }`, as the Markdown editor's | none |
 | `onchange(value)` | after each edit, not when the app sets `value` | |
 | `onsubmit(value)` | on submit; return a promise to keep the submit actions busy until it settles | |
+| `submitTask` | as the Markdown editor's: the busy submit's words and timeout | |
 | `oncancel(editor)` | on cancel: a `cancel` action, `cancel()`, or Escape in the editor | |
 | `onlink(url)` | a link opened by the person (below): an `http`, `https` or `mailto` URL | |
 | `id` | the element's id; also the stem of its parts' ids | |
@@ -542,11 +584,12 @@ and `destroy()` (the element is left empty; then `value`, `focus()`,
 after each edit, before `onchange`), `wk-submit` (`{ value }`, cancelable,
 before `onsubmit`) and `wk-cancel` (`null`, before `oncancel`).
 
-Submitting, the error ("Write something first.", in a polite live region
-under the text, with `aria-invalid` and `aria-describedby` on it, cleared as
-the person types) and the busy submit actions (`aria-disabled="true"` and
-`data-busy` while `onsubmit`'s promise is pending) work as in the
-[Markdown editor](#submitting).
+Submitting, the error ("Write something first.", under the text, with
+`aria-invalid` and `aria-describedby` on it, cleared as the person types, and
+sent to the window's announcer on submit and when the editor refuses a change)
+and the busy submit actions (the window's `wkTask` on them while `onsubmit`'s
+promise is pending, with `submitTask`'s words) work as in the
+[Markdown editor](#submitting), with and without `@wails-kit/ui`'s module.
 
 ### Keyboard
 
