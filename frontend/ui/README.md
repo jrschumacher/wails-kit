@@ -382,10 +382,12 @@ the words it was about to say; words it said in the last 2 s are set again on
 the next frame. A modal `<dialog>` makes the rest of the page inert, live
 regions too, so while one is open the regions sit inside the top-most modal
 and go back to `<body>` when it closes, cleared first so the last words aren't
-read again where they land. `wk-dialog` moves them, and so does any `<dialog>`'s `open`
-attribute changing (watched in the same task, not on the later `toggle` or
-`close` event); `placeAnnouncer(dialog, open)` does it by hand
-for a modal opened some other way. Never
+read again where they land. `wk-dialog` moves them, and so does any `<dialog>`
+in the document when its `open` attribute changes (watched in the same task,
+not on the later `toggle` or `close` event); `placeAnnouncer(dialog, open)`
+does it by hand for a modal opened some other way. A modal opened inside a
+shadow root, such as another component's, needs `placeAnnouncer(dialog, open)`
+when it opens and closes, because the kit can't see into shadow roots. Never
 send a countdown, a progress value or streamed output; wkTask, the toast and
 the settings window send their words here instead of having live regions of
 their own.
