@@ -38,10 +38,15 @@ other palette. Keep the hue shift small (a warm or cool bias, not a colour).
 Then text and secondary text must reach 4.5:1 on all four grounds (`bg`,
 `sidebar`, `surface`, `control`), and the field border 3:1 on `bg` and `surface`.
 
-**Increased contrast comes free.** Under `prefers-contrast: more` the kit mixes the
-lines, outlines, secondary text and the fill tints from the theme's own `text` and
-`bg` (`tokens.css`, last block), and that block outweighs a theme's, so a theme sets
-no contrast values of its own.
+**Increased contrast.** Under `prefers-contrast: more` the kit mixes the lines,
+outlines, secondary text and the fill tints from the theme's own `text` and `bg`
+(`tokens.css`, last block), and that block outweighs a theme's, so a theme sets no
+contrast values of its own. The mixes are only as strong as the theme's `text`: a
+pale text can make them weaker than the theme's own values. So the check works them
+out for the theme, in each appearance, and holds them to the same minimums (secondary
+text 4.5:1 on all four grounds, the field border 3:1 on `bg` and `surface`), and to no
+less than the theme's own value without the setting. A theme that fails darkens its
+`text` (lightens it in dark).
 
 **Font fallbacks.** `--wk-font-family` may add fallbacks after the kit's first
 family, never replace it. A font the theme names is the app's to bundle: an
@@ -168,6 +173,11 @@ when a theme:
 - has text or secondary text under 4.5:1 on any of the four grounds, in either
   appearance;
 - has a field border under 3:1 on `bg` or `surface`;
+- under increased contrast (rule `contrast-more/<appearance>`), has the kit's mixed
+  secondary text under 4.5:1 on any ground or the mixed field border under 3:1 on
+  `bg` or `surface`, or either weaker than the theme's own value
+  (`test/fixtures/low-text.css` is one: grey text that passes at 4.5:1 without the
+  setting drops to 3.14:1 with it);
 - has working and attention closer than 1.5:1 to each other, or either under
   3:1 on the window;
 - has text on the accent, or the kit's secondary text on a selected row or count

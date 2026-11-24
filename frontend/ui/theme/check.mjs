@@ -150,6 +150,22 @@ export function derive(get, mode) {
 const firstFamily = v => (v || '').split(',')[0].trim().replace(/^["']|["']$/g, '').toLowerCase();
 const px = v => (/^-?[\d.]+px$/.test(v || '') ? parseFloat(v) : NaN);
 
+// The increased-contrast mixes in the kit's stylesheet: the token, and the
+// share of --wk-color-text mixed into --wk-color-bg, from the
+// :root:root:root block under prefers-contrast: more.
+export const CONTRAST_MORE_SELECTOR = ':root:root:root';
+export function contrastMore(kitCss) {
+  const out = new Map();
+  for (const r of rules(kitCss)) {
+    if (r.selector !== CONTRAST_MORE_SELECTOR || !r.atRules.some(a => /prefers-contrast:\s*more/.test(a))) continue;
+    for (const [name, value] of r.decls) {
+      const m = value.match(/^color-mix\(in srgb, var\(--wk-color-text\) ([\d.]+)%, var\(--wk-color-bg\)\)$/);
+      if (m) out.set(name, +m[1]);
+    }
+  }
+  return out;
+}
+
 export function checkTheme(themeCss, kitCss, { exceptions = {}, requireIdentity = true } = {}) {
   const problems = [];
   const add = (rule, message) => problems.push({ rule, message });
@@ -247,6 +263,32 @@ export function checkTheme(themeCss, kitCss, { exceptions = {}, requireIdentity 
       const on = { selected, chip: over(get(c('fill-strong')), g), 'chip on selected': over(get(c('fill-strong')), selected) };
       for (const [what, under] of Object.entries(on)) ratio('on-selected', c('text-secondary-on-selected'), under, 4.5, `secondary text on ${what} over ${ground}`);
     }
+  }
+
+  // Increased contrast: under prefers-contrast: more the kit mixes
+  // secondary text and the field border from the theme's text and bg (the
+  // last block of tokens.css). The mixes must still pass, and must not be
+  // weaker than the theme's own values without the setting.
+  const mixes = contrastMore(kitCss);
+  for (const mode of MODES) {
+    if (malformed.has(mode) || !mixes.size) continue;
+    const get = resolve(mode);
+    const mixed = name => {
+      const pct = mixes.get(name);
+      return pct === undefined ? undefined : over(`rgba(${rgb(get(c('text')))}, ${pct / 100})`, get(c('bg')));
+    };
+    const check = (name, grounds, min, what) => {
+      const more = mixed(name);
+      if (!more) return;
+      for (const ground of grounds) {
+        const g = get(c(ground));
+        const r = contrast(more, g), usual = contrast(get(name), g);
+        if (r < min) add(`contrast-more/${mode}`, `${mode}, increased contrast: ${what} on ${ground} is ${r.toFixed(2)}:1, under ${min}:1`);
+        else if (r < usual) add(`contrast-more/${mode}`, `${mode}, increased contrast: ${what} on ${ground} is ${r.toFixed(2)}:1, weaker than the usual ${usual.toFixed(2)}:1`);
+      }
+    };
+    check(c('text-secondary'), ['bg', 'sidebar', 'surface', 'control'], 4.5, 'secondary text');
+    check(c('field-border'), ['bg', 'surface'], 3, 'the field border');
   }
 
   const left = problems.filter(p => !(p.rule in exceptions));

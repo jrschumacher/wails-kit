@@ -1,0 +1,30 @@
+/* An example theme for @wails-kit/ui (THEMING.md is the contract): a green
+   accent, an amber working tone, a deeper red for attention and rounder
+   corners. It keeps the kit's grounds and font, so it bundles nothing. The
+   demo's themed page (demo/themed.html) shows the kit with it. */
+:root {--wk-color-bg:#ffffff;--wk-color-sidebar:#f4f4f4;--wk-color-surface:#ffffff;--wk-color-control:#ffffff;--wk-color-hairline:#888888;--wk-color-hairline-strong:#777777;--wk-color-control-border:#777777;--wk-color-field-border:#707070;--wk-color-text:#707070;--wk-color-text-secondary:#707070;
+  --wk-color-accent: #1f6b55;
+  --wk-color-on-accent: #ffffff;
+  --wk-color-working: #b7791f;
+  --wk-color-attention: #bc3529;
+  --wk-color-attention-text: #a32d22;
+  --wk-radius-control: 7px;
+  --wk-radius-group: 10px;
+  --wk-radius-window: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {--wk-color-bg:#000000;--wk-color-sidebar:#0a0a0a;--wk-color-surface:#000000;--wk-color-control:#000000;--wk-color-hairline:#888888;--wk-color-hairline-strong:#777777;--wk-color-control-border:#777777;--wk-color-field-border:#797979;--wk-color-text:#797979;--wk-color-text-secondary:#797979;
+    --wk-color-accent: #7fcfb4;
+    --wk-color-on-accent: #0c1a15;
+    --wk-color-working: #e5ad4f;
+    --wk-color-attention: #ee6b5f;
+    --wk-color-attention-text: #f48c82;
+  }
+}
+:root[data-theme="dark"] {--wk-color-bg:#000000;--wk-color-sidebar:#0a0a0a;--wk-color-surface:#000000;--wk-color-control:#000000;--wk-color-hairline:#888888;--wk-color-hairline-strong:#777777;--wk-color-control-border:#777777;--wk-color-field-border:#797979;--wk-color-text:#797979;--wk-color-text-secondary:#797979;
+  --wk-color-accent: #7fcfb4;
+  --wk-color-on-accent: #0c1a15;
+  --wk-color-working: #e5ad4f;
+  --wk-color-attention: #ee6b5f;
+  --wk-color-attention-text: #f48c82;
+}
