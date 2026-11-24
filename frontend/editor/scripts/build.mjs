@@ -28,7 +28,7 @@ const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
 
 // One entry per editor: dist/<name>.js from src/<name>/index.js. An entry
 // may import src/shared/ but never another entry's folder.
-export const ENTRIES = ['code', 'markdown'];
+export const ENTRIES = ['code', 'markdown', 'richtext'];
 
 const banner = `/* ${pkg.name} ${pkg.version}. Built by scripts/build.mjs from src/; do not edit. `
   + 'Bundles third-party code; see THIRD-PARTY-LICENSES.txt beside this file. */';

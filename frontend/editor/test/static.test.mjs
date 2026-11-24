@@ -8,6 +8,7 @@ import path from 'node:path';
 import { root } from '../scripts/build.mjs';
 import { editorTheme, syntax } from '../src/shared/theme-spec.js';
 import { previewStyles, editorStyles } from '../src/markdown/style-spec.js';
+import { richtextStyles } from '../src/richtext/style-spec.js';
 // The kit's own CSS helpers and tokens: this package builds on @wails-kit/ui.
 import { banned, rules, tokens } from '../../ui/test/css.mjs';
 
@@ -66,7 +67,7 @@ test('every theme selector is scoped to the editor ("&.cm-editor")', () => {
 });
 
 test('the Markdown editor and preview styles: tokens only, scoped selectors, forced-colours rules', () => {
-  for (const [name, spec, scope] of [['previewStyles', previewStyles, /^\.wk-markdown([\s.>:[]|$)/], ['editorStyles', editorStyles, /^\.wk-markdown-editor/]]) {
+  for (const [name, spec, scope] of [['previewStyles', previewStyles, /^\.wk-markdown([\s.>:[]|$)/], ['editorStyles', editorStyles, /^\.wk-markdown-editor/], ['richtextStyles', richtextStyles, /^\.wk-richtext-editor([\s.>:[]|$)/]]) {
     const decls = declarations(spec);
     assert.ok(decls.length > 15, name);
     for (const [selector, prop, value, forced] of decls) {
@@ -81,6 +82,13 @@ test('the Markdown editor and preview styles: tokens only, scoped selectors, for
   assert.ok(uses(previewStyles, '.wk-markdown', 'color', '--wk-color-text'));
   assert.ok(uses(previewStyles, '.wk-markdown', 'fontSize', '--wk-font-size-base'));
   assert.ok(uses(editorStyles, '.wk-markdown-editor-count[data-over]', 'color', '--wk-color-attention-text'));
+  // The rich-text box is a field: the control colours and the kit's focus ring.
+  const content = '.wk-richtext-editor .wk-richtext-editor-content';
+  assert.ok(uses(richtextStyles, content, 'backgroundColor', '--wk-color-control'));
+  assert.ok(uses(richtextStyles, content, 'border', '--wk-color-control-border'));
+  assert.ok(uses(richtextStyles, content, 'caretColor', '--wk-color-accent'));
+  assert.ok(uses(richtextStyles, `${content}:focus`, 'outline', '--wk-color-accent'));
+  assert.ok(uses(richtextStyles, '.wk-richtext-editor .wk-richtext-editor-toolbar .wk-button[aria-pressed="true"]', 'backgroundColor', '--wk-color-selection'));
 });
 
 test('token coverage: every var(--wk-…) used is defined by @wails-kit/ui tokens.css', () => {

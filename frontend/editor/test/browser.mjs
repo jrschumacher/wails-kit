@@ -1,6 +1,6 @@
 // Browser checks for the editors, on the review pages in demo/ (index.html
 // and themed.html for the code editor, markdown.html for the Markdown
-// editor), which load the prebuilt dist/ modules as an app vendors them. Run with: npm run test:browser
+// editor, richtext.html for the rich-text editor), which load the prebuilt dist/ modules as an app vendors them. Run with: npm run test:browser
 // It needs playwright-core (a devDependency) and Chrome: set CHROME_PATH, or
 // have Chrome at /usr/bin/google-chrome or the macOS default. Without Chrome
 // it skips, unless CI is set, when it fails.
@@ -85,7 +85,9 @@ const make = (page, spec) => page.evaluate(async s => {
 }, spec);
 
 const failures = [];
+// CHECK=text runs only the checks whose name includes it.
 async function check(name, fn) {
+  if (process.env.CHECK && !name.includes(process.env.CHECK)) return;
   try {
     await fn();
     console.log(`ok    ${name}`);
@@ -1123,6 +1125,769 @@ try {
       return out;
     });
     assert.deepEqual(other, ['not an overflow', 'not an overflow', 'fine', 2]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  // ---- The rich-text editor (demo/richtext.html, dist/richtext.js) ------
+  const RT = '/editor/demo/richtext.html';
+  // Puts an editor's value, focuses its text with the cursor at the end, and
+  // selects its last `select` characters (Shift+Left), or all of it (true).
+  const rtSet = async (page, text, select = 0, id = 'demo-rich') => {
+    await page.evaluate(([t, i]) => { const el = document.getElementById(i); el.value = t; el.focus(); }, [text, id]);
+    await page.keyboard.press(`${mod}+End`);
+    if (select === true) await page.keyboard.press(`${mod}+a`);
+    else for (let i = 0; i < select; i++) await page.keyboard.press('Shift+ArrowLeft');
+  };
+  const rtValue = (page, id = 'demo-rich') => value(page, id);
+  const rtFocused = (page, id = 'demo-rich') => page.evaluate(i => document.activeElement === document.querySelector(`#${i} .wk-richtext-editor-content`), id);
+  const pressed = (page, id = 'demo-rich') => page.evaluate(i => Object.fromEntries([...document.querySelectorAll(`#${i} [role=toolbar] button[aria-pressed]`)].map(b => [b.dataset.tool, b.getAttribute('aria-pressed') === 'true'])), id);
+  const pressedOn = async (page, id) => Object.entries(await pressed(page, id)).filter(([, v]) => v).map(([k]) => k);
+
+  await check('richtext: the page loads with no errors, CSP violations or network; styles adopted, tokens used (light and dark)', async () => {
+    for (const scheme of ['light', 'dark']) {
+      const { page, problems } = await open(RT, { colorScheme: scheme });
+      const look = await page.evaluate(() => {
+        const content = document.querySelector('#demo-rich .wk-richtext-editor-content');
+        const s = getComputedStyle(content);
+        return {
+          editors: document.querySelectorAll('.wk-richtext-editor').length,
+          styleTags: document.querySelectorAll('style').length,
+          adopted: document.adoptedStyleSheets.length,
+          role: content.getAttribute('role'), multiline: content.getAttribute('aria-multiline'), name: content.getAttribute('aria-label'),
+          bg: s.backgroundColor, control: window.t.colour('var(--wk-color-control)'),
+          color: s.color, text: window.t.colour('var(--wk-color-text)'),
+          border: s.borderTopColor, controlBorder: window.t.colour('var(--wk-color-control-border)'),
+          whiteSpace: s.whiteSpace,
+          link: getComputedStyle(content.querySelector('a.wk-link')).color, accent: window.t.colour('var(--wk-color-accent)'),
+          code: getComputedStyle(content.querySelector('.wk-code > pre')).fontFamily,
+          heading: getComputedStyle(content.querySelector('h2')).fontSize, lg: getComputedStyle(document.documentElement).getPropertyValue('--wk-font-size-lg').trim(),
+          imgs: document.querySelectorAll('.wk-richtext-editor img:not(.ProseMirror-separator)').length,
+          overflow: document.documentElement.scrollWidth > innerWidth,
+        };
+      });
+      assert.equal(look.editors, 6);
+      assert.equal(look.styleTags, 0);
+      assert.ok(look.adopted >= 1);
+      assert.deepEqual([look.role, look.multiline, look.name], ['textbox', 'true', 'Release notes']);
+      assert.equal(look.bg, look.control, scheme);
+      assert.equal(look.color, look.text, scheme);
+      assert.equal(look.border, look.controlBorder, scheme);
+      assert.equal(look.whiteSpace, 'break-spaces', 'ProseMirror\'s structural rules are missing');
+      assert.equal(look.link, look.accent, scheme);
+      assert.match(look.code, /^ui-monospace,/);
+      assert.equal(look.heading, look.lg);
+      assert.equal(look.imgs, 0, 'the raw <img> in the sample became an image');
+      assert.equal(look.overflow, false);
+      assert.deepEqual(problems, [], scheme);
+      await page.close();
+    }
+  });
+
+  await check('richtext: typing with marks by shortcut and toolbar (bold, italic, code), and the block buttons, write Markdown', async () => {
+    const { page, problems } = await open(RT);
+    await rtSet(page, '');
+    await page.keyboard.type('plain ');
+    for (const [key, text] of [[`${mod}+b`, 'bold'], [`${mod}+i`, 'italic'], [`${mod}+e`, 'code']]) {
+      await page.keyboard.press(key);
+      await page.keyboard.type(text);
+      await page.keyboard.press(key);
+      await page.keyboard.type(' ');
+    }
+    assert.equal(await rtValue(page), 'plain **bold** _italic_ `code`');
+    // On a selection, the shortcut and the toolbar toggle it.
+    await rtSet(page, 'hello world', 5);
+    await page.keyboard.press(`${mod}+b`);
+    assert.equal(await rtValue(page), 'hello **world**');
+    await page.click('#demo-rich [data-tool=bold]');
+    assert.equal(await rtValue(page), 'hello world');
+    await page.click('#demo-rich [data-tool=italic]');
+    assert.equal(await rtValue(page), 'hello _world_');
+    assert.equal(await rtFocused(page), true, 'a toolbar button took focus from the text');
+    // Blocks, from the toolbar and the list shortcuts.
+    for (const [tool, want] of [['heading1', '# line'], ['heading2', '## line'], ['bulletList', '- line'], ['orderedList', '1. line'], ['quote', '> line'], ['codeBlock', '```\nline\n```']]) {
+      await rtSet(page, 'line');
+      await page.click(`#demo-rich [data-tool=${tool}]`);
+      assert.equal(await rtValue(page), want, tool);
+      await page.click(`#demo-rich [data-tool=${tool}]`);
+      assert.equal(await rtValue(page), 'line', `${tool} again`);
+    }
+    await rtSet(page, 'line');
+    await page.keyboard.press(`${mod}+Shift+8`);
+    assert.equal(await rtValue(page), '- line');
+    await page.keyboard.press(`${mod}+Shift+7`);
+    assert.equal(await rtValue(page), '1. line');
+    await rtSet(page, 'above');
+    await page.click('#demo-rich [data-tool=rule]');
+    await page.keyboard.type('below');
+    assert.equal(await rtValue(page), 'above\n\n---\n\nbelow');
+    // Line breaks, list indent and outdent.
+    await rtSet(page, '- one');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('two');
+    await page.keyboard.press(`${mod}+]`);
+    await page.keyboard.press('Shift+Enter');
+    await page.keyboard.type('more');
+    assert.equal(await rtValue(page), '- one\n  - two\\\n    more');
+    await page.keyboard.press(`${mod}+[`);
+    assert.equal(await rtValue(page), '- one\n- two\\\n  more');
+    const labels = await page.evaluate(() => [...document.querySelectorAll('#demo-rich [role=toolbar] button')].map(b => [b.getAttribute('aria-label'), b.getAttribute('aria-keyshortcuts')]));
+    const m = mod === 'Meta' ? 'Meta' : 'Control';
+    assert.deepEqual(labels, [['Bold', `${m}+B`], ['Italic', `${m}+I`], ['Code', `${m}+E`], ['Link', `${m}+K`], ['Heading 1', null], ['Heading 2', null],
+      ['Bulleted list', `${m}+Shift+8`], ['Numbered list', `${m}+Shift+7`], ['Quote', null], ['Code block', null], ['Horizontal rule', null]]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: Markdown input rules (# , ## , - , 1. , > , ``` and `code`), and Backspace undoes one', async () => {
+    const { page, problems } = await open(RT);
+    for (const [typed, want] of [
+      ['# Title', '# Title'], ['## Sub', '## Sub'], ['- item', '- item'], ['* item', '- item'], ['1. item', '1. item'], ['3. item', '3. item'],
+      ['> quoted', '> quoted'], ['```go code', '```go\ncode\n```'], ['run `go test` now', 'run `go test` now'],
+    ]) {
+      await rtSet(page, '');
+      await page.keyboard.type(typed);
+      assert.equal(await rtValue(page), want, typed);
+    }
+    // A fence line then Enter starts a code block too.
+    await rtSet(page, '');
+    await page.keyboard.type('```js');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('x');
+    assert.equal(await rtValue(page), '```js\nx\n```');
+    // Backspace right after a rule fired puts the typed text back.
+    await rtSet(page, '');
+    await page.keyboard.type('# ');
+    await page.keyboard.press('Backspace');
+    assert.equal(await rtValue(page), '\\#');
+    // The rules do nothing inside a code block.
+    await rtSet(page, '```\n\n```');
+    await page.keyboard.type('# not a heading');
+    assert.equal(await rtValue(page), '```\n# not a heading\n```');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: undo and redo', async () => {
+    const { page, problems } = await open(RT);
+    await rtSet(page, 'start');
+    await page.keyboard.type(' more');
+    await page.keyboard.press(`${mod}+b`);
+    await page.keyboard.type('bold');
+    assert.equal(await rtValue(page), 'start more**bold**');
+    await page.keyboard.press(`${mod}+z`);
+    assert.equal(await rtValue(page), 'start');
+    await page.keyboard.press(`${mod}+Shift+z`);
+    assert.equal(await rtValue(page), 'start more**bold**');
+    await page.keyboard.press(`${mod}+z`);
+    await page.keyboard.press(`${mod}+y`);
+    assert.equal(await rtValue(page), 'start more**bold**');
+    // Setting value starts a fresh history: Mod-Z does not undo a load.
+    await rtSet(page, 'loaded');
+    await page.keyboard.press(`${mod}+z`);
+    assert.equal(await rtValue(page), 'loaded');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: the toolbar\'s aria-pressed follows the selection', async () => {
+    const { page, problems } = await open(RT);
+    await rtSet(page, '## Head\n\nplain **bold _both_** [link](https://example.com/) `code`\n\n- item\n\n1. num\n\n> quote\n\n```\nblock\n```');
+    const to = async (text, offset = 1) => {
+      await page.evaluate(([t, o]) => {
+        const content = document.querySelector('#demo-rich .wk-richtext-editor-content');
+        const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+        let n;
+        while ((n = walker.nextNode())) if (n.data.includes(t)) break;
+        getSelection().collapse(n, n.data.indexOf(t) + o);
+      }, [text, offset]);
+    };
+    // ProseMirror reads the DOM selection on selectionchange: wait for the toolbar to follow.
+    const follows = want => until(page, w => JSON.stringify([...document.querySelectorAll('#demo-rich [role=toolbar] button[aria-pressed=true]')].map(b => b.dataset.tool)) === JSON.stringify(w), want)
+      .catch(async () => assert.fail(`pressed ${JSON.stringify(await pressedOn(page, 'demo-rich'))}, want ${JSON.stringify(want)}`));
+    for (const [text, want] of [
+      ['Head', ['heading2']], ['plain', []], ['bold', ['bold']], ['both', ['bold', 'italic']], ['link', ['link']], ['code', ['code']],
+      ['item', ['bulletList']], ['num', ['orderedList']], ['quote', ['quote']], ['block', ['codeBlock']],
+    ]) {
+      await to(text);
+      await follows(want);
+    }
+    // A stored mark shows too: Mod-B with nothing selected.
+    await to('plain', 5);
+    await page.keyboard.press(`${mod}+b`);
+    assert.deepEqual(await pressedOn(page, 'demo-rich'), ['bold']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: the link popover sets, checks, edits, opens and removes a link; Escape closes it back to the opener', async () => {
+    const { page, problems } = await open(RT);
+    const pop = () => page.evaluate(() => {
+      const p = document.querySelector('#demo-rich .wk-richtext-editor-link');
+      const input = p.querySelector('input');
+      return { open: !p.hidden, role: p.getAttribute('role'), focused: document.activeElement === input, value: input.value, invalid: input.getAttribute('aria-invalid'), error: p.querySelector('.wk-richtext-editor-link-error').textContent, expanded: document.querySelector('#demo-rich [data-tool=link]').getAttribute('aria-expanded') };
+    });
+    await rtSet(page, 'see the guide', 9);
+    await page.keyboard.press(`${mod}+k`);
+    assert.deepEqual(await pop(), { open: true, role: 'dialog', focused: true, value: '', invalid: null, error: '', expanded: 'true' });
+    // An unsafe or empty address is refused with an error; the field keeps focus.
+    await page.keyboard.type('javascript:alert(1)');
+    await page.keyboard.press('Enter');
+    let p = await pop();
+    assert.equal(p.open, true);
+    assert.equal(p.invalid, 'true');
+    assert.match(p.error, /web or email address/);
+    assert.equal(p.focused, true);
+    assert.equal(await rtValue(page), 'see the guide');
+    // A bare domain gets https://.
+    await page.fill('#demo-rich .wk-richtext-editor-link input', 'example.com/guide');
+    await page.keyboard.press('Enter');
+    assert.equal(await rtValue(page), 'see [the guide](https://example.com/guide)');
+    assert.equal((await pop()).open, false);
+    assert.equal(await rtFocused(page), true, 'focus did not return to the text');
+    // Editing: the cursor in the link, the toolbar button: the popover shows its address, Open and Remove.
+    await page.keyboard.press('End');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('ArrowLeft');
+    await page.click('#demo-rich [data-tool=link]');
+    p = await pop();
+    assert.equal(p.value, 'https://example.com/guide');
+    await page.click('#demo-rich .wk-richtext-editor-link button:text-is("Open")');
+    assert.deepEqual(await page.evaluate(() => window.links), ['https://example.com/guide']);
+    // Escape closes it and focus goes back to the opener (the toolbar button), and does not cancel the editor.
+    await page.focus('#demo-rich .wk-richtext-editor-link input');
+    await page.keyboard.press('Escape');
+    assert.equal((await pop()).open, false);
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.tool), 'link');
+    assert.equal(await page.evaluate(() => window.kitEvents.some(e => e.type === 'wk-cancel')), false, 'Escape in the popover cancelled the editor');
+    // Remove.
+    await page.keyboard.press('Enter');
+    await page.click('#demo-rich .wk-richtext-editor-link button:text-is("Remove")');
+    assert.equal(await rtValue(page), 'see the guide');
+    // With nothing selected, the address becomes the link's text.
+    await rtSet(page, 'at ');
+    await page.keyboard.press(`${mod}+k`);
+    await page.keyboard.type('a@example.com');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type(' now');
+    assert.equal(await rtValue(page), 'at a@example.com now');
+    assert.equal(await page.evaluate(() => document.querySelector('#demo-rich a').getAttribute('href')), 'mailto:a@example.com');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: links never navigate: Mod-click and read-only clicks go to onlink; a plain click only places the cursor', async () => {
+    const { page, problems } = await open(RT);
+    const url = page.url();
+    await page.click('#demo-rich a:text-is("the guide")');
+    assert.deepEqual(await page.evaluate(() => window.links), []);
+    await page.click('#demo-rich a:text-is("the guide")', { modifiers: [mod] });
+    await page.click('#demo-rich a:text-is("the guide")', { button: 'middle' });
+    await page.click('#demo-rich-readonly a');
+    // Keyboard: in the read-only text, links are reachable by Tab.
+    await page.focus('#demo-rich-readonly a');
+    await page.keyboard.press('Enter');
+    assert.deepEqual(await page.evaluate(() => window.links), ['https://example.com/guide', 'https://example.com/read', 'https://example.com/read']);
+    assert.equal(page.url(), url);
+    assert.equal(page.context().pages().length, 1, 'a link opened a window');
+    for (const [href, rel, target] of await page.evaluate(() => [...document.querySelectorAll('.wk-richtext-editor a')].map(a => [a.getAttribute('href'), a.getAttribute('rel'), a.getAttribute('target')]))) {
+      assert.match(href, /^(https:\/\/example\.com\/|mailto:)/);
+      assert.equal(rel, 'noopener noreferrer');
+      assert.equal(target, null);
+    }
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: pasted HTML is cleaned to the supported features: no scripts, handlers, images, frames or unsafe links, and nothing loads', async () => {
+    const { page, problems } = await open(RT);
+    const paste = (id, html, text = '') => page.evaluate(([i, h, t]) => {
+      const content = document.querySelector(`#${i} .wk-richtext-editor-content`);
+      content.focus();
+      const data = new DataTransfer();
+      data.setData('text/html', h);
+      data.setData('text/plain', t);
+      content.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    }, [id, html, text]);
+    await rtSet(page, '');
+    await paste('demo-rich', '<h3 onclick="window.pwned=1">Title</h3><p>a <b>bold</b> <span style="font-weight:700">heavy</span> <i>it</i> <code>c</code>'
+      + '<script>window.pwned=1</script><img src="https://example.com/pixel.png" onerror="window.pwned=1"><svg onload="window.pwned=1"><circle r="1"></circle></svg>'
+      + ' <a href="javascript:window.pwned=1">bad</a> <a href="https://example.com/ok" onclick="window.pwned=1" target="_blank">ok</a> <a href="data:text/html,x">data</a></p>'
+      + '<iframe src="https://example.com/frame"></iframe><style>body{display:none}</style><table><tr><td>cell</td></tr></table>'
+      + '<ul><li>one</li><li>two</li></ul><blockquote>q</blockquote><pre><code class="language-go">x := 1</code></pre><hr><form action="https://example.com"><input value="in"></form>');
+    assert.equal(await rtValue(page), '## Title\n\na **bold** **heavy** _it_ `c` bad [ok](https://example.com/ok) data\n\ncell\n\n- one\n- two\n\n> q\n\n```go\nx := 1\n```\n\n---');
+    const dom = await page.evaluate(() => {
+      const content = document.querySelector('#demo-rich .wk-richtext-editor-content');
+      const tags = new Set([...content.querySelectorAll('*')].map(e => e.localName));
+      const attrs = new Set([...content.querySelectorAll('*')].flatMap(e => [...e.attributes].map(a => a.name)));
+      return { tags: [...tags].sort(), attrs: [...attrs].sort(), pwned: window.pwned ?? null, bodyHidden: getComputedStyle(document.body).display === 'none' };
+    });
+    for (const tag of dom.tags) assert.ok(['p', 'h1', 'h2', 'strong', 'em', 'code', 'a', 'br', 'ul', 'ol', 'li', 'blockquote', 'div', 'pre', 'hr', 'img'].includes(tag), tag);
+    for (const attr of dom.attrs) assert.ok(['class', 'href', 'rel', 'data-language', 'data-tight', 'start', 'contenteditable', 'draggable', 'alt', 'mark-placeholder', 'data-placeholder'].includes(attr), attr);
+    assert.equal(dom.pwned, null);
+    assert.equal(dom.bodyHidden, false);
+    // In an editor with fewer features, pasted HTML is cut down to them.
+    await rtSet(page, '', 0, 'demo-rich-few');
+    await paste('demo-rich-few', '<h1>Head</h1><p><b>b</b> <i>i</i> <code>c</code> <a href="https://example.com/">l</a></p><ol><li>n</li></ol><blockquote>q</blockquote>');
+    assert.equal(await rtValue(page, 'demo-rich-few'), 'Head\n\n**b** _i_ c [l](https://example.com/)\n\n- n\n\nq');
+    // Pasted HTML nested past the Markdown depth limit goes in as its text.
+    await rtSet(page, '');
+    await paste('demo-rich', '<blockquote>'.repeat(40) + '<p>deep</p><p>text</p>' + '</blockquote>'.repeat(40));
+    assert.equal(await rtValue(page), 'deep\n\ntext');
+    assert.equal(await page.evaluate(() => document.querySelectorAll('#demo-rich blockquote').length), 0);
+    // Plain text pastes as text: Markdown in it is not read.
+    await rtSet(page, '');
+    await paste('demo-rich', '', '**not bold**\n# not a heading');
+    assert.equal(await rtValue(page), '\\*\\*not bold\\*\\*\n\n\\# not a heading');
+    // problems records any request outside the page's server.
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  // Hostile HTML for the two checks below: each vector, if any document ran
+  // or loaded it, would add its name to window.__pwned.
+  const PWN = name => `(window.__pwned=(window.__pwned||[]).concat('${name}'))`;
+  const HOSTILE = [
+    `<p onclick="${PWN('p')}">text<img src="x" onerror="${PWN('img')}"><img src="https://example.com/i.png" onerror="${PWN('img-remote')}"></p>`,
+    `<svg onload="${PWN('svg')}"><image href="x" onerror="${PWN('svg-image')}"></image></svg>`,
+    `<details open ontoggle="${PWN('details')}"><summary>s</summary>d</details>`,
+    `<video><source src="x" onerror="${PWN('video')}"></video><audio src="x" onerror="${PWN('audio')}"></audio>`,
+    `<iframe srcdoc="<script>parent.__pwned=['iframe']</script>"></iframe><object data="x" onerror="${PWN('object')}"></object>`,
+    `<input autofocus onfocus="${PWN('input')}"><body onload="${PWN('body')}"><style onload="${PWN('style')}">p{}</style>`,
+    `<script>${PWN('script')}</script><a href="javascript:${PWN('href')}" onmouseover="${PWN('a')}">link</a>`,
+    // A stray "<", a dropped tag, then the rest of a tag: must not join into <img onerror>.
+    `<<img>img src=x onerror="${PWN('joined')}"><<img>svg onload="${PWN('joined-svg')}">`,
+  ].join('');
+  // Waits until a live image the page adds after the hostile HTML has failed
+  // to load: the hostile images (were any live) would have failed by then.
+  const settle = page => page.evaluate(() => new Promise(resolve => {
+    const img = new Image();
+    img.addEventListener('error', () => requestAnimationFrame(() => requestAnimationFrame(resolve)), { once: true });
+    img.src = 'data:,';
+  }));
+  // Drops HTML onto the text, inside it (where ProseMirror takes the drop).
+  const dropHtml = (page, id, html) => page.evaluate(([i, h]) => {
+    const content = document.querySelector(`#${i} .wk-richtext-editor-content`);
+    const box = content.getBoundingClientRect();
+    const data = new DataTransfer();
+    data.setData('text/html', h);
+    content.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true, clientX: box.left + 20, clientY: box.top + 15 }));
+  }, [id, html]);
+  const pasteHtml = (page, id, html) => page.evaluate(([i, h]) => {
+    const content = document.querySelector(`#${i} .wk-richtext-editor-content`);
+    content.focus();
+    const data = new DataTransfer();
+    data.setData('text/html', h);
+    content.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, [id, html]);
+
+  await check('richtext: untrusted HTML reaches no parser with a handler, resource URL or inline style (paste and format html)', async () => {
+    const { page, problems } = await open(RT);
+    // Record every HTML string parsed outside the page: DOMParser, and innerHTML on another document's elements.
+    await page.evaluate(() => {
+      window.parsed = [];
+      const parse = DOMParser.prototype.parseFromString;
+      DOMParser.prototype.parseFromString = function (text, type) { window.parsed.push(String(text)); return parse.call(this, text, type); };
+      const inner = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
+      Object.defineProperty(Element.prototype, 'innerHTML', { ...inner, set(v) { if (this.ownerDocument !== document) window.parsed.push(String(v)); inner.set.call(this, v); } });
+    });
+    await rtSet(page, '');
+    await pasteHtml(page, 'demo-rich', HOSTILE);
+    await page.evaluate(h => { document.getElementById('demo-rich-html').value = h; }, HOSTILE);
+    // The joined "<img" stays text.
+    assert.match(await rtValue(page), /^text\n\nsdlink\\<img src=x onerror="\(window\.\\_\\_pwned=.*\\<svg onload=/);
+    // A drop reaches the same parser and goes in.
+    const before = await page.evaluate(() => window.parsed.length);
+    await dropHtml(page, 'demo-rich', `<p>DROPPED</p>${HOSTILE}`);
+    assert.ok(await page.evaluate(n => window.parsed.length > n, before), 'the drop reached no parser');
+    assert.match(await rtValue(page), /DROPPED/, 'the drop inserted nothing');
+    const parsed = await page.evaluate(() => window.parsed);
+    assert.ok(parsed.length >= 3, `only ${parsed.length} parses seen`);
+    // Every "<" a parser is handed opens a tag the cleaner wrote (text has &lt;):
+    // check each tag's name and attributes. Escaped text may read "onerror=".
+    for (const html of parsed) {
+      for (const tag of html.match(/<[^>]*>?/g) || []) {
+        assert.match(tag, /^<\/?[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?: [a-z-]+="[^"<>]*")*>$/, `${tag} in ${html}`);
+        assert.doesNotMatch(tag, /^<\/?(img|svg|image|iframe|object|script|style|video|audio|source|input)(?=[\s>])/, `${tag} in ${html}`);
+        for (const [, name, value] of tag.matchAll(/ ([a-z-]+)="([^"]*)"/g)) {
+          assert.ok(['href', 'start', 'class', 'data-language', 'data-wk-style'].includes(name), `${tag} in ${html}`);
+          assert.doesNotMatch(value, /javascript:/i, `${tag} in ${html}`);
+        }
+      }
+    }
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: hostile HTML runs nothing on a page with no CSP, and raises no CSP violation on the strict page', async () => {
+    for (const url of ['/editor/test/fixtures/no-csp.html', RT]) {
+      const { page, problems } = await open(url);
+      await page.evaluate(() => { window.violations = []; document.addEventListener('securitypolicyviolation', e => window.violations.push(`${e.violatedDirective}: ${e.sample || e.blockedURI}`)); });
+      await rtSet(page, '');
+      await pasteHtml(page, 'demo-rich', HOSTILE);
+      await page.evaluate(h => { document.getElementById('demo-rich-html').value = h; }, HOSTILE);
+      // Drop it too, inside the text.
+      await dropHtml(page, 'demo-rich', `<p>DROPPED</p>${HOSTILE}`);
+      assert.match(await rtValue(page), /DROPPED/, `${url}: the drop inserted nothing`);
+      await settle(page);
+      assert.deepEqual(await page.evaluate(() => ({ pwned: window.__pwned ?? null, violations: window.violations })), { pwned: null, violations: [] }, url);
+      assert.deepEqual(problems, [], url);
+      await page.close();
+    }
+  });
+
+  await check('richtext: an edit that would take the Markdown past the delimiter or length limit is refused, with a message; the value still loads as Markdown', async () => {
+    const { page, problems } = await open(RT);
+    const errorText = () => page.textContent('#demo-rich .wk-richtext-editor-error');
+    // 1,999 escaped asterisks are under the limit; typed ones stop at 2,000.
+    await rtSet(page, '\\*'.repeat(1999));
+    await page.keyboard.type('***');
+    assert.equal(await rtValue(page), '\\*'.repeat(2000));
+    assert.match(await errorText(), /more formatting in one paragraph than the editor can save/);
+    // The next edit that fits clears the message.
+    await page.keyboard.type('x');
+    assert.equal(await errorText(), '');
+    // Bold words: the one that would pass the limit is refused (Mod-B on a selection).
+    await rtSet(page, Array.from({ length: 500 }, (_, i) => `**w${i}**`).join(' ') + ' last more');
+    const before = await rtValue(page);
+    await page.keyboard.press('Shift+ArrowLeft');
+    await page.keyboard.press('Shift+ArrowLeft');
+    await page.keyboard.press(`${mod}+b`);
+    assert.equal(await rtValue(page), before);
+    assert.match(await errorText(), /more formatting in one paragraph/);
+    const r = await page.evaluate(async () => {
+      const { wkRichTextEditor } = await import('/editor/dist/richtext.js');
+      return wkRichTextEditor({ label: 'Again', value: document.getElementById('demo-rich').value }).hasAttribute('data-source');
+    });
+    assert.equal(r, false, 'the value went past the limits');
+    // Length: at the limit, typing is refused.
+    await page.evaluate(() => { document.getElementById('demo-rich').value = 'x'.repeat(100000); });
+    await page.click('#demo-rich .wk-richtext-editor-content');
+    await page.keyboard.press(`${mod}+End`);
+    await page.keyboard.type('y');
+    assert.equal((await rtValue(page)).length, 100000);
+    assert.match(await errorText(), /too long to save/);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: HTML nested too deep loads as its text a line per block, not run together', async () => {
+    const { page, problems } = await open(RT);
+    const out = await page.evaluate(() => {
+      const el = document.getElementById('demo-rich-html');
+      el.value = '<blockquote>'.repeat(40) + '<p>one</p><p>two <b>bold</b></p><ul><li>three</li><li>four<br>five</li></ul><h4>six</h4>' + '</blockquote>'.repeat(40);
+      return el.value;
+    });
+    assert.equal(out, '<p>one</p><p>two bold</p><p>three</p><p>four</p><p>five</p><p>six</p>');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: Escape in a modal dialog closes it when the editor has no oncancel; with oncancel it cancels', async () => {
+    const { page, problems } = await open(RT);
+    await page.evaluate(async () => {
+      const { wkRichTextEditor } = await import('/editor/dist/richtext.js');
+      for (const [id, cancels] of [['demo-dialog-plain', false], ['demo-dialog-cancel', true]]) {
+        const dialog = document.createElement('dialog');
+        dialog.id = id;
+        dialog.append(wkRichTextEditor({ label: 'In a dialog', value: 'text', ...(cancels ? { oncancel: () => { window.cancelled = true; } } : {}) }));
+        document.body.append(dialog);
+      }
+    });
+    for (const id of ['demo-dialog-plain', 'demo-dialog-cancel']) {
+      await page.evaluate(i => document.getElementById(i).showModal(), id);
+      await page.click(`#${id} .wk-richtext-editor-content`);
+      await page.keyboard.press('Escape');
+    }
+    assert.deepEqual(await page.evaluate(() => [document.getElementById('demo-dialog-plain').open, window.cancelled ?? false]), [false, true]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: HTML format: in and out sanitised; hostile and too-deep HTML loads as text', async () => {
+    const { page, problems } = await open(RT);
+    const out = await page.evaluate(async () => {
+      const el = document.getElementById('demo-rich-html');
+      const first = el.value;
+      el.value = '<p onclick="window.pwned=1">x<img src="https://example.com/i.png" onerror="window.pwned=1"><script>window.pwned=1</script> <a href="javascript:window.pwned=1">bad</a> <a href="https://example.com/a?b=1&amp;c=&quot;2&quot;">ok</a> <span style="font-weight:bold">heavy</span></p><h4>h</h4><style>body{display:none}</style>';
+      const cleaned = el.value;
+      const t0 = performance.now();
+      el.value = '<blockquote>'.repeat(3000) + 'deep' + '</blockquote>'.repeat(3000);
+      const deep = { value: el.value, ms: performance.now() - t0, quotes: el.querySelectorAll('blockquote').length };
+      return { first, cleaned, deep, pwned: window.pwned ?? null };
+    });
+    assert.equal(out.first, '<p>Some <strong>HTML</strong> with <a href="https://example.com/h" rel="noopener noreferrer">a link</a>.</p><ul><li>one</li><li>two</li></ul>');
+    assert.equal(out.cleaned, '<p>x bad <a href="https://example.com/a?b=1&amp;c=%222%22" rel="noopener noreferrer">ok</a> <strong>heavy</strong></p><h2>h</h2>');
+    assert.equal(out.deep.value, '<p>deep</p>');
+    assert.equal(out.deep.quotes, 0);
+    assert.ok(out.deep.ms < 2000, `${out.deep.ms} ms`);
+    assert.equal(out.pwned, null);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: hostile Markdown loads as its source, quickly, with formatting off; it goes out as it came; a normal value turns formatting back on', async () => {
+    const { page, problems } = await open(RT);
+    for (const [label, text] of [
+      ['nested quotes', '>'.repeat(2000) + ' x'],
+      ['emphasis markers', '*'.repeat(5000) + 'a' + '*'.repeat(5000)],
+      ['a deep list', Array.from({ length: 200 }, (_, i) => `${'  '.repeat(i)}- level ${i}`).join('\n')],
+    ]) {
+      for (const how of ['spec', 'setter']) {
+        const r = await page.evaluate(async ([t, h]) => {
+          const { wkRichTextEditor } = await import('/editor/dist/richtext.js');
+          const start = performance.now();
+          let ed;
+          if (h === 'spec') ed = wkRichTextEditor({ id: 'demo-hostile', label: 'Hostile', value: t });
+          else { ed = wkRichTextEditor({ id: 'demo-hostile', label: 'Hostile', value: 'fine' }); ed.value = t; }
+          document.getElementById('demo').append(ed);
+          const ms = performance.now() - start;
+          const out = { ms, same: ed.value === t, source: ed.hasAttribute('data-source'), tools: [...ed.querySelectorAll('[role=toolbar] button')].every(b => b.getAttribute('aria-disabled') === 'true') };
+          ed.remove();
+          return out;
+        }, [text, how]);
+        assert.ok(r.ms < 2000, `${label} (${how}): ${Math.round(r.ms)} ms`);
+        assert.deepEqual({ ...r, ms: 0 }, { ms: 0, same: true, source: true, tools: true }, `${label} (${how})`);
+      }
+    }
+    // In source mode the shortcuts and input rules do nothing; typing still works and goes out as written.
+    await page.evaluate(() => { const el = document.getElementById('demo-rich'); el.value = '*'.repeat(5000); });
+    await page.click('#demo-rich .wk-richtext-editor-content');
+    await page.keyboard.press(`${mod}+End`);
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('# x');
+    await page.keyboard.press(`${mod}+b`);
+    await page.keyboard.type('y');
+    assert.equal(await rtValue(page), `${'*'.repeat(5000)}\n# xy`);
+    await page.evaluate(() => { document.getElementById('demo-rich').value = '**ok**'; });
+    assert.equal(await page.evaluate(() => document.getElementById('demo-rich').hasAttribute('data-source')), false);
+    assert.equal(await page.evaluate(() => document.querySelector('#demo-rich [data-tool=bold]').getAttribute('aria-disabled')), null);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: no edit nests lists or quotes past the Markdown depth limit, so the value always loads again as Markdown', async () => {
+    const { page, problems } = await open(RT);
+    await rtSet(page, '- a');
+    for (let i = 0; i < 40; i++) {
+      await page.keyboard.press('Enter');
+      await page.keyboard.type(`l${i}`);
+      await page.keyboard.press(`${mod}+]`);
+    }
+    for (let i = 0; i < 40; i++) await page.click('#demo-rich [data-tool=quote]');
+    const r = await page.evaluate(() => {
+      const el = document.getElementById('demo-rich');
+      return { value: el.value, lists: el.querySelectorAll('ul').length, quotes: el.querySelectorAll('blockquote').length };
+    });
+    assert.ok(r.lists > 5, `only ${r.lists} levels`);
+    // The value loads as Markdown again (not as its source).
+    const again = await page.evaluate(async v => {
+      const { wkRichTextEditor } = await import('/editor/dist/richtext.js');
+      return wkRichTextEditor({ label: 'Again', value: v }).hasAttribute('data-source');
+    }, r.value);
+    assert.equal(again, false, `${r.lists} lists and ${r.quotes} quotes went past the limit`);
+    assert.ok(r.value.includes('l39'), 'typing stopped');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: keyboard only: Tab to the toolbar, arrows between its buttons, Tab to the text and on; Alt+F10 back to the toolbar', async () => {
+    const { page, problems } = await open(RT);
+    await page.focus('#demo-theme input:checked');
+    await page.keyboard.press('Tab');
+    const active = () => page.evaluate(() => document.activeElement.dataset.tool || document.activeElement.className || document.activeElement.textContent);
+    assert.equal(await active(), 'bold');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await active(), 'italic');
+    await page.keyboard.press('End');
+    assert.equal(await active(), 'rule');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await active(), 'bold', 'arrows wrap');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('Home');
+    await page.keyboard.press('ArrowRight');
+    // One tab stop: the last button used.
+    assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#demo-rich [role=toolbar] button')].filter(b => b.tabIndex === 0).map(b => b.dataset.tool)), ['italic']);
+    await page.keyboard.press('Tab');
+    assert.equal(await rtFocused(page), true);
+    // Select the line and make it italic from the toolbar by keyboard; focus comes back to the text.
+    await page.evaluate(() => { document.getElementById('demo-rich').value = 'plain words'; });
+    await page.keyboard.press(`${mod}+End`);
+    await page.keyboard.press('Shift+Home');
+    await page.keyboard.press('Alt+F10');
+    assert.equal(await active(), 'italic');
+    await page.keyboard.press('Enter');
+    assert.equal(await rtFocused(page), true);
+    assert.equal(await rtValue(page), '_plain words_');
+    // Tab leaves the text (no trap): on to the actions.
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Cancel');
+    await page.keyboard.press('Shift+Tab');
+    assert.equal(await rtFocused(page), true);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: submitting: an empty text shows an error until fixed; Mod-Enter and Save submit; a pending onsubmit keeps Save busy; Escape cancels', async () => {
+    const { page, problems } = await open(RT);
+    const look = () => page.evaluate(() => {
+      const el = document.getElementById('demo-rich');
+      const content = el.querySelector('.wk-richtext-editor-content');
+      const save = el.querySelector('[data-submit]');
+      return { error: el.querySelector('.wk-richtext-editor-error').textContent, role: el.querySelector('.wk-richtext-editor-error').getAttribute('role'), invalid: content.getAttribute('aria-invalid'), described: content.getAttribute('aria-describedby'), busy: save.hasAttribute('data-busy'), ariaDisabled: save.getAttribute('aria-disabled'), disabled: save.disabled };
+    });
+    await rtSet(page, '');
+    await page.evaluate(() => { window.kitEvents = []; });
+    await page.keyboard.press(`${mod}+Enter`);
+    let l = await look();
+    assert.deepEqual({ ...l, described: !!l.described }, { error: 'Write something first.', role: 'status', invalid: 'true', described: true, busy: false, ariaDisabled: null, disabled: false });
+    assert.equal(await rtFocused(page), true);
+    // Typing it right clears the error.
+    await page.keyboard.type('Ready');
+    l = await look();
+    assert.equal(l.error, '');
+    assert.equal(l.invalid, null);
+    await page.keyboard.press(`${mod}+Enter`);
+    await page.click('#demo-rich [data-submit]');
+    assert.deepEqual(await page.evaluate(() => window.kitEvents.filter(e => e.type === 'wk-submit').map(e => e.detail.value)), ['Ready', 'Ready']);
+    assert.equal(await rtValue(page), 'Ready', 'Mod-Enter changed the text');
+    // Busy while onsubmit's promise is pending: focusable, aria-disabled, data-busy; another submit does nothing.
+    await page.evaluate(() => { window.kitEvents = []; window.pendingSubmit = new Promise(r => { window.settle = r; }); });
+    await page.click('#demo-rich [data-submit]');
+    l = await look();
+    assert.deepEqual([l.busy, l.ariaDisabled, l.disabled], [true, 'true', false]);
+    // (aria-disabled: Playwright would wait for it to be enabled.)
+    await page.click('#demo-rich [data-submit]', { force: true });
+    assert.equal(await page.evaluate(() => document.getElementById('demo-rich').submit()), false);
+    assert.equal(await page.evaluate(() => window.kitEvents.filter(e => e.type === 'wk-submit').length), 1);
+    await page.evaluate(() => window.settle());
+    await until(page, () => !document.querySelector('#demo-rich [data-submit]').hasAttribute('data-busy'));
+    // A cancelled wk-submit does not reach onsubmit.
+    await page.evaluate(() => { window.pendingSubmit = undefined; document.getElementById('demo-rich').addEventListener('wk-submit', e => e.preventDefault(), { once: true }); });
+    assert.equal(await page.evaluate(() => document.getElementById('demo-rich').submit()), false);
+    // Escape in the text cancels: wk-cancel, then oncancel.
+    await page.evaluate(() => { window.kitEvents = []; });
+    await page.click('#demo-rich .wk-richtext-editor-content');
+    await page.keyboard.press('Escape');
+    assert.deepEqual(await page.evaluate(() => window.kitEvents.map(e => e.type)), ['wk-cancel']);
+    assert.match(await page.textContent('#demo-log'), /^cancel/);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: disabled blocks edits, the toolbar and submit and keeps focus in the editor; enabling restores them; read-only has no toolbar', async () => {
+    const { page, problems } = await open(RT);
+    const id = 'demo-rich-disabled';
+    const look = () => page.evaluate(i => {
+      const root = document.getElementById(i);
+      const content = root.querySelector('.wk-richtext-editor-content');
+      return { aria: content.getAttribute('aria-disabled'), editable: content.getAttribute('contenteditable'), data: root.hasAttribute('data-disabled'), tools: [...root.querySelectorAll('[role=toolbar] button')].every(b => b.disabled), action: root.querySelector('[data-submit]').disabled };
+    }, id);
+    assert.deepEqual(await look(), { aria: 'true', editable: 'false', data: true, tools: true, action: true });
+    const before = await rtValue(page, id);
+    await page.click(`#${id} .wk-richtext-editor-content`, { force: true });
+    await page.keyboard.type('x');
+    await page.keyboard.press(`${mod}+b`);
+    assert.equal(await rtValue(page, id), before);
+    assert.equal(await page.evaluate(i => document.getElementById(i).submit(), id), false);
+    await page.evaluate(i => { document.getElementById(i).disabled = false; }, id);
+    assert.deepEqual(await look(), { aria: null, editable: 'true', data: false, tools: false, action: false });
+    await page.click(`#${id} .wk-richtext-editor-content`);
+    await page.keyboard.press(`${mod}+End`);
+    await page.keyboard.type('!');
+    assert.equal(await rtValue(page, id), `${before}!`);
+    // Disabling while a toolbar button has focus parks focus on the editor (a named group); enabling sends it back to the text.
+    await page.focus(`#${id} [data-tool=bold]`);
+    await page.evaluate(i => { document.getElementById(i).disabled = true; }, id);
+    assert.deepEqual(await page.evaluate(i => [document.activeElement.id, document.activeElement.getAttribute('role'), document.activeElement.getAttribute('aria-label')], id), [id, 'group', 'Locked notes']);
+    await page.evaluate(i => { document.getElementById(i).disabled = false; }, id);
+    assert.equal(await rtFocused(page, id), true);
+    // Read-only: no toolbar, a focusable read-only textbox, no edits.
+    const ro = await page.evaluate(() => {
+      const root = document.getElementById('demo-rich-readonly');
+      const content = root.querySelector('.wk-richtext-editor-content');
+      return { toolbar: root.querySelector('[role=toolbar]').hidden, readonly: content.getAttribute('aria-readonly'), tabindex: content.getAttribute('tabindex'), editable: content.getAttribute('contenteditable') };
+    });
+    assert.deepEqual(ro, { toolbar: true, readonly: 'true', tabindex: '0', editable: 'false' });
+    const text = await rtValue(page, 'demo-rich-readonly');
+    await page.focus('#demo-rich-readonly .wk-richtext-editor-content');
+    await page.keyboard.type('x');
+    await page.keyboard.press(`${mod}+b`);
+    assert.equal(await rtValue(page, 'demo-rich-readonly'), text);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: the API: events and callbacks in order, value set quietly, options checked, placeholder, destroy', async () => {
+    const { page, problems } = await open(RT);
+    const result = await page.evaluate(async () => {
+      const { wkRichTextEditor, FEATURES } = await import('/editor/dist/richtext.js');
+      const calls = [];
+      const el = wkRichTextEditor({ label: 'Note', placeholder: 'Say something', minHeight: 60, maxHeight: '120px', onchange: v => calls.push(['onchange', v]) });
+      el.addEventListener('wk-change', e => calls.push(['wk-change', e.detail.value]));
+      document.getElementById('demo').append(el);
+      const content = el.querySelector('.wk-richtext-editor-content');
+      const placeholder = getComputedStyle(content.querySelector('p'), '::before').content;
+      const small = content.getBoundingClientRect().height;
+      el.value = 'a\n\n'.repeat(40);
+      const big = content.getBoundingClientRect().height;
+      const quiet = calls.length;
+      const errors = [];
+      for (const spec of [{}, { label: ' ' }, { label: 'x', format: 'rtf' }, { label: 'x', features: ['bold', 'tables'] }]) {
+        try { wkRichTextEditor(spec); errors.push('none'); } catch (e) { errors.push(e.constructor.name); }
+      }
+      el.destroy(); el.destroy();
+      el.value = 'later';
+      return { placeholder, aria: content.getAttribute('aria-placeholder'), small, big, quiet, errors, children: el.childElementCount, submit: el.submit(), features: FEATURES, format: el.format };
+    });
+    assert.equal(result.placeholder, '"Say something"');
+    assert.equal(result.aria, 'Say something');
+    assert.equal(Math.round(result.small), 60);
+    assert.equal(Math.round(result.big), 120);
+    assert.equal(result.quiet, 0, 'setting value fired something');
+    assert.deepEqual(result.errors, ['TypeError', 'TypeError', 'TypeError', 'TypeError']);
+    assert.equal(result.children, 0);
+    assert.equal(result.submit, false);
+    assert.equal(result.format, 'markdown');
+    assert.deepEqual(result.features, ['bold', 'italic', 'code', 'link', 'heading', 'bulletList', 'orderedList', 'quote', 'codeBlock', 'rule']);
+    // Typing fires wk-change then onchange, with the Markdown.
+    await page.evaluate(async () => {
+      const { wkRichTextEditor } = await import('/editor/dist/richtext.js');
+      window.order = [];
+      const el = wkRichTextEditor({ id: 'demo-order', label: 'Order', onchange: v => window.order.push(`onchange:${v}`), onsubmit: () => window.order.push('onsubmit') });
+      for (const t of ['wk-change', 'wk-submit']) el.addEventListener(t, e => window.order.push(`${t}:${JSON.stringify(e.detail)}`));
+      document.getElementById('demo').append(el);
+    });
+    await page.click('#demo-order .wk-richtext-editor-content');
+    await page.keyboard.press(`${mod}+b`);
+    await page.keyboard.type('a');
+    await page.keyboard.press(`${mod}+Enter`);
+    assert.deepEqual(await page.evaluate(() => window.order), ['wk-change:{"value":"**a**"}', 'onchange:**a**', 'wk-submit:{"value":"**a**"}', 'onsubmit']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('richtext: forced colours: the box edge, the focus ring, a pressed button and the placeholder stay visible', async () => {
+    const { page, problems } = await open(RT, { forcedColors: 'active' });
+    await rtSet(page, '**bold**');
+    await page.keyboard.press('ArrowLeft');
+    const look = await page.evaluate(() => {
+      const content = document.querySelector('#demo-rich .wk-richtext-editor-content');
+      const s = getComputedStyle(content);
+      const b = getComputedStyle(document.querySelector('#demo-rich [data-tool=bold]'));
+      const empty = getComputedStyle(document.querySelector('#demo-rich-empty .wk-richtext-editor-content p'), '::before');
+      return {
+        canvasText: window.t.colour('CanvasText'), highlight: window.t.colour('Highlight'), highlightText: window.t.colour('HighlightText'), gray: window.t.colour('GrayText'),
+        border: `${s.borderTopStyle} ${s.borderTopColor}`, outline: `${s.outlineStyle} ${s.outlineColor}`, pressedBg: b.backgroundColor, pressedText: b.color,
+        placeholder: empty.color, separator: getComputedStyle(document.querySelector('#demo-rich .wk-richtext-editor-separator')).borderLeftColor,
+      };
+    });
+    assert.equal(look.border, `solid ${look.canvasText}`);
+    assert.equal(look.outline, `solid ${look.highlight}`);
+    assert.equal(look.pressedBg, look.highlight);
+    assert.equal(look.pressedText, look.highlightText);
+    assert.equal(look.placeholder, look.gray);
+    assert.equal(look.separator, look.canvasText);
     assert.deepEqual(problems, []);
     await page.close();
   });

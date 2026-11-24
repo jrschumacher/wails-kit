@@ -14,6 +14,10 @@ updates:
           - "@codemirror/*"
           - "@lezer/*"
           - "style-mod"
+      # ProseMirror's packages depend on each other's versions: one PR.
+      prosemirror:
+        patterns:
+          - "prosemirror-*"
   - package-ecosystem: npm
     directory: /frontend/diagram
     schedule:
