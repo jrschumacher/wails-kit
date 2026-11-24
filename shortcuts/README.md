@@ -119,10 +119,28 @@ wkToast({ words: 'Conversation archived', action: wkUndo.action(id) });
 - **`UndoID(ctx, id)`** undoes the action only while it is the most recent, else
   `undo_stale`. A toast's Undo uses it, so it never undoes a later action.
 - **`Clear()`** empties both stacks, for when what they act on has gone.
-- **`SetTextFocus(bool)`** is reported by the frontend (`wkUndo.connect`). While a text
-  field has focus, the items read plain "Undo" and "Redo", stay enabled, and send
-  `undo:text` instead of touching the stack; the focused window's field undoes its
-  typing, and when it has none, the frontend calls `Undo` (or `Redo`) instead.
+- **`SetTextFocusIn(window, bool)`** (and `SetTextFocus(bool)`, for window `""`) records
+  whether a text field has focus, per window. The frontend (`wkUndo.connect`) reports it
+  through `Bindings().SetTextFocus`, and the binding's context names the calling window
+  once `Apply` has run. While the window in front has text focus, the items read plain
+  "Undo" and "Redo", stay enabled, and send `undo:text` to that window only, instead of
+  touching the stack. The window's field or editor then undoes its typing. A plain
+  field with nothing to undo hands over to `Undo` (or `Redo`); the kit's editors never
+  do.
+- **How `undo:text` reaches one window:** with `Apply`, the stack runs a script in that
+  window's page that dispatches the DOM event `wk-undo-text` (`DOMEventUndoText`),
+  which `wkUndo` handles. Wails's own window events go to every window. Without
+  `Apply` (an app's own menu, calling `MenuIn(ctx, window, op)`), it goes through
+  `Emitter.EmitTo(window, …)`: register each window with the emitter under its window
+  name. With no window name it is broadcast, and only the focused window acts.
+- **A race:** focus can leave the field between the key press and the page handling
+  `undo:text`. The page then finds no field with focus and undoes the app's action,
+  which is what the menu would have done without text focus.
+- **Pushing while an undo runs.** `Push` and `Clear` may be called while an undo or
+  redo runs, including from inside it. An action pushed meanwhile stays on top; the one
+  being undone is removed wherever it sits, and goes to the redo stack only if no push
+  cleared that stack meanwhile. A redone action goes back below anything pushed while
+  it ran. A `Clear` meanwhile wins: nothing comes back.
 - **`MenuUndo(ctx)`, `MenuRedo(ctx)`** are what the menu items do: `Apply` wires them.
   A failure goes out as `undo:failed`, which the frontend says in words. An app with
   its own menu calls them from its items and keeps them in step with `OnMenu`.
@@ -133,9 +151,24 @@ wkToast({ words: 'Conversation archived', action: wkUndo.action(id) });
 
 Redo is on the platform's shortcut (`RedoAccelerator`): ⇧⌘Z on macOS, Ctrl+Y on Windows
 and Ctrl+Shift+Z on Linux; Undo is ⌘Z / Ctrl+Z. With `WithUndo`, the Edit menu is built
-by hand on every platform (Undo, Redo, Cut, Copy, Paste, Delete, Select All, and
-Settings on Windows and Linux), so its Undo and Redo are the app's items, not the
-native roles.
+by hand on every platform, laid out as Wails's own: Undo, Redo, Cut, Copy, Paste, then
+on macOS Paste and Match Style, Delete, Select All and Speech, and elsewhere Delete
+and Select All, plus Settings on Windows and Linux with `WithSettings`. Its Undo and
+Redo are the app's items, not the native roles.
+
+Every state goes out newest last: one goroutine delivers at a time, and delivers
+again while newer changes came in, so the menu and `undo:changed` never end on an
+older state. A change made from an `OnMenu` callback or an event handler is delivered
+after the one that caused it.
+
+**Limits in Wails v3.0.0-alpha.64:**
+
+- **Linux:** menu accelerators aren't attached to the GTK menu items (`setAccelerator`
+  is a stub), so Edit > Undo and Redo run only when clicked. ⌘Z / Ctrl+Z in a field is
+  the web view's own typing undo.
+- **Windows:** a menu item's native handle belongs to the window that built the menu
+  last. With several windows, only that window's Edit menu shows the updated labels
+  and enabled state; clicking the item works in each.
 
 | Option | Description |
 |---|---|
