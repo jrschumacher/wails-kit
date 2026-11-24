@@ -39,10 +39,19 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ executablePath: chrome, headless: true });
 
+// clock: the page's timers run on Playwright's fake clock (page.clock), for
+// timing checks. It starts at CLOCK_T0 and runs with real time until a check
+// stops it with pauseClock, at a fixed point a minute on. Never pause at a
+// time read from the page (Date.now() + n): the clock keeps running between
+// that read and the pause, so under load the point can already be past
+// ("Cannot fast-forward to the past"), and the page's own timers can fire
+// before the check expects them to.
+const CLOCK_T0 = Date.parse('2026-01-05T09:00:00Z');
+const pauseClock = page => page.clock.pauseAt(CLOCK_T0 + 60_000);
+
 async function open(url = '/demo/index.html', { ready, clock, ...options } = {}) {
   const page = await browser.newPage({ viewport: { width: 1100, height: 800 }, colorScheme: 'light', ...options });
-  // clock: the page's timers run on Playwright's fake clock (page.clock), for timing checks.
-  if (clock) await page.clock.install();
+  if (clock) await page.clock.install({ time: CLOCK_T0 });
   const problems = [];
   page.on('pageerror', e => problems.push(`pageerror: ${e.message}`));
   page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') problems.push(`console ${m.type()}: ${m.text()}`); });
@@ -2204,13 +2213,15 @@ try {
   await check('diff comments (final round): a posted copy the app never shows goes after 10 s on the fake clock', async () => {
     const { page, problems } = await open('/demo/index.html', { clock: true });
     await mountReview(page);
+    // The clock stands still from here, before the comment is sent: the
+    // working dot (indicatorDelay) and the 10 s fallback both count from a
+    // send at a known fake time, and only runFor moves them.
+    await pauseClock(page);
     const rv = page.locator('#rv');
     await rv.locator('.wk-diff-line[data-new="1"]').focus();
     await page.keyboard.press('c');
     await page.keyboard.type('never shown');
     await page.keyboard.press('Control+Enter');
-    // The clock stands still from here, before the working dot shows; the test moves it.
-    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10));
     await page.evaluate(async () => { window.rv.pending.shift().resolve(); for (let i = 0; i < 5; i++) await null; });
     const local = rv.locator('.wk-diff-thread[data-local]');
     assert.equal(await local.locator('.wk-diff-comment').getAttribute('data-state'), null, 'posted, no longer pending');
@@ -3072,7 +3083,7 @@ try {
     const r = await open('/demo/settings.html', { ...options, ready: false });
     await r.page.waitForFunction(() => document.querySelector('#demo-settings .wk-settings-row'));
     // A fake clock stands still from here; the test moves it.
-    if (options.clock) await r.page.clock.pauseAt(await r.page.evaluate(() => Date.now() + 1000));
+    if (options.clock) await pauseClock(r.page);
     // Everything the window's announcer says from here, in order: window.heard, [politeness, words].
     await r.page.evaluate(() => {
       window.heard = [];
