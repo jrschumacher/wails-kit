@@ -443,7 +443,7 @@ func TestOnChange_ConcurrentSavesNotifyOneAtATime(t *testing.T) {
 			var errs []ValidationError
 			var err error
 			if i%2 == 0 {
-				errs, err = svc.SetValues(map[string]any{"account.name": fmt.Sprint(i), "account.token": "tok"})
+				errs, err = svc.SetValues(map[string]any{"account.name": fmt.Sprint(i), "account.token": "tok-1"})
 			} else {
 				// Concurrent checks of one key overtake each other: some don't save.
 				errs, err = svc.CheckValue("account.folder", map[string]any{"account.folder": fmt.Sprint("/", i)})
@@ -454,10 +454,34 @@ func TestOnChange_ConcurrentSavesNotifyOneAtATime(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	// A save whose notification another goroutine was delivering may return
-	// first; one more save drains the queue.
-	_, _ = svc.SetValues(map[string]any{"account.name": "last", "account.token": SecretMask})
-	if got, want := atomic.LoadInt32(&calls), atomic.LoadInt32(&saves)+1; got != want {
+	// Every notification has been delivered by the time every save returned:
+	// none is left queued for a later save.
+	if got, want := atomic.LoadInt32(&calls), atomic.LoadInt32(&saves); got != want {
 		t.Errorf("callbacks = %d, want one per save, %d", got, want)
+	}
+}
+
+// A panicking callback stops that delivery, and the next save delivers again.
+func TestOnChange_DeliveryRecoversAfterAPanic(t *testing.T) {
+	var calls []string
+	svc, _ := checkedService(t, rejectBad, WithOnChange(func(v map[string]any) {
+		calls = append(calls, fmt.Sprint(v["account.name"]))
+		if v["account.name"] == "boom" {
+			panic("callback failed")
+		}
+	}))
+	func() {
+		defer func() {
+			if r := recover(); r != "callback failed" {
+				t.Errorf("recovered %v, want the callback's panic", r)
+			}
+		}()
+		_, _ = svc.SetValues(map[string]any{"account.name": "boom", "account.token": "tok-1"})
+	}()
+	if _, err := svc.SetValues(map[string]any{"account.name": "after", "account.token": SecretMask}); err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(calls) != "[boom after]" {
+		t.Errorf("calls = %v", calls)
 	}
 }

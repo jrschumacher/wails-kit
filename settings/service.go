@@ -266,12 +266,24 @@ func (s *Service) deliver() {
 		return
 	}
 	s.delivering = true
+	// A callback that panics stops this delivery: the next save delivers
+	// what is still queued.
 	defer func() {
-		s.notifyMu.Lock()
-		s.delivering = false
-		s.notifyMu.Unlock()
+		if r := recover(); r != nil {
+			s.notifyMu.Lock()
+			s.delivering = false
+			s.notifyMu.Unlock()
+			panic(r)
+		}
 	}()
-	for len(s.notifyQueue) > 0 {
+	for {
+		if len(s.notifyQueue) == 0 {
+			// Stop delivering in the same critical section that finds the
+			// queue empty: a save queued after this delivers itself.
+			s.delivering = false
+			s.notifyMu.Unlock()
+			return
+		}
 		values := s.notifyQueue[0]
 		s.notifyQueue = s.notifyQueue[1:]
 		s.notifyMu.Unlock()
@@ -280,7 +292,6 @@ func (s *Service) deliver() {
 		}
 		s.notifyMu.Lock()
 	}
-	s.notifyMu.Unlock()
 }
 
 // changes reports whether SetValues writing v to key changes it: a new secret
