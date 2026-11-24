@@ -19,7 +19,15 @@ const sheets = new Map(); // diagram id -> its CSSStyleSheet
 
 // A CSS value that loads something. The CSSOM has resolved escapes
 // (u\72l) by the time a declaration's value is read.
-const external = value => /url\(\s*(?!['"]?#)/i.test(value) || /@import|image-set\(|image\(/i.test(value);
+// A url() is local only when its whole argument is one fragment token:
+// url(#a), url("#a"). Anything else (url("#" //host…), url(x#a)) is external.
+const FRAGMENT_URL = /^url\(\s*(['"]?)#[^'")\s]*\1\s*\)/i;
+export function externalUrl(value) {
+  const text = String(value);
+  for (const m of text.matchAll(/url\(/gi)) if (!FRAGMENT_URL.test(text.slice(m.index))) return true;
+  return false;
+}
+const external = value => externalUrl(value) || /@import|image-set\(|image\(/i.test(value);
 
 /**
  * An attribute value that could load something: a url() that is not a
@@ -27,7 +35,7 @@ const external = value => /url\(\s*(?!['"]?#)/i.test(value) || /@import|image-se
  * cursor, …), which is parsed as CSS, so a backslash escape counts too.
  */
 export const PRESENTATION = name => !/^(?:(?:xlink:)?href|id|class|d|points|transform|viewBox|role|aria-.*|data-.*)$/i.test(String(name));
-export const loadsInAttribute = value => /url\(\s*(?!['"]?#)|image-set\(|\\/i.test(String(value));
+export const loadsInAttribute = value => externalUrl(value) || /image-set\(|\\/i.test(String(value));
 
 /** Stops a shape that would load a picture: Mermaid rejects the render with this error. */
 export function refuse(what) {

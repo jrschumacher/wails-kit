@@ -132,9 +132,9 @@ wherever you like.
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
-| `label` | string | required | The accessible name: the SVG's and the viewport's. |
+| `label` | string | required | The accessible name of the diagram: the viewport's (the SVG inside is `aria-hidden`). |
 | `source` | string | `''` | The Mermaid text. |
-| `description` | string | the source | A text alternative, in a `<details>` below the diagram. |
+| `description` | string | the source | A text alternative: the diagram's accessible description, and shown in a `<details>` below it. Without one, the `<details>` holds the source and the accessible description is a short summary ("Flowchart, 6 nodes"). |
 | `id` | string | none | The element's id. Without one the element has none (its parts get generated ids; Mermaid's render ids start `wk-mermaid-`). |
 | `filename` | string | the label as a slug | The saved file's name, without its extension. |
 | `onerror(failure)` | function | | Called when the diagram can't be drawn (the error box shows either way). |
@@ -143,7 +143,7 @@ wherever you like.
 | Property or method | |
 |---|---|
 | `source` | Get or set the text; setting it re-renders. |
-| `ready` | A promise that settles when the diagram shows the current source in the current appearance and theme (drawn, or the error box shown). Read straight after a theme change, it checks the tokens itself rather than waiting for the next frame's check. |
+| `ready` | A promise that settles when the diagram shows the current source in the current appearance and theme (drawn, or the error box shown). Read straight after a theme change, it checks the tokens itself rather than waiting for the next frame's check. Reading it has that side effect: if the tokens changed and no render has picked them up yet, it starts one. |
 | `type` | The diagram's type (`'flowchart'`, `'sequence'`, `'state'`, `'class'`, `'er'`, `'gantt'`) or `null`. |
 | `zoom` | The zoom level; 1 is 100%. |
 | `fit()`, `zoomTo(scale)`, `zoomBy(factor)` | Pan and zoom from code. The zoom runs from 10% to 800%. |
@@ -236,6 +236,15 @@ the system's light or dark setting, forced colours or increased contrast.
 Each re-renders only if its tokens changed. A diagram out of the document at
 the time re-renders when it is put back.
 
+The watching is document-wide and shared by every diagram on the page: two
+`MutationObserver`s on `<html>` (one for its own attributes, one over the
+whole subtree for `data-theme`, stylesheet `<link>` attributes and added or
+removed `<link>` and `<style>` elements) and three `matchMedia` listeners,
+set up on the first `wkDiagram()` call and kept for the page's life. Any of
+those changes schedules one token check per frame for the diagrams in the
+document; a page that changes `data-theme` on many elements often pays that
+check each time.
+
 In forced colours, the diagram is drawn in `CanvasText` on `Canvas`: grounds,
 lines, outlines and text.
 
@@ -243,9 +252,12 @@ lines, outlines and text.
 
 The viewport carries the diagram for assistive technology: a focusable
 group with the role description "diagram", named by `label` and described
-(`aria-describedby`) by the text alternative (`description`, or else the
-source itself, in a `<details>` below the diagram that anyone can open) and
-by how to pan and zoom. The SVG inside is `aria-hidden`, so the name is given
+(`aria-describedby`) by an always-rendered, visually hidden text and by how
+to pan and zoom. That text is `description` when given, else a short summary
+of what is drawn ("Sequence diagram, 3 participants", "Gantt chart, 4
+tasks"); a description inside the closed `<details>` would not reach the
+accessibility tree. The `<details>` below the diagram, which anyone can
+open, holds the description or the full source. The SVG inside is `aria-hidden`, so the name is given
 once and Mermaid's drawn text isn't read as loose fragments. The error box
 and the progress indicator inside the viewport stay reachable. Toolbar
 buttons have names ("Zoom in", "Fit to view", "Save as PNG"). A saved SVG is

@@ -89,7 +89,13 @@ export const INLINED = {
   'js-yaml': { version: '4.3.2', license: 'MIT', file: 'scripts/licences/js-yaml.txt' },
   fastdom: { version: '1.0.12', license: 'MIT', file: 'scripts/licences/fastdom.txt' },
 };
-const INLINED_MARK = /^\/\/ \S*node_modules\/\.pnpm\/((?:@[^+/]+\+)?[^@/]+)@([^_/]+)/gm;
+// A pnpm path (…/.pnpm/<name>@<version>…) gives the version; a plain one
+// (…/node_modules/<name>/…) gives only the name, which must still have an
+// entry. (Mermaid builds with pnpm today.)
+const INLINED_MARK = /^\/\/ \S*?node_modules\/(?:\.pnpm\/((?:@[^+/]+\+)?[^@/]+)@([^_/]+)|((?:@[^/]+\/)?[^./][^/]*)\/)/gm;
+export function inlinedMarks(text) {
+  return [...text.matchAll(INLINED_MARK)].map(([, pnpmName, version, plain]) => [(pnpmName || plain).replace('+', '/'), version || null]);
+}
 const inlinedSeen = new Map();
 
 const applied = new Set();
@@ -114,7 +120,7 @@ const patch = {
       const mermaidFile = MERMAID_FILE.test(args.path);
       if (!found && !mermaidFile) return undefined;
       let text = readFileSync(args.path, 'utf8');
-      if (mermaidFile) for (const [, name, version] of text.matchAll(INLINED_MARK)) inlinedSeen.set(name.replace('+', '/'), version);
+      if (mermaidFile) for (const [name, version] of inlinedMarks(text)) if (version || !inlinedSeen.has(name)) inlinedSeen.set(name, version);
       let needsHooks = false;
       if (found) {
         for (const [from, to] of found[1]) {
@@ -208,7 +214,7 @@ export async function build() {
   const missed = PATCHES.flatMap(([, pairs]) => pairs.map(([from]) => from)).filter(from => !applied.has(from));
   if (missed.length) throw new Error(`scripts/build.mjs: patches not applied (is the file still bundled?):\n${missed.join('\n')}`);
   for (const [name, version] of inlinedSeen) {
-    if (INLINED[name]?.version !== version) throw new Error(`scripts/build.mjs: Mermaid inlines ${name}@${version}; add its licence to INLINED and scripts/licences/`);
+    if (!INLINED[name] || (version && INLINED[name].version !== version)) throw new Error(`scripts/build.mjs: Mermaid inlines ${name}@${version}; add its licence to INLINED and scripts/licences/`);
   }
   for (const name of Object.keys(INLINED)) {
     if (!inlinedSeen.has(name)) throw new Error(`scripts/build.mjs: ${name} is in INLINED but no bundled Mermaid file inlines it; remove it`);

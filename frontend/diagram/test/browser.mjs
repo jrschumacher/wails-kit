@@ -150,21 +150,29 @@ try {
     }
   });
 
-  await check('accessibility: the viewport is a focusable diagram named by the label and described by the source and how to pan; the SVG is hidden', async () => {
+  await check('accessibility: the viewport is a focusable diagram named by the label and described (in the accessibility tree) by a summary or the description and how to pan; the SVG is hidden', async () => {
     const { page, close: done } = await open();
+    // The computed name and description of the viewport, from Chrome's accessibility tree.
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Accessibility.enable');
+    const axOf = async id => {
+      const { nodes } = await cdp.send('Accessibility.getFullAXTree');
+      await page.evaluate(i => { window.axTarget = document.querySelector(`#${i} .wk-diagram-viewport`); }, id);
+      const { result } = await cdp.send('Runtime.evaluate', { expression: 'window.axTarget' });
+      const { node } = await cdp.send('DOM.describeNode', { objectId: result.objectId });
+      const ax = nodes.find(n => n.backendDOMNodeId === node.backendNodeId);
+      return { role: ax?.role?.value, name: ax?.name?.value, description: ax?.description?.value };
+    };
     const a = await page.evaluate(() => {
       const el = document.getElementById('demo-sequence');
       const svg = el.querySelector('svg');
       const vp = el.querySelector('.wk-diagram-viewport');
-      const [descId, helpId] = vp.getAttribute('aria-describedby').split(' ');
-      const desc = document.getElementById(descId);
       return {
         svgHidden: svg.getAttribute('aria-hidden'), svgRole: svg.getAttribute('role'), svgLabel: svg.getAttribute('aria-label'),
         named: document.querySelectorAll('#demo-sequence [aria-label="Update check"]').length,
-        role: vp.getAttribute('role'), roledescription: vp.getAttribute('aria-roledescription'),
-        desc: desc?.textContent, inDetails: desc?.parentElement.localName,
-        summary: el.querySelector('summary').textContent, source: el.source,
-        tab: vp.tabIndex, vpLabel: vp.getAttribute('aria-label'), help: document.getElementById(helpId)?.textContent,
+        roledescription: vp.getAttribute('aria-roledescription'),
+        details: { open: el.querySelector('details').open, summary: el.querySelector('summary').textContent, text: el.querySelector('details pre').textContent },
+        source: el.source, tab: vp.tabIndex,
         buttons: [...el.querySelectorAll('.wk-diagram-toolbar button')].map(b => b.getAttribute('aria-label') || b.textContent),
       };
     });
@@ -172,26 +180,27 @@ try {
     assert.equal(a.svgRole, null);
     assert.equal(a.svgLabel, null);
     assert.equal(a.named, 1, 'one element carries the name');
-    assert.equal(a.role, 'group');
     assert.equal(a.roledescription, 'diagram');
-    assert.equal(a.desc, a.source);
-    assert.equal(a.inDetails, 'details');
-    assert.equal(a.summary, 'Diagram source');
+    // The source, for everyone, in a closed <details>.
+    assert.deepEqual(a.details, { open: false, summary: 'Diagram source', text: a.source });
     assert.equal(a.tab, 0);
-    assert.equal(a.vpLabel, 'Update check');
-    assert.match(a.help, /arrow keys to pan/);
     assert.deepEqual(a.buttons, ['Zoom out', 'Zoom in', 'Fit to view', 'Actual size', 'Copy source', 'Save as SVG', 'Save as PNG']);
+    // Computed: with the details closed, the description is the summary and the pan help.
+    assert.deepEqual(await axOf('demo-sequence'), { role: 'group', name: 'Update check', description: 'Sequence diagram, 3 participants Drag or use the arrow keys to pan. Plus and minus zoom, 0 fits.' });
+    for (const [id, want] of [['demo-flowchart', 'Flowchart, 6 nodes'], ['demo-state', 'State diagram, 6 states'], ['demo-class', 'Class diagram, 3 classes'], ['demo-er', 'Entity-relationship diagram, 4 entities'], ['demo-gantt', 'Gantt chart, 4 tasks']]) {
+      assert.match((await axOf(id)).description, new RegExp(`^${want} Drag`), id);
+    }
+    // A diagram that failed has no summary, only the help (the error box is in the viewport).
+    assert.match((await axOf('demo-syntax')).description, /^Drag or use/);
     // The accessibility tree: one named diagram; the drawing's text is not in it.
     const snapshot = await page.locator('#demo-sequence .wk-diagram-viewport').ariaSnapshot();
     assert.match(snapshot, /group "Update check"/);
     assert.doesNotMatch(snapshot, /Check for updates/);
-    // A description replaces the source as the text alternative.
+    // A description is the accessible description, with the details closed.
     await make(page, { id: 'described', label: 'Two steps', description: 'A goes to B.', source: 'flowchart LR\n A --> B' });
-    const d = await page.evaluate(() => {
-      const vp = document.querySelector('#described .wk-diagram-viewport');
-      return { desc: document.getElementById(vp.getAttribute('aria-describedby').split(' ')[0]).textContent, summary: document.querySelector('#described summary').textContent };
-    });
-    assert.deepEqual(d, { desc: 'A goes to B.', summary: 'Description' });
+    assert.deepEqual(await axOf('described'), { role: 'group', name: 'Two steps', description: 'A goes to B. Drag or use the arrow keys to pan. Plus and minus zoom, 0 fits.' });
+    assert.deepEqual(await page.evaluate(() => ({ open: document.querySelector('#described details').open, summary: document.querySelector('#described summary').textContent, text: document.querySelector('#described details p').textContent })),
+      { open: false, summary: 'Description', text: 'A goes to B.' });
     // label is required.
     const thrown = await page.evaluate(async () => { const { wkDiagram } = await import('/diagram/dist/diagram.js'); try { wkDiagram({ source: 'graph TD\n a' }); return null; } catch (e) { return e.message; } });
     assert.match(thrown, /label/);

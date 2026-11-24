@@ -7,7 +7,7 @@ import { readFileSync, readdirSync, writeFileSync, mkdtempSync, rmSync } from 'n
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { build, root, KEEP, EMPTY, licenceOf, PATCHES, REFUSED_SHAPES, INLINED } from '../scripts/build.mjs';
+import { build, root, KEEP, EMPTY, licenceOf, PATCHES, REFUSED_SHAPES, INLINED, inlinedMarks } from '../scripts/build.mjs';
 
 const built = await build();
 const read = p => readFileSync(path.join(root, p), 'utf8');
@@ -125,13 +125,20 @@ test('THIRD-PARTY-LICENSES.txt names every bundled package with its version, lic
 });
 
 test('every package Mermaid inlines into the bundled files has a licence entry', () => {
-  // Mermaid marks an inlined package with a path comment naming it and its version.
+  // Mermaid marks an inlined package with a path comment naming it (and,
+  // for a pnpm path, its version).
   const seen = new Map();
   for (const file of built.inputs['mermaid.js'].filter(f => f.startsWith('node_modules/mermaid/'))) {
-    for (const [, name, version] of read(file).matchAll(/^\/\/ \S*node_modules\/\.pnpm\/((?:@[^+/]+\+)?[^@/]+)@([^_/]+)/gm)) seen.set(name.replace('+', '/'), version);
+    for (const [name, version] of inlinedMarks(read(file))) seen.set(name, version ?? seen.get(name) ?? null);
   }
   assert.ok(seen.size >= 2);
-  for (const [name, version] of seen) assert.equal(INLINED[name]?.version, version, `${name}@${version} has no INLINED entry`);
+  for (const [name, version] of seen) {
+    assert.ok(INLINED[name], `${name} has no INLINED entry`);
+    if (version) assert.equal(INLINED[name].version, version, `${name}@${version}: INLINED has ${INLINED[name].version}`);
+  }
+  // Both path forms are read.
+  assert.deepEqual(inlinedMarks('// ../../node_modules/.pnpm/js-yaml@4.3.2/node_modules/js-yaml/dist/js-yaml.mjs\n// ../../node_modules/@scope/pkg/index.js\n// node_modules/fastdom/fastdom.js\n// src/x.ts'),
+    [['js-yaml', '4.3.2'], ['@scope/pkg', null], ['fastdom', null]]);
   // And the inlined code is there: js-yaml's error class and fastdom.
   assert.match(built.files['mermaid.js'], /YAMLException/);
   assert.match(built.files['mermaid.js'], /fastdom/);

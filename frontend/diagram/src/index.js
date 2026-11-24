@@ -132,6 +132,23 @@ function button(text, label, onclick) {
   b.addEventListener('click', onclick);
   return b;
 }
+// "Flowchart, 6 nodes": the kind of diagram and how much it holds, counted
+// from the drawing.
+const KINDS = {
+  flowchart: ['Flowchart', 'node', 'g.node'],
+  sequence: ['Sequence diagram', 'participant', '.actor-top'],
+  state: ['State diagram', 'state', 'g.node:not([id*="_start"]):not([id*="_end"])'],
+  class: ['Class diagram', 'class', 'g.node'],
+  er: ['Entity-relationship diagram', 'entity', 'g.node'],
+  gantt: ['Gantt chart', 'task', 'rect.task'],
+};
+function describeDrawing(type, svg) {
+  const [kind, noun, selector] = KINDS[type] || ['Diagram', 'item', 'g.node'];
+  const n = svg.querySelectorAll(selector).length;
+  if (!n) return kind;
+  const plural = noun === 'class' ? 'classes' : noun === 'entity' ? 'entities' : `${noun}s`;
+  return `${kind}, ${n} ${n === 1 ? noun : plural}`;
+}
 const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'diagram';
 
 let counter = 0;
@@ -156,7 +173,7 @@ export function wkDiagram(spec = {}) {
   const el = document.createElement('div');
   el.className = 'wk-diagram';
   if (spec.id) el.id = spec.id;
-  const ids = { help: `${uid}-help`, text: `${uid}-text`, zoom: `${uid}-zoom` };
+  const ids = { help: `${uid}-help`, desc: `${uid}-desc`, zoom: `${uid}-zoom` };
 
   // Toolbar: zoom out, zoom in, fit, 100%, the zoom level; copy and export.
   const toolbar = document.createElement('div');
@@ -193,7 +210,7 @@ export function wkDiagram(spec = {}) {
   viewport.setAttribute('role', 'group');
   viewport.setAttribute('aria-roledescription', 'diagram');
   viewport.setAttribute('aria-label', label);
-  viewport.setAttribute('aria-describedby', `${ids.text} ${ids.help}`);
+  viewport.setAttribute('aria-describedby', `${ids.desc} ${ids.help}`);
   const canvas = document.createElement('div');
   canvas.className = 'wk-diagram-canvas';
   const status = document.createElement('div');
@@ -222,15 +239,21 @@ export function wkDiagram(spec = {}) {
   help.id = ids.help;
   help.textContent = 'Drag or use the arrow keys to pan. Plus and minus zoom, 0 fits.';
 
-  // The text alternative: the description, else the source.
+  // The text alternative, for everyone: the description, else the source,
+  // in a <details> below the diagram (closed by default).
   const details = document.createElement('details');
   details.className = 'wk-diagram-text';
   const summary = document.createElement('summary');
   const textAlt = document.createElement(spec.description ? 'p' : 'pre');
-  textAlt.id = ids.text;
   details.append(summary, textAlt);
+  // The accessible description, always rendered (a closed <details> would
+  // not reach it): the description, else a short summary of what is drawn
+  // ("Flowchart, 6 nodes"); the source itself stays in the <details>.
+  const descEl = document.createElement('span');
+  descEl.className = 'wk-visually-hidden';
+  descEl.id = ids.desc;
 
-  el.append(toolbar, viewport, details, help, announcer);
+  el.append(toolbar, viewport, details, help, descEl, announcer);
 
   let source = String(spec.source ?? '');
   let svg = null, sheet = null, type = null, failure = null;
@@ -241,6 +264,11 @@ export function wkDiagram(spec = {}) {
   function describe() {
     summary.textContent = spec.description ? 'Description' : 'Diagram source';
     textAlt.textContent = spec.description ? String(spec.description) : source;
+    if (spec.description) descEl.textContent = String(spec.description);
+  }
+  function summarize() {
+    if (spec.description) return;
+    descEl.textContent = svg && type ? describeDrawing(type, svg) : '';
   }
 
   // ---- Pan and zoom ------------------------------------------------------
@@ -364,6 +392,7 @@ export function wkDiagram(spec = {}) {
     canvas.replaceChildren();
     sheet?.remove();
     svg = null; sheet = null; type = null;
+    summarize();
     const box = document.createElement('div');
     box.className = 'wk-errorbox';
     const head = document.createElement('div');
@@ -417,6 +446,7 @@ export function wkDiagram(spec = {}) {
     svg.setAttribute('height', String(size.h));
     svg.style.removeProperty('max-width');
     canvas.replaceChildren(svg);
+    summarize();
     if (!el.isConnected) { detached = false; detach(); }
     setState('ready');
     if (keepView) { view = keepView; apply(); } else fit();
