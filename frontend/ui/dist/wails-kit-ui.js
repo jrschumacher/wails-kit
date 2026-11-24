@@ -2497,10 +2497,26 @@ export function wkChart(spec) {
 //     emptyText: 'No changes',          // shown for a diff with no files
 //     onrender: (fileElement, file) => {},  // after a file's rows are built: when it is
 //                                       // first expanded and on every rebuild (a view switch)
-//   }) -> <section class="wk-diff">
+//     // Review comments (see README, "Review comments"):
+//     comments: [{ id, path, side: 'old'|'new', line, endLine?, resolved?, outdated?,
+//                  entries: [{ author, avatar?, time, body, bodyHtml?, pending?, error? }] }],
+//     canComment: true,                 // or (file, side, line) => boolean; needs oncomment
+//     commentBox: spec => box,          // the box's factory: { value, placeholder, label,
+//                                       // onSubmit, onCancel } -> { element, value, focus(),
+//                                       // destroy() }; defaults to a wk-field textarea
+//     renderBody: entry => node,        // a comment's body; defaults to its plain text
+//     oncomment: ({ path, side, line, endLine, body }) => promise?,
+//     onreply: (threadId, body) => promise?, onresolve: (threadId, resolved) => {},
+//     onretry: (threadId, entry) => {}, // Retry on an entry the app marked with error
+//     author: { name, avatar },         // who a pending comment shows as (default "You")
+//     now: () => Date.now(),            // the clock relative times are measured from
+//   }) -> <section class="wk-diff">, with setComments(threads) to replace the threads
 //
 // Keys, while focus is in the diff: n and p move to the next or previous hunk,
-// ] and [ to the next or previous file. Copying copies code only: the gutter,
+// ] and [ to the next or previous file, N and P to the next or previous thread.
+// With commenting on, lines take focus: the arrow keys move between them
+// (left and right change side in the split view), Shift with an arrow extends
+// a range, and c opens a comment box. Copying copies code only: the gutter,
 // the markers and the screen-reader labels are left out.
 
 // ---- Rules with no DOM ---------------------------------------------------
@@ -2716,6 +2732,33 @@ export function diffWordRanges(before, after, limit = 40000) {
   return { del: ranges(a, keepA), add: ranges(b, keepB) };
 }
 
+/**
+ * Where review threads go in a file: { placed, outdated }. A thread is placed
+ * when its line (and its endLine, for a range) is shown on its side ('old' or
+ * 'new'; anything else is 'new'), both in one hunk: { thread, side, line,
+ * endLine, hunk }, endLine being the line it is drawn under. Otherwise, or
+ * when the thread says it is outdated, it is outdated: { thread, side, line,
+ * endLine, outdated: true }. Threads for other paths (not the file's path or
+ * old path) are in neither list.
+ */
+export function diffCommentPlaces(file, threads) {
+  const placed = [], outdated = [];
+  const paths = new Set([file?.path, file?.oldPath].filter(Boolean));
+  // Each side's line numbers, indexed once: line -> its hunk.
+  const hunkOf = { old: new Map(), new: new Map() };
+  (file?.hunks || []).forEach((h, k) => { for (const l of h.lines) for (const s of ['old', 'new']) if (l[s] != null && !hunkOf[s].has(l[s])) hunkOf[s].set(l[s], k); });
+  for (const thread of threads || []) {
+    if (!thread || !paths.has(thread.path)) continue;
+    const side = thread.side === 'old' ? 'old' : 'new';
+    let line = Number(thread.line), endLine = thread.endLine == null ? line : Number(thread.endLine);
+    if (endLine < line) [line, endLine] = [endLine, line];
+    const hunk = !thread.outdated && Number.isInteger(line) && Number.isInteger(endLine) && hunkOf[side].has(line) && hunkOf[side].get(line) === hunkOf[side].get(endLine) ? hunkOf[side].get(line) : -1;
+    if (hunk < 0) outdated.push({ thread, side, line, endLine, outdated: true });
+    else placed.push({ thread, side, line, endLine, hunk });
+  }
+  return { placed, outdated };
+}
+
 // Files from a diff string or from the app, copied so the view can add the
 // context it fetches, with counts and line numbers filled in. A line of an
 // unknown kind becomes context.
@@ -2833,14 +2876,18 @@ export function wkDiff(spec) {
   const collapseCharsAbove = spec.collapseCharsAbove ?? 200000;
   const step = Math.max(1, spec.contextStep || 20);
   let view = spec.view === 'split' ? 'split' : 'unified';
+  // Review comments: on when the app can take a new comment or has threads.
+  const commenting = typeof spec.oncomment === 'function' && spec.canComment !== false;
+  const reviewing = commenting || Array.isArray(spec.comments);
 
   const root = el('section', 'wk-diff');
   root.id = id;
   root.setAttribute('aria-label', label);
   if (!files.length) { el('p', 'wk-diff-none', spec.emptyText || 'No changes', root); return root; }
   root.tabIndex = 0;
-  root.setAttribute('aria-keyshortcuts', 'n p ] [');
-  const keys = sr('Press n or p for the next or previous change, ] or [ for the next or previous file.', root);
+  if (reviewing) root.dataset.review = '';
+  root.setAttribute('aria-keyshortcuts', `n p ] [${reviewing ? ' N P' : ''}${commenting ? ' c' : ''}`);
+  const keys = sr(`Press n or p for the next or previous change, ] or [ for the next or previous file${reviewing ? ', N or P for the next or previous comment thread' : ''}.${commenting ? ' On a line, press c to comment; Shift with an arrow key selects lines.' : ''}`, root);
   keys.id = `${id}-keys`;
   root.setAttribute('aria-describedby', keys.id);
 
@@ -2871,6 +2918,719 @@ export function wkDiff(spec) {
     return box;
   }
 
+  // ---- Review comments -------------------------------------------------
+  // Threads come from the app (spec.comments, then setComments). The view
+  // keeps only what the app has not seen yet: open boxes (drafts, by line
+  // and by thread for replies), comments it is posting (a promise from
+  // oncomment or onreply), resolves in flight, which resolved threads are
+  // expanded, and the selected lines. Drafts are kept as elements and moved
+  // into the rows each time a file is rebuilt, so a view switch keeps what
+  // was typed. A change to one thread or box redraws only the row it is in.
+  let comments = Array.isArray(spec.comments) ? spec.comments : [];
+  const posting = [];                 // new threads being posted
+  const replying = new Map();         // thread id -> entries being posted
+  const drafts = new Map();           // `${path}\0${side}:${line}:${endLine}` -> draft
+  const replies = new Map();          // thread id -> draft
+  const expanded = new Set();         // resolved threads shown open
+  const resolving = new Map();        // thread id -> { shown, timer } while onresolve's promise runs
+  const timers = new Set();
+  const kept = new Map();             // thread id -> a gone thread kept, outdated, for its reply box with text
+  let localSequence = 0, threadSequence = 0, clock = null, destroyed = false;
+  const later = (fn, ms) => { const t = setTimeout(() => { timers.delete(t); if (!destroyed) fn(); }, ms); timers.add(t); return t; };
+  const now = () => (spec.now ? +spec.now() : Date.now());
+  const author = spec.author || {};
+  // Outcomes and selections are said by the window's announcer (announce.js),
+  // which also makes the same words twice read twice.
+  const allowed = (file, side, line) => commenting && Number.isInteger(line)
+    && (typeof spec.canComment !== 'function' || Boolean(spec.canComment(file, side, line)));
+  // A thread's file: the one whose path is the thread's, else the one whose old path is.
+  const byPath = new Map(), byOldPath = new Map();
+  files.forEach((f, i) => { if (!byPath.has(f.path)) byPath.set(f.path, i); if (!byOldPath.has(f.oldPath)) byOldPath.set(f.oldPath, i); });
+  const fileOf = thread => byPath.get(thread.path) ?? byOldPath.get(thread.path) ?? -1;
+  const threadsOf = state => [...comments, ...posting, ...kept.values()].filter(t => t && fileOf(t) === state.index);
+  const where = (side, line, endLine) => `${side === 'old' ? 'old ' : ''}${endLine !== line ? `lines ${line} to ${endLine}` : `line ${line}`}`;
+  const sameId = (a, b) => String(a) === String(b);
+
+  function countComments() {
+    for (const state of states) {
+      const n = comments.filter(t => t && fileOf(t) === state.index).reduce((m, t) => m + (t.entries?.length || 0), 0);
+      state.talk.textContent = n ? plural(n, 'comment', 'comments') : '';
+      state.talk.hidden = !n;
+    }
+  }
+
+  // A line row: the side a comment on it goes to (an added or context line
+  // on the new side, a removed one on the old; in the split view the side
+  // asked for, if that half has a line), its number there, and the cell that
+  // shows the + button and the selection.
+  const isPair = row => row.classList.contains('wk-diff-pair');
+  const half = (row, side) => { for (const c of row.children) if (c.dataset.side === side) return c; return null; };
+  function sideOf(row, wanted = 'new') {
+    if (!isPair(row)) return row.dataset.kind === 'del' ? 'old' : 'new';
+    const has = s => half(row, s)?.dataset[s] != null;
+    return has(wanted) ? wanted : has('old') ? 'old' : 'new';
+  }
+  const numberOf = (row, side) => { const n = Number((isPair(row) ? half(row, side) : row)?.dataset[side]); return Number.isInteger(n) && n > 0 ? n : null; };
+  const cellOf = (row, side) => (isPair(row) ? half(row, side) : row);
+  const stateOf = node => states.find(s => s.body.contains(node));
+  // The row showing a line, from an index built once per build of the rows.
+  function rowFor(state, side, line) {
+    if (!state.rows) {
+      state.rows = new Map();
+      for (const r of state.body.querySelectorAll('.wk-diff-rows > .wk-diff-line')) {
+        for (const s of ['old', 'new']) { const n = numberOf(r, s); if (n != null) state.rows.set(`${s}:${n}`, r); }
+      }
+    }
+    const row = state.rows.get(`${side}:${line}`);
+    return row && state.body.contains(row) ? row : null;
+  }
+  // The next line or hunk header after (dir 1) or before (dir -1) a row.
+  function nextStop(node, dir) {
+    for (let x = dir > 0 ? node.nextElementSibling : node.previousElementSibling; x; x = dir > 0 ? x.nextElementSibling : x.previousElementSibling) {
+      if (x.classList.contains('wk-diff-line') || x.classList.contains('wk-diff-hunk')) return x;
+    }
+    return null;
+  }
+  // The rows from a to b (either order) when no hunk header is between them.
+  function rowsBetween(a, b) {
+    if (a.parentNode !== b.parentNode) return null;
+    const [first, last] = a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING ? [b, a] : [a, b];
+    const out = [];
+    for (let n = first; n; n = n.nextElementSibling) {
+      if (n.classList.contains('wk-diff-hunk')) return null;
+      if (n.classList.contains('wk-diff-line')) out.push(n);
+      if (n === last) return out;
+    }
+    return null;
+  }
+  // A selection or a single line as { state, side, line, endLine }, or null.
+  function rangeOf(anchor, end, side) {
+    const rows = rowsBetween(anchor, end);
+    const state = stateOf(anchor);
+    if (!rows || !state) return null;
+    const nums = rows.map(r => numberOf(r, side)).filter(n => n != null);
+    if (!nums.length) return null;
+    const line = Math.min(...nums), endLine = Math.max(...nums);
+    return allowed(state.file, side, line) && allowed(state.file, side, endLine) ? { state, side, line, endLine } : null;
+  }
+
+  // ---- Selection: Shift with an arrow key, Shift-click on line numbers, or
+  // a drag on the + button. The selected cells carry data-selected.
+  let selection = null; // { anchor, end, side }
+  function select(next) {
+    for (const cell of root.querySelectorAll('[data-selected]')) delete cell.dataset.selected;
+    selection = next && rowsBetween(next.anchor, next.end) ? next : null;
+    if (!selection) return;
+    for (const row of rowsBetween(selection.anchor, selection.end)) {
+      const cell = cellOf(row, selection.side);
+      if (cell && (!isPair(row) || numberOf(row, selection.side) != null)) cell.dataset.selected = '';
+    }
+  }
+  const selected = row => selection && rowsBetween(selection.anchor, selection.end)?.includes(row) ? rangeOf(selection.anchor, selection.end, selection.side) : null;
+
+  // ---- The + button: one per diff, moved to the line under the pointer or
+  // with focus. It is not a tab stop; on a focused line, c does the same.
+  let plus = null, plusRow = null, plusSide = null, focusSide = 'new', drag = null;
+  if (commenting) {
+    plus = el('button', 'wk-diff-add-comment', '+');
+    plus.type = 'button'; plus.tabIndex = -1;
+    plus.addEventListener('pointerdown', e => {
+      if (e.button !== 0 || !plusRow) return;
+      e.preventDefault();
+      const at = plusRow, side = plusSide;
+      const from = e.shiftKey && selection && selection.side === side && rowsBetween(selection.anchor, at) ? selection.anchor : at;
+      drag = { anchor: from, end: at, side, moved: false, start: selected(at) };
+      select({ anchor: from, end: at, side });
+      try { plus.setPointerCapture(e.pointerId); } catch { /* a synthetic pointer */ }
+    });
+    plus.addEventListener('pointermove', e => {
+      if (!drag) return;
+      const row = document.elementFromPoint(e.clientX, e.clientY)?.closest('.wk-diff-line');
+      if (!row || row === drag.end || !rowsBetween(drag.anchor, row) || numberOf(row, drag.side) == null) return;
+      drag.end = row; drag.moved = true;
+      select({ anchor: drag.anchor, end: row, side: drag.side });
+    });
+    const finish = open => {
+      if (!drag) return;
+      const d = drag;
+      drag = null;
+      // A plain click inside a selection comments on the selection.
+      const range = !d.moved && d.anchor === d.end && d.start ? d.start : rangeOf(d.anchor, d.end, d.side);
+      select(null);
+      if (open && range) openDraft(range.state, range.side, range.line, range.endLine);
+    };
+    plus.addEventListener('pointerup', () => finish(true));
+    plus.addEventListener('pointercancel', () => finish(false));
+    // A click with no pointer (assistive technology).
+    plus.addEventListener('click', e => {
+      if (e.detail !== 0 || !plusRow) return;
+      const range = selected(plusRow) || rangeOf(plusRow, plusRow, plusSide);
+      if (range) openDraft(range.state, range.side, range.line, range.endLine);
+    });
+  }
+  function showPlus(row, side) {
+    if (!plus || drag) return;
+    const state = row && stateOf(row);
+    const s = row && sideOf(row, side);
+    const n = row && numberOf(row, s);
+    if (!state || !allowed(state.file, s, n)) { plus.remove(); plusRow = null; return; }
+    plusRow = row; plusSide = s;
+    plus.setAttribute('aria-label', `Comment on ${state.file.path}, ${where(s, n, n)}`);
+    const cell = cellOf(row, s);
+    if (plus.parentNode !== cell) cell.prepend(plus);
+  }
+  function focusRow(row, side) {
+    if (!row) return;
+    const s = sideOf(row, side);
+    focusSide = s;
+    if (isPair(row)) row.dataset.focusSide = s;
+    row.focus({ preventScroll: true });
+    row.scrollIntoView?.({ block: 'nearest' });
+    showPlus(row, s);
+  }
+  if (commenting) {
+    // Only a pointer that moved: the browser also reports one when what is
+    // under a still pointer changes, which would take the button from a
+    // line the keyboard just reached.
+    let pointer = '';
+    root.addEventListener('mousemove', e => {
+      const at = `${e.clientX},${e.clientY}`;
+      if (at === pointer) return;
+      pointer = at;
+      const row = e.target.closest?.('.wk-diff-rows > .wk-diff-line');
+      if (!row || !root.contains(row)) return;
+      const side = e.target.closest('.wk-diff-half')?.dataset.side || focusSide;
+      if (row !== plusRow || (isPair(row) && sideOf(row, side) !== plusSide)) showPlus(row, side);
+    });
+    root.addEventListener('mouseleave', () => {
+      const a = document.activeElement;
+      showPlus(a?.classList?.contains('wk-diff-line') && root.contains(a) ? a : null, focusSide);
+    });
+    root.addEventListener('focusin', e => {
+      if (e.target.classList?.contains('wk-diff-line')) {
+        const s = sideOf(e.target, focusSide);
+        if (isPair(e.target)) e.target.dataset.focusSide = s;
+        showPlus(e.target, s);
+      }
+    });
+    // A click on a line number focuses the line; with Shift, it selects
+    // from the line selected or focused before.
+    root.addEventListener('click', e => {
+      const num = e.target.closest?.('.wk-diff-num');
+      const row = num?.closest('.wk-diff-line');
+      if (!row || !root.contains(row)) return;
+      const side = isPair(row) ? num.closest('.wk-diff-half').dataset.side : sideOf(row);
+      if (numberOf(row, side) == null) return;
+      const from = selection?.anchor || (document.activeElement?.classList?.contains('wk-diff-line') ? document.activeElement : null);
+      if (e.shiftKey && from && rowsBetween(from, row) && (selection ? selection.side === side : true)) select({ anchor: from, end: row, side });
+      else select({ anchor: row, end: row, side });
+      focusRow(row, side);
+    });
+  }
+
+  // Keys on a focused line or hunk header: arrows move, Shift extends the
+  // selection, left and right change side (split), c comments, Escape
+  // clears the selection. True when the key was used.
+  function lineKey(e) {
+    const t = e.target;
+    const onLine = t.classList?.contains('wk-diff-line'), onHunk = t.classList?.contains('wk-diff-hunk');
+    if (!root.contains(t) || (!onLine && !onHunk)) return false;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const next = nextStop(t, e.key === 'ArrowDown' ? 1 : -1);
+      e.preventDefault();
+      if (!next) return true;
+      if (e.shiftKey && onLine && next.classList.contains('wk-diff-line')) {
+        const side = selection?.side || sideOf(t, focusSide);
+        const anchor = selection && rowsBetween(selection.anchor, t) ? selection.anchor : t;
+        if (!rowsBetween(anchor, next)) return true;
+        select({ anchor, end: next, side });
+        focusRow(next, side);
+        const range = rangeOf(anchor, next, side);
+        if (range) announce(`${side === 'old' ? 'Old l' : 'L'}${range.line === range.endLine ? `ine ${range.line}` : `ines ${range.line} to ${range.endLine}`} selected`);
+        return true;
+      }
+      if (e.shiftKey) return true;
+      select(null);
+      if (next.classList.contains('wk-diff-line')) focusRow(next, focusSide);
+      else { next.focus(); next.scrollIntoView?.({ block: 'nearest' }); }
+      return true;
+    }
+    if (!onLine) return false;
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && isPair(t) && !e.shiftKey) {
+      const side = e.key === 'ArrowLeft' ? 'old' : 'new';
+      if (numberOf(t, side) == null) return true;
+      e.preventDefault();
+      if (selection && selection.side !== side) select(null);
+      focusRow(t, side);
+      return true;
+    }
+    if (e.key === 'c' && !e.shiftKey) {
+      const range = selected(t) || rangeOf(t, t, sideOf(t, focusSide));
+      if (!range) return false;
+      e.preventDefault();
+      select(null);
+      openDraft(range.state, range.side, range.line, range.endLine);
+      return true;
+    }
+    if (e.key === 'Escape' && selection) { e.preventDefault(); select(null); return true; }
+    return false;
+  }
+
+  // ---- Comment boxes ---------------------------------------------------
+  // The box comes from spec.commentBox when given (an editor, say), else a
+  // textarea. The view draws Cancel and the submit button around it, and
+  // handles Escape and Ctrl or Cmd+Enter unless the box already did, or an
+  // input method is composing.
+  function textBox({ value, placeholder, label }) {
+    const area = document.createElement('textarea');
+    area.className = 'wk-field wk-diff-compose-field';
+    area.rows = 3;
+    area.value = value;
+    area.placeholder = placeholder;
+    area.setAttribute('aria-label', label);
+    return { element: area, get value() { return area.value; }, set value(v) { area.value = v; }, focus: () => area.focus(), destroy() {} };
+  }
+  function asBox(made) {
+    // A bare element (an editor element with value, focus() and destroy()).
+    if (made instanceof Node) return { element: made, get value() { return made.value ?? made.textContent; }, set value(v) { made.value = v; }, focus: () => made.focus?.(), destroy: () => made.destroy?.() };
+    return made && made.element instanceof Node ? made : null;
+  }
+  const textOf = draft => String(draft.box.value ?? '');
+  // draft: { state, path, side, line, endLine } for a new thread, or
+  // { state, thread } for a reply. Fills in frame and box.
+  function compose(draft, value, label, submitText) {
+    const frame = el('div', 'wk-diff-compose');
+    if (draft.side) frame.dataset.side = draft.side;
+    const boxSpec = { value: String(value ?? ''), placeholder: spec.commentPlaceholder || (draft.thread ? 'Reply' : 'Leave a comment'), label, onSubmit: () => submit(draft), onCancel: () => cancel(draft) };
+    let box = null;
+    if (typeof spec.commentBox === 'function') { try { box = asBox(spec.commentBox(boxSpec)); } catch { box = null; } }
+    box ||= textBox(boxSpec);
+    frame.append(box.element);
+    const actions = el('div', 'wk-diff-compose-actions', null, frame);
+    const no = el('button', 'wk-button wk-button--small', 'Cancel', actions);
+    no.type = 'button'; no.dataset.action = 'cancel';
+    no.addEventListener('click', () => cancel(draft));
+    const yes = el('button', 'wk-button wk-button--primary wk-button--small', submitText, actions);
+    yes.type = 'button'; yes.dataset.action = 'submit';
+    yes.addEventListener('click', () => submit(draft));
+    frame.addEventListener('keydown', e => {
+      if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(draft); }
+      else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(draft); }
+    });
+    Object.assign(draft, { frame, box });
+    return draft;
+  }
+  const focusBox = draft => { (draft.box.focus ? draft.box.focus() : draft.box.element.focus?.()); draft.frame.scrollIntoView?.({ block: 'nearest' }); };
+  function close(draft) {
+    if (draft.closed) return false;
+    draft.closed = true;
+    if (draft.thread) { replies.delete(draft.thread.id); kept.delete(String(draft.thread.id)); } else drafts.delete(draft.key);
+    try { draft.box.destroy?.(); } catch { /* the box's own clean-up failed */ }
+    draft.frame.remove();
+    return true;
+  }
+  // Puts text in a box already open: an empty box gives way to a new one
+  // holding it; one with text gets it added at the end, if the box takes a
+  // new value. True when the text is in the box; null when the empty box
+  // was closed for a new one.
+  function restore(draft, text) {
+    if (!text) return true;
+    if (!textOf(draft).trim()) { close(draft); return null; }
+    const before = textOf(draft);
+    try { draft.box.value = `${before.replace(/\s+$/, '')}\n\n${text}`; } catch { /* a box whose value can't be set */ }
+    return textOf(draft).includes(text);
+  }
+  // Opens a box under a line (or range), or focuses the one there. With
+  // value, the text goes in it (see restore). True when value is in a box.
+  function openDraft(state, side, line, endLine, value = '') {
+    const key = `${state.file.path}\0${side}:${line}:${endLine}`;
+    let draft = drafts.get(key), placed = true;
+    if (draft && value) { placed = restore(draft, value); if (placed === null) { draft = null; placed = true; } }
+    if (!draft) {
+      draft = compose({ key, state, path: state.file.path, side, line, endLine }, value, `Comment on ${state.file.path}, ${where(side, line, endLine)}`, 'Comment');
+      drafts.set(key, draft);
+    }
+    refreshAt(state, side, endLine);
+    focusBox(draft);
+    return placed;
+  }
+  function openReply(state, thread, value = '') {
+    let draft = replies.get(thread.id), placed = true;
+    if (draft && value) { placed = restore(draft, value); if (placed === null) { draft = null; placed = true; } }
+    if (!draft) {
+      draft = compose({ state, thread }, value, `Reply to the comments on ${state.file.path}`, 'Reply');
+      replies.set(thread.id, draft);
+    }
+    refreshThread(state, thread.id);
+    focusBox(draft);
+    return placed;
+  }
+  function cancel(draft) {
+    if (!close(draft)) return;
+    const { state } = draft;
+    if (draft.thread) {
+      refreshThread(state, draft.thread.id);
+      const reply = threadEl(state, draft.thread.id)?.querySelector('[data-action="reply"]');
+      // A kept thread goes with its box: focus moves to the file's toggle.
+      (reply || state.button).focus();
+    } else {
+      refreshAt(state, draft.side, draft.endLine);
+      focusRow(rowFor(state, draft.side, draft.endLine), draft.side);
+    }
+  }
+  function submit(draft) {
+    if (draft.closed) return;
+    const body = textOf(draft);
+    if (!body.trim()) { focusBox(draft); return; }
+    close(draft);
+    const { state } = draft;
+    if (draft.thread) send(state, draft.thread, { body });
+    else send(state, null, { path: draft.path, side: draft.side, line: draft.line, endLine: draft.endLine, body });
+  }
+
+  // Posts a new comment (thread null) or a reply. A promise from the app
+  // shows the comment as pending until it settles. When it resolves, the
+  // copy stays (as posted) until the app's comments hold it (a thread, or
+  // for a reply an entry, with the id the promise resolved with; else an
+  // entry with the same text and author), checked then and on each
+  // setComments, or for POSTED_KEEP at most. When it rejects, the copy shows the error with Retry and Edit. A
+  // shown working dot stays at least timings.indicatorMin. Anything else
+  // from the callback: the app shows the comment.
+  const POSTED_KEEP = 10_000;
+  function send(state, thread, info, entry) {
+    let result;
+    try { result = thread ? spec.onreply?.(thread.id, info.body) : spec.oncomment(info); } catch (err) { result = Promise.reject(err); }
+    if (!result || typeof result.then !== 'function') {
+      if (!thread) { refreshAt(state, info.side, info.endLine); focusRow(rowFor(state, info.side, info.endLine), info.side); }
+      else { refreshThread(state, thread.id); threadEl(state, thread.id)?.focus(); }
+      return;
+    }
+    entry ||= { author: author.name || 'You', avatar: author.avatar, time: new Date(now()), body: info.body };
+    Object.assign(entry, { pending: true, posted: false, error: undefined, since: Date.now(), shownAt: 0, landed: undefined });
+    let own = null;
+    if (!thread) {
+      own = posting.find(t => t.entries[0] === entry);
+      if (!own) { own = { id: `${id}-posting-${++localSequence}`, path: info.path, side: info.side, line: info.line, endLine: info.endLine, entries: [entry], local: info }; posting.push(own); }
+    } else if (!(replying.get(thread.id) || []).includes(entry)) replying.set(thread.id, [...(replying.get(thread.id) || []), entry]);
+    const redraw = () => (own ? refreshAt(state, info.side, info.endLine) : refreshThread(state, thread.id));
+    redraw();
+    threadEl(state, own ? own.id : thread.id)?.focus();
+    const drop = () => {
+      if (own) { const k = posting.indexOf(own); if (k >= 0) posting.splice(k, 1); }
+      else replying.set(thread.id, (replying.get(thread.id) || []).filter(x => x !== entry));
+    };
+    entry.drop = drop;
+    // Whether the app's comments hold this comment now.
+    const same = e => e && (entry.landed != null ? e.id != null && sameId(e.id, entry.landed) : e.body === entry.body && e.author === entry.author);
+    entry.covered = () => (own
+      ? comments.some(t => t && (entry.landed != null ? sameId(t.id, entry.landed) : t.path === info.path && (t.entries || []).some(same)))
+      : (comments.find(t => t && sameId(t.id, thread.id))?.entries || []).some(same));
+    // Once the dot has shown, it stays its minimum before the outcome replaces it.
+    const settle = fn => { const hold = entry.shownAt ? timings.indicatorMin - (Date.now() - entry.shownAt) : 0; if (hold > 0) later(fn, hold); else fn(); };
+    result.then(value => settle(() => {
+      const landed = value != null && typeof value === 'object' ? value.id : (typeof value === 'string' || typeof value === 'number' ? value : undefined);
+      Object.assign(entry, { pending: false, posted: true, landed });
+      announce(thread ? 'Reply posted' : 'Comment posted');
+      if (entry.covered()) drop();
+      else later(() => { if (entry.posted) { drop(); redraw(); } }, POSTED_KEEP);
+      redraw();
+    }), err => settle(() => {
+      Object.assign(entry, { pending: false, error: err?.message || String(err || 'Unknown error'), retry: () => send(state, thread, info, entry) });
+      // Edit puts the text back in a box: a new one, or added to the text of
+      // one already open there. The failed comment stays if that can't be done.
+      entry.edit = () => {
+        const placed = own ? openDraft(state, info.side, info.line, info.endLine, info.body) : openReply(state, thread, info.body);
+        if (placed) drop();
+        redraw();
+        const draft = own ? drafts.get(`${info.path}\0${info.side}:${info.line}:${info.endLine}`) : replies.get(thread.id);
+        if (draft) focusBox(draft);
+      };
+      announce(thread ? 'Couldn’t post the reply' : 'Couldn’t post the comment');
+      redraw();
+    }));
+  }
+
+  // Resolve and Unresolve: a promise from onresolve makes the button busy
+  // (data-busy, aria-disabled) until it settles, with a spinner after
+  // timings.indicatorDelay that stays at least timings.indicatorMin.
+  function resolve(state, thread, to) {
+    const tid = String(thread.id);
+    if (resolving.has(tid)) return;
+    let result;
+    try { result = spec.onresolve(thread.id, to); } catch (err) { result = Promise.reject(err); }
+    if (!result || typeof result.then !== 'function') return;
+    const job = { shown: 0, timer: 0 };
+    resolving.set(tid, job);
+    refreshThread(state, tid);
+    job.timer = later(() => { job.shown = Date.now(); refreshThread(state, tid); }, timings.indicatorDelay);
+    const end = failed => {
+      const finish = () => {
+        if (destroyed) return;
+        clearTimeout(job.timer); timers.delete(job.timer);
+        resolving.delete(tid);
+        if (failed) announce(to ? 'Couldn’t resolve the comments' : 'Couldn’t reopen the comments');
+        refreshThread(state, tid);
+      };
+      const hold = job.shown ? timings.indicatorMin - (Date.now() - job.shown) : 0;
+      if (hold > 0) later(finish, hold); else finish();
+    };
+    result.then(() => end(false), () => end(true));
+  }
+
+  // ---- Threads ---------------------------------------------------------
+  const threadEl = (state, tid) => [...state.body.querySelectorAll('.wk-diff-thread')].find(x => sameId(x.dataset.thread, tid));
+  function relative(ms) {
+    const s = (now() - ms) / 1000;
+    if (Math.abs(s) < 45) return 'just now';
+    const units = [['year', 31557600], ['month', 2629800], ['week', 604800], ['day', 86400], ['hour', 3600], ['minute', 60]];
+    const [unit, size] = units.find(([, n]) => Math.abs(s) >= n) || units.at(-1);
+    return new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }).format(-Math.round(s / size), unit);
+  }
+  // Relative times are redrawn each minute while the diff is on the page.
+  function tick() {
+    if (clock || destroyed) return;
+    clock = setInterval(() => {
+      if (!root.isConnected) { clearInterval(clock); clock = null; return; }
+      for (const t of root.querySelectorAll('time.wk-diff-time')) t.textContent = relative(Date.parse(t.dateTime));
+    }, 60_000);
+  }
+  // Avatars: http(s) or data:image URLs only. A redraw moves the same <img>,
+  // so the picture is not fetched again.
+  const avatars = new WeakMap();
+  const avatarURL = src => typeof src === 'string' && /^(https?:\/\/|data:image\/)/i.test(src.trim()) ? src.trim() : null;
+  function avatarOf(entry) {
+    const src = avatarURL(entry.avatar);
+    if (!src) return null;
+    let img = avatars.get(entry);
+    if (!img || img.getAttribute('src') !== src) {
+      img = el('img', 'wk-diff-avatar'); img.alt = ''; img.src = src;
+      avatars.set(entry, img);
+    }
+    return img;
+  }
+  function entryEl(state, thread, entry) {
+    const item = el('li', 'wk-diff-comment');
+    const head = el('p', 'wk-diff-comment-head', null, item);
+    const img = avatarOf(entry);
+    if (img) head.append(img);
+    el('span', 'wk-diff-author', entry.author || 'Unknown', head);
+    const at = entry.time instanceof Date ? entry.time : entry.time != null && entry.time !== '' ? new Date(entry.time) : null;
+    if (at && !Number.isNaN(at.getTime())) {
+      sr(', ', head);
+      const time = el('time', 'wk-diff-time', relative(at.getTime()), head);
+      time.dateTime = at.toISOString(); time.title = at.toLocaleString(undefined);
+      tick();
+    }
+    sr(': ', head);
+    const body = el('div', 'wk-diff-comment-body', null, item);
+    let made = null;
+    try { made = spec.renderBody?.(entry); } catch { made = null; }
+    if (made instanceof Node) body.append(made);
+    else { body.textContent = String(entry.body ?? ''); body.dataset.plain = ''; }
+    if (entry.pending) {
+      item.dataset.state = 'pending';
+      const work = el('span', 'wk-dot-label wk-diff-comment-state', null, head);
+      el('span', 'wk-dot', null, work).dataset.tone = 'working';
+      work.firstChild.dataset.size = 'sm';
+      work.firstChild.setAttribute('aria-hidden', 'true');
+      el('span', null, 'Posting…', work);
+      // Shown after timings.indicatorDelay (BEHAVIOUR.md); an app's own pending entry at once.
+      const wait = entry.since ? timings.indicatorDelay - (Date.now() - entry.since) : 0;
+      if (wait > 0) {
+        work.hidden = true;
+        later(() => { if (entry.pending) { entry.shownAt ||= Date.now(); work.hidden = false; } }, wait);
+      } else if (entry.since) entry.shownAt ||= Date.now();
+    } else if (entry.error) {
+      item.dataset.state = 'error';
+      const words = (replying.get(thread.id) || []).includes(entry) ? 'Couldn’t post the reply' : 'Couldn’t post the comment';
+      const boxEl = el('div', 'wk-errorbox wk-diff-errorbox', null, item);
+      boxEl.setAttribute('role', 'group'); boxEl.setAttribute('aria-label', words);
+      const top = el('div', 'wk-errorbox-head', null, boxEl);
+      el('span', null, words, top);
+      const copy = el('button', 'wk-copy', null, top);
+      copy.type = 'button'; copy.title = 'Copy'; copy.setAttribute('aria-label', 'Copy error details');
+      copy.append(copyGlyph());
+      copy.addEventListener('click', () => { navigator.clipboard?.writeText(`${words}\n${entry.error}`).catch(() => {}); });
+      el('pre', null, String(entry.error), boxEl);
+      const acts = el('div', 'wk-diff-comment-actions', null, item);
+      const retry = entry.retry || (spec.onretry && (() => spec.onretry(thread.id, entry)));
+      if (retry) { const b = el('button', 'wk-button wk-button--small', 'Retry', acts); b.type = 'button'; b.dataset.action = 'retry'; b.addEventListener('click', retry); }
+      if (entry.edit) { const b = el('button', 'wk-button wk-button--small', 'Edit', acts); b.type = 'button'; b.dataset.action = 'edit'; b.addEventListener('click', entry.edit); }
+      if (!acts.childElementCount) acts.remove();
+    }
+    return item;
+  }
+  function copyGlyph() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 16 16'); svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor'); svg.setAttribute('stroke-width', '1.5'); svg.setAttribute('aria-hidden', 'true');
+    for (const d of ['M5.5 7.1a1.6 1.6 0 0 1 1.6-1.6h4.8a1.6 1.6 0 0 1 1.6 1.6v4.8a1.6 1.6 0 0 1-1.6 1.6H7.1a1.6 1.6 0 0 1-1.6-1.6z', 'M10.5 3.5v-.2a1.3 1.3 0 0 0-1.3-1.3H3.8a1.3 1.3 0 0 0-1.3 1.3v5.4a1.3 1.3 0 0 0 1.3 1.3h.2']) {
+      const path = document.createElementNS(ns, 'path'); path.setAttribute('d', d); svg.append(path);
+    }
+    return svg;
+  }
+  function threadView(state, place) {
+    const { thread, side, line, endLine, outdated } = place;
+    const tid = String(thread.id);
+    const box = el('div', 'wk-diff-thread');
+    box.dataset.thread = tid; box.dataset.side = side;
+    box.tabIndex = -1; box.setAttribute('role', 'region');
+    const spot = Number.isInteger(line) ? where(side, line, endLine) : '';
+    box.setAttribute('aria-label', `${outdated ? 'Outdated comments' : 'Comments'} on ${state.file.path}${spot ? `, ${spot}` : ''}`);
+    if (outdated) { box.dataset.outdated = ''; el('p', 'wk-diff-thread-head', `Outdated${spot ? ` · ${spot}` : ''}`, box); }
+    if (thread.local) box.dataset.local = '';
+    const entries = [...(thread.entries || []), ...(replying.get(thread.id) || [])];
+    const resolved = Boolean(thread.resolved);
+    const inner = el('div', 'wk-diff-thread-body');
+    if (resolved) {
+      box.dataset.resolved = '';
+      const open = expanded.has(tid);
+      const toggle = el('button', 'wk-link wk-diff-thread-toggle', `Resolved · ${plural(entries.length, 'comment', 'comments')}`, box);
+      toggle.type = 'button'; toggle.dataset.action = 'toggle';
+      toggle.setAttribute('aria-expanded', String(open));
+      inner.id = `${id}-thread-${++threadSequence}`;
+      toggle.setAttribute('aria-controls', inner.id);
+      inner.hidden = !open;
+      toggle.addEventListener('click', () => {
+        if (expanded.has(tid)) expanded.delete(tid); else expanded.add(tid);
+        refreshThread(state, tid);
+      });
+    }
+    box.append(inner);
+    const list = el('ol', 'wk-diff-comment-list', null, inner);
+    for (const entry of entries) list.append(entryEl(state, thread, entry));
+    const draft = replies.get(thread.id);
+    if (!thread.local) {
+      const acts = el('div', 'wk-diff-thread-actions', null, inner);
+      if (spec.onreply && !draft) {
+        const b = el('button', 'wk-button wk-button--small', 'Reply', acts);
+        b.type = 'button'; b.dataset.action = 'reply';
+        b.addEventListener('click', () => openReply(state, thread));
+      }
+      if (spec.onresolve && !thread.gone) {
+        const b = el('button', 'wk-button wk-button--quiet wk-button--small', resolved ? 'Unresolve' : 'Resolve', acts);
+        b.type = 'button'; b.dataset.action = 'resolve';
+        const job = resolving.get(tid);
+        if (job) {
+          b.dataset.busy = ''; b.setAttribute('aria-disabled', 'true');
+          if (job.shown) { const spin = el('span', 'wk-spinner'); spin.setAttribute('aria-hidden', 'true'); b.prepend(spin); }
+        }
+        b.addEventListener('click', () => resolve(state, thread, !resolved));
+      }
+      if (!acts.childElementCount) acts.remove();
+      if (draft) inner.append(draft.frame);
+    }
+    return box;
+  }
+
+  // ---- Placing threads -------------------------------------------------
+  // Focus stays where it was across a redraw: on the same box, the same
+  // thread's same button (or its toggle, or the thread), a thread in the
+  // same place, the line, the next thread, the file's toggle, else the diff.
+  function keepFocus(state, redraw) {
+    const a = document.activeElement;
+    let had = null;
+    if (a && a !== state.body && state.body.contains(a)) {
+      const thread = a.closest('.wk-diff-thread');
+      had = { el: a, thread: thread?.dataset.thread, action: a.dataset?.action, anchor: a.closest('.wk-diff-comments')?.previousElementSibling, index: thread ? [...state.body.querySelectorAll('.wk-diff-thread')].indexOf(thread) : -1 };
+    }
+    redraw();
+    if (!had) return;
+    if (had.el.isConnected) { if (document.activeElement !== had.el) had.el.focus({ preventScroll: true }); return; }
+    const visible = x => x && x.isConnected && x.offsetParent !== null;
+    const thread = had.thread != null && threadEl(state, had.thread);
+    const threads = [...state.body.querySelectorAll('.wk-diff-thread')].filter(visible);
+    const target = (thread && [thread.querySelector(`[data-action="${had.action}"]`), thread.querySelector('[data-action="toggle"]'), thread].find(visible))
+      || (had.anchor?.isConnected && had.anchor.nextElementSibling?.classList.contains('wk-diff-comments') && had.anchor.nextElementSibling.querySelector('.wk-diff-thread'))
+      || (had.anchor?.isConnected && had.anchor.classList.contains('wk-diff-line') && had.anchor.hasAttribute('tabindex') && had.anchor)
+      || (had.index >= 0 && (threads[had.index] || threads.at(-1)))
+      || (visible(state.button) && state.button)
+      || root;
+    target.focus({ preventScroll: true });
+  }
+  // A row's threads and boxes: those whose line (the range's end) is in it.
+  function slotItems(state, row, placed) {
+    const items = [];
+    for (const place of placed) if (numberOf(row, place.side) === place.endLine) items.push(threadView(state, place));
+    for (const draft of drafts.values()) if (draft.state === state && numberOf(row, draft.side) === draft.endLine) items.push(draft.frame);
+    return items;
+  }
+  function fillSlot(row, items) {
+    let box = row.nextElementSibling?.classList.contains('wk-diff-comments') ? row.nextElementSibling : null;
+    if (!items.length) { box?.remove(); return; }
+    if (!box) { box = el('div', 'wk-diff-comments'); row.after(box); }
+    box.replaceChildren(...items);
+  }
+  // The outdated threads, and any box whose line is not shown, at the top.
+  function fillOutdated(state, outdated) {
+    const items = outdated.map(place => threadView(state, place));
+    for (const draft of drafts.values()) if (draft.state === state && !rowFor(state, draft.side, draft.endLine)) items.push(draft.frame);
+    let top = state.body.firstElementChild?.classList.contains('wk-diff-outdated') ? state.body.firstElementChild : null;
+    if (!items.length) { top?.remove(); return; }
+    if (!top) { top = el('div', 'wk-diff-outdated'); state.body.prepend(top); }
+    top.replaceChildren(...items);
+  }
+  // Every thread and box of a built file.
+  function placeThreads(state) {
+    if (!state.built) return;
+    keepFocus(state, () => {
+      const { placed, outdated } = diffCommentPlaces(state.file, threadsOf(state));
+      const rows = new Set();
+      for (const place of placed) { const row = rowFor(state, place.side, place.endLine); if (row) rows.add(row); }
+      for (const draft of drafts.values()) if (draft.state === state) { const row = rowFor(state, draft.side, draft.endLine); if (row) rows.add(row); }
+      for (const old of state.body.querySelectorAll('.wk-diff-comments')) if (!rows.has(old.previousElementSibling)) old.remove();
+      for (const row of rows) fillSlot(row, slotItems(state, row, placed));
+      fillOutdated(state, outdated);
+    });
+  }
+  // Only the row under one line, or the one holding a thread.
+  function refreshAt(state, side, line) {
+    if (!state.built) return;
+    const row = rowFor(state, side, line);
+    if (!row) { refreshOutdated(state); return; }
+    keepFocus(state, () => fillSlot(row, slotItems(state, row, diffCommentPlaces(state.file, threadsOf(state)).placed)));
+  }
+  function refreshOutdated(state) {
+    if (!state.built) return;
+    keepFocus(state, () => fillOutdated(state, diffCommentPlaces(state.file, threadsOf(state)).outdated));
+  }
+  function refreshThread(state, tid) {
+    const host = threadEl(state, tid)?.parentElement;
+    if (host?.classList.contains('wk-diff-comments')) keepFocus(state, () => fillSlot(host.previousElementSibling, slotItems(state, host.previousElementSibling, diffCommentPlaces(state.file, threadsOf(state)).placed)));
+    else if (host) refreshOutdated(state);
+    else placeThreads(state);
+  }
+
+  /** Replaces the threads (the app's comments) and redraws them. */
+  root.setComments = threads => {
+    if (destroyed) return;
+    comments = Array.isArray(threads) ? threads : [];
+    // Copies of comments that have landed go once the app's comments hold them.
+    for (const t of [...posting]) if (t.entries[0]?.posted && t.entries[0].covered()) t.entries[0].drop();
+    for (const list of replying.values()) for (const e of [...list]) if (e.posted && e.covered()) e.drop();
+    // A reply box for a thread that has gone goes with it, unless it has
+    // text: then the thread is kept, outdated, until the box is sent or
+    // cancelled (or the thread comes back).
+    for (const [tid, draft] of [...replies]) {
+      const key = String(tid);
+      if (comments.some(t => t && sameId(t.id, tid))) { kept.delete(key); continue; }
+      if (textOf(draft).trim()) { if (!kept.has(key)) kept.set(key, { ...draft.thread, outdated: true, gone: true }); }
+      else close(draft);
+    }
+    countComments();
+    for (const state of states) placeThreads(state);
+  };
+  /** Closes every open box (destroying injected editors) and stops the clocks. */
+  root.destroy = () => {
+    for (const draft of [...drafts.values(), ...replies.values()]) close(draft);
+    for (const t of timers) clearTimeout(t);
+    timers.clear();
+    if (clock) clearInterval(clock);
+    clock = null;
+    destroyed = true;
+  };
+
   const lineCount = f => f.hunks.reduce((n, h) => n + h.lines.length, 0);
   const charCount = f => f.hunks.reduce((n, h) => n + h.lines.reduce((m, l) => m + l.text.length, 0), 0);
   const states = files.map((file, index) => {
@@ -2896,15 +3656,19 @@ export function wkDiff(spec) {
     if (generated) chips.push('generated');
     for (const chip of chips) el('span', 'wk-chip wk-diff-chip', chip, header).dataset.status = chip;
     if (!file.binary) counts(file.additions, file.deletions, header);
+    const talk = el('span', 'wk-diff-comment-count', null, header);
+    talk.hidden = true;
     const body = el('div', 'wk-diff-body', null, box);
     body.id = `${fid}-body`;
     body.setAttribute('role', 'group'); body.setAttribute('aria-labelledby', button.id);
     const large = lineCount(file) > collapseAbove || charCount(file) > collapseCharsAbove;
-    const state = { file, index, box, button, body, open: file.collapsed != null ? !file.collapsed : !(large || generated || file.binary), built: false };
+    const state = { file, index, box, button, body, talk, open: file.collapsed != null ? !file.collapsed : !(large || generated || file.binary), built: false };
     button.addEventListener('click', () => { state.open = !state.open; paint(state); });
     paint(state);
     return state;
   });
+
+  countComments();
 
   function paint(state) {
     state.button.setAttribute('aria-expanded', String(state.open));
@@ -2919,6 +3683,8 @@ export function wkDiff(spec) {
     body.dataset.view = view;
     body.toggleAttribute('data-wrap', Boolean(spec.wrap) || view === 'split');
     fill(state);
+    state.rows = null;
+    placeThreads(state);
     spec.onrender?.(state.box, file);
   }
   function fill(state) {
@@ -3016,7 +3782,7 @@ export function wkDiff(spec) {
     hunk.oldStart = first; hunk.oldLines += added.length;
     hunk.newStart = first + cur.shift; hunk.newLines += added.length;
     // A file that is not built picks the lines up when it is.
-    if (row) row.after(...rowsFor(file, added));
+    if (row) { row.after(...rowsFor(file, added)); state.rows = null; placeThreads(state); }
     if (gap(file, k).to < gap(file, k).from) close(); else if (more) moreLabel(file, k, more);
     if (row) spec.onrender?.(state.box, file);
   }
@@ -3058,6 +3824,7 @@ export function wkDiff(spec) {
     if (view === 'unified') {
       for (const line of lines) {
         const row = el('div', 'wk-diff-line');
+        if (commenting) row.tabIndex = -1;
         row.dataset.kind = line.kind;
         if (line.old != null) row.dataset.old = String(line.old);
         if (line.new != null) row.dataset.new = String(line.new);
@@ -3068,15 +3835,17 @@ export function wkDiff(spec) {
     }
     for (const { left, right } of pairs) {
       const row = el('div', 'wk-diff-line wk-diff-pair');
+      if (commenting) row.tabIndex = -1;
       for (const [line, side] of [[left, 'old'], [right, 'new']]) {
         const half = el('div', 'wk-diff-half', null, row);
         half.dataset.side = side;
         if (!line) { half.dataset.kind = 'empty'; continue; }
         half.dataset.kind = line.kind;
         if (line[side] != null) half.dataset[side] = String(line[side]);
-        // A context line is on both sides: read it once.
-        if (line.kind === 'context' && side === 'new') half.setAttribute('aria-hidden', 'true');
         cells(file, line, words.get(line), half, side);
+        // A context line is on both sides: read it once. Its parts are hidden,
+        // not the half, which takes focus and the + button.
+        if (line.kind === 'context' && side === 'new') for (const part of half.children) part.setAttribute('aria-hidden', 'true');
       }
       out.push(row);
     }
@@ -3088,8 +3857,13 @@ export function wkDiff(spec) {
   root.addEventListener('keydown', e => {
     if (e.altKey || e.ctrlKey || e.metaKey || e.defaultPrevented) return;
     const t = e.target;
-    if (t.isContentEditable || /^(TEXTAREA|SELECT)$/.test(t.tagName) || (t.tagName === 'INPUT' && !/^(radio|checkbox|button)$/.test(t.type))) return;
-    const move = { n: ['.wk-diff-hunk', 1], p: ['.wk-diff-hunk', -1], ']': ['.wk-diff-toggle', 1], '[': ['.wk-diff-toggle', -1] }[e.key];
+    // Not while typing: in a field, in anything contenteditable (even a
+    // disabled editor, contenteditable="false"), a code editor, or a comment
+    // box and anything in it.
+    if (e.isComposing || e.keyCode === 229) return;
+    if (t.isContentEditable || t.closest?.('textarea, select, input:not([type="radio"], [type="checkbox"], [type="button"]), [contenteditable], .cm-editor, .wk-diff-compose')) return;
+    if (commenting && lineKey(e)) return;
+    const move = { n: ['.wk-diff-hunk', 1], p: ['.wk-diff-hunk', -1], ']': ['.wk-diff-toggle', 1], '[': ['.wk-diff-toggle', -1], N: ['.wk-diff-thread', 1], P: ['.wk-diff-thread', -1] }[e.key];
     if (!move) return;
     const [selector, dir] = move;
     let from = document.activeElement;

@@ -174,8 +174,37 @@ export interface DiffSpec {
   contextStep?: number;
   /** Called after a file's rows are built: when it is first expanded, and on every rebuild (a view switch) or added context. */
   onrender?: (fileElement: HTMLElement, file: DiffFile) => void;
+  /** Review threads, drawn under their lines (see README, "Review comments"). */
+  comments?: DiffThread[];
+  /** Whether a line takes a new comment; needs oncomment. Default true. */
+  canComment?: boolean | ((file: DiffFile, side: DiffSide, line: number) => boolean);
+  /** The comment box's factory; the default is a wk-field textarea. */
+  commentBox?: (spec: DiffCommentBoxSpec) => DiffCommentBox | HTMLElement;
+  commentPlaceholder?: string;
+  /** A comment's body as a node; the default is its plain text. */
+  renderBody?: (entry: DiffCommentEntry) => Node | null | undefined;
+  /** A promise shows the comment as pending until it settles; a rejection shows the error with Retry. */
+  oncomment?: (comment: DiffNewComment) => unknown;
+  onreply?: (threadId: string, body: string) => unknown;
+  /** A promise makes Resolve busy until it settles. */
+  onresolve?: (threadId: string, resolved: boolean) => unknown;
+  /** Retry on an entry the app marked with error. */
+  onretry?: (threadId: string, entry: DiffCommentEntry) => void;
+  /** Who a comment being posted shows as. Default "You". */
+  author?: { name?: string; avatar?: string };
+  /** The clock relative times are measured from, in ms. Default Date.now. */
+  now?: () => number;
 }
-export function wkDiff(spec: DiffSpec): HTMLElement;
+export type DiffSide = 'old' | 'new';
+export interface DiffCommentEntry { author: string; avatar?: string; time: Date | string | number; body: string; bodyHtml?: string; pending?: boolean; error?: string }
+export interface DiffThread { id: string; path: string; side: DiffSide; line: number; endLine?: number; entries: DiffCommentEntry[]; resolved?: boolean; outdated?: boolean }
+export interface DiffNewComment { path: string; side: DiffSide; line: number; endLine: number; body: string }
+export interface DiffCommentBoxSpec { value: string; placeholder: string; label: string; onSubmit: () => void; onCancel: () => void }
+/** value may also be settable: Edit then adds a failed comment's text to a box already open. */
+export interface DiffCommentBox { element: HTMLElement; value: string; focus?: () => void; destroy?: () => void }
+export interface DiffCommentPlace { thread: DiffThread; side: DiffSide; line: number; endLine: number; hunk?: number; outdated?: true }
+export function wkDiff(spec: DiffSpec): HTMLElement & { setComments(threads: DiffThread[]): void; destroy(): void };
+export function diffCommentPlaces(file: DiffFile, threads: DiffThread[]): { placed: DiffCommentPlace[]; outdated: DiffCommentPlace[] };
 export function parseUnifiedDiff(text: string): DiffFile[];
 export function diffSplitRows(lines: DiffLine[]): { left: DiffLine | null; right: DiffLine | null }[];
 export function diffWordRanges(before: string, after: string, limit?: number): { del: [number, number][]; add: [number, number][] };
