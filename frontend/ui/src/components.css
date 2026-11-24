@@ -800,6 +800,59 @@ wk-dialog { display: contents; }
 .wk-diff-eof { grid-column: -2; padding: 0 var(--wk-space-3) 2px 0; color: var(--wk-color-text-secondary); font-family: var(--wk-font-family); font-size: var(--wk-font-size-xs); }
 .wk-diff-sr { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
+/* ---- Task (wkTask, built by task.js; BEHAVIOUR.md) --------------------
+   wk-task-stop: the Cancel, Stop or Pause button. Work that may be long
+   keeps its space from the start (data-reserved, not drawn and not in the
+   tab order) and shows it at 10 s, so nothing moves under the pointer.
+   wk-task-state: the dot and words a task puts in its target (a row's state
+   cell) in place of its own content while it runs. */
+.wk-task-stop { margin-left: var(--wk-space-2); }
+.wk-task-stop[data-reserved] { visibility: hidden; }
+.wk-task-state { display: inline-flex; align-items: center; gap: var(--wk-space-2); min-width: 0; }
+.wk-task-state > .wk-task-words { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wk-task-state[data-state="failed"] > .wk-task-words,
+.wk-task-state[data-state="stalled"] > .wk-task-words { color: var(--wk-color-attention-text); }
+.wk-task-state[data-state="queued"] > .wk-task-words,
+.wk-task-state[data-state="cancelled"] > .wk-task-words,
+.wk-task-state[data-state="stopped"] > .wk-task-words { color: var(--wk-color-text-secondary); }
+.wk-task-show { margin-left: var(--wk-space-1); }
+/* The summary ("3 tasks running · 1 failed"): a small dot and its words,
+   a button that opens the task list, for the toolbar or the footer bar. */
+.wk-task-summary {
+  display: inline-flex; align-items: center; gap: var(--wk-space-2);
+  min-height: var(--wk-control-height-small); padding: 0 var(--wk-space-1);
+  border: 0; border-radius: var(--wk-radius-small); background: none;
+  color: var(--wk-color-text-secondary); font: inherit; font-size: var(--wk-font-size-sm); white-space: nowrap; cursor: pointer;
+}
+.wk-task-summary:hover { background: var(--wk-color-fill); color: var(--wk-color-text); }
+.wk-task-summary[hidden] { display: none; }
+/* The task list: a sheet of rows, each a dot, the task's name and state,
+   then its actions; a task's parts sit under it. */
+.wk-task-list { width: min(520px, calc(100% - 32px)); max-height: min(560px, calc(100% - 32px)); }
+.wk-task-rows, .wk-task-parts { margin: 0; padding: 0; list-style: none; }
+.wk-task-parts { grid-column: 2 / -1; padding-left: var(--wk-space-2); border-left: calc(var(--wk-hairline-width) * 2) solid var(--wk-color-hairline-strong); }
+.wk-task-row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; column-gap: var(--wk-space-3); row-gap: var(--wk-space-1); padding: var(--wk-space-2) 0; }
+.wk-task-rows > .wk-task-row + .wk-task-row { border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); }
+.wk-task-row:focus-visible { outline-offset: 0; }
+.wk-task-text { display: flex; flex-direction: column; min-width: 0; }
+.wk-task-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: var(--wk-font-weight-medium); }
+.wk-task-line { color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+.wk-task-row[data-state="failed"] > .wk-task-text > .wk-task-line,
+.wk-task-row[data-state="stalled"] > .wk-task-text > .wk-task-line { color: var(--wk-color-attention-text); }
+.wk-task-actions { display: flex; gap: var(--wk-space-1); }
+.wk-task-none { margin: var(--wk-space-4) 0; color: var(--wk-color-text-secondary); text-align: center; }
+/* Forced colours: attention words keep their place, not their colour; the
+   summary is a button the system draws. */
+@media (forced-colors: active) {
+  .wk-task-state[data-state="failed"] > .wk-task-words,
+  .wk-task-state[data-state="stalled"] > .wk-task-words,
+  .wk-task-row[data-state="failed"] > .wk-task-text > .wk-task-line,
+  .wk-task-row[data-state="stalled"] > .wk-task-text > .wk-task-line { color: CanvasText; text-decoration: underline; }
+  .wk-task-summary { forced-color-adjust: none; color: ButtonText; background: ButtonFace; }
+  .wk-task-summary:hover, .wk-task-summary:focus-visible { outline: 1px solid Highlight; }
+  .wk-task-rows > .wk-task-row + .wk-task-row { border-top-color: GrayText; }
+}
+
 /* ---- Forced colours (Windows High Contrast) ---------------------------
    The system replaces backgrounds, shadows and most border colours with its
    own. Where a state is drawn only with those, these rules redraw it with

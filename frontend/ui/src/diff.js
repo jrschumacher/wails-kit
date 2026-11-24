@@ -37,6 +37,8 @@
 // ] and [ to the next or previous file. Copying copies code only: the gutter,
 // the markers and the screen-reader labels are left out.
 
+import { announce } from './announce.js';
+
 // ---- Rules with no DOM ---------------------------------------------------
 
 // A path as git writes it: "a/x", or C-quoted when it holds unusual bytes.
@@ -495,14 +497,23 @@ export function wkDiff(spec) {
     if (canExpand) {
       const more = el('button', 'wk-link wk-diff-more', null, row);
       more.type = 'button';
-      more.disabled = Boolean(hunk.loading);
+      setBusy(more, hunk.loading);
       moreLabel(file, k, more);
-      const note = el('span', 'wk-diff-more-note', null, row);
-      note.setAttribute('aria-live', 'polite');
-      more.addEventListener('click', () => showMore(state, hunk, k));
+      // The note is not a live region: a failure goes to the window's
+      // announcer once (BEHAVIOUR.md, "Announcer").
+      el('span', 'wk-diff-more-note', null, row);
+      more.addEventListener('click', () => { if (!hunk.loading) showMore(state, hunk, k); });
     }
     el('span', 'wk-diff-hunk-text', hunk.header, row).setAttribute('aria-hidden', 'true');
     return row;
+  }
+
+  // Loading: busy, never disabled, so the button keeps focus (BEHAVIOUR.md,
+  // "Accessibility"); kit.js drops the presses a busy control gets.
+  function setBusy(more, on) {
+    if (!more) return;
+    if (on) { more.setAttribute('aria-disabled', 'true'); more.setAttribute('data-busy', ''); }
+    else { more.removeAttribute('aria-disabled'); more.removeAttribute('data-busy'); }
   }
 
   function moreLabel(file, k, more) {
@@ -518,15 +529,20 @@ export function wkDiff(spec) {
     const cur = gap(file, k);
     const from = Math.max(cur.from, cur.to - step + 1), to = cur.to;
     hunk.loading = true;
-    { const { more, note } = parts(header()); if (more) more.disabled = true; if (note) note.textContent = ''; }
+    { const { more, note } = parts(header()); setBusy(more, true); if (note) note.textContent = ''; }
     let got, failed = false;
     try { got = await spec.getContext(file, { oldStart: from, oldEnd: to, newStart: from + cur.shift, newEnd: to + cur.shift }); } catch { failed = true; }
     hunk.loading = false;
     const row = header();
     const { more, note } = parts(row);
     const hadFocus = more && document.activeElement === more;
-    if (more) more.disabled = false;
-    if (failed) { if (note) note.textContent = 'Couldn\u2019t load lines'; return; }
+    setBusy(more, false);
+    if (failed) {
+      if (note) note.textContent = 'Couldn\u2019t load lines';
+      // Assertive only while the person waits on it: focus still on the button.
+      announce('Couldn\u2019t load lines', { assertive: hadFocus });
+      return;
+    }
     const close = () => { more?.remove(); if (hadFocus) row.focus(); };
     if (!Array.isArray(got) || !got.length) { hunk.noMore = true; close(); return; }
     got = got.slice(-(to - from + 1));
