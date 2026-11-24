@@ -149,6 +149,10 @@ colour token has a light value on `:root` and a dark value under
 `@media (prefers-color-scheme: dark)` on `:root:not([data-theme="light"])`,
 repeated on `:root[data-theme="dark"]`.
 
+Increased contrast is followed live too: under `prefers-contrast: more`, one block
+at the end of `tokens.css` mixes the lines, control outlines, secondary text and the
+fill tints from the theme's `text` and `bg`, in either appearance and any theme.
+
 ## The theme file
 
 An app makes the kit its own with one theme file, linked after the kit's

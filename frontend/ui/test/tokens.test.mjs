@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { COLOUR, rules, tokens, banned, isTokenSelector, backdropProblems, contrast, over } from './css.mjs';
-import { checkTheme, derive, THEME_TOKENS, DERIVED, GROUNDS, IDENTITY } from '../theme/check.mjs';
+import { checkTheme, contrastMore, derive, THEME_TOKENS, DERIVED, GROUNDS, IDENTITY } from '../theme/check.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const src = path.join(root, 'src');
@@ -135,6 +135,32 @@ test('the theme check fails on a working tone under 3:1 on the window; a named e
   assert.deepEqual(checkTheme(read(path.join(themeDir, 'example.css')), kitSource(), { exceptions: { 'working-on-bg/light': 'stale' } }).map(p => p.rule), ['exceptions'], 'an exception that matches nothing is reported');
 });
 
+test('the theme check holds increased contrast to the contract: a low-contrast text that passes without it fails under contrast-more', () => {
+  const low = read(path.join(fixtures, 'low-text.css'));
+  const kit = kitSource();
+  // Without the setting it passes: grey text at 4.5:1 or more on every ground.
+  const without = kit.slice(0, kit.indexOf('/* Increased contrast'));
+  assert.deepEqual(checkTheme(low, without), [], 'passes with no increased-contrast block');
+  const problems = checkTheme(low, kit);
+  assert.deepEqual([...new Set(problems.map(p => p.rule))], ['contrast-more/light', 'contrast-more/dark']);
+  assert.ok(problems.some(p => /secondary text on sidebar is 3\.14:1, under 4\.5:1/.test(p.message)), problems.map(p => p.message).join('\n'));
+  assert.ok(problems.some(p => /field border on bg is 2\.78:1, under 3:1/.test(p.message)));
+  // Over the minimum but weaker than the theme's own value, which is under
+  // the 7:1 ceiling: the mix may not come down.
+  const weaker = low.replace('--wk-color-text:#707070;--wk-color-text-secondary:#707070;', '--wk-color-text:#4a4a4a;--wk-color-text-secondary:#606060;');
+  const w = checkTheme(weaker, kit).filter(p => p.rule === 'contrast-more/light' && /secondary text on bg /.test(p.message));
+  assert.equal(w.length, 1, checkTheme(weaker, kit).map(p => p.message).join('\n'));
+  assert.match(w[0].message, /is 5\.33:1, under 6\.\d\d:1 \(the usual 6\.\d\d:1/, 'the floor is the usual value, under the ceiling');
+  // A theme already stronger than the ceiling may come down to it: 11.37:1
+  // secondary text in light becomes 8.86:1, over 7:1.
+  assert.deepEqual(checkTheme(read(path.join(fixtures, 'strong-secondary.css')), kit), []);
+  // The kit's secondary text on a selection is checked too: a dark accent's
+  // selection under the mixed on-selected text.
+  const onSelected = checkTheme(low, kit).filter(p => /on a selection/.test(p.message));
+  assert.ok(onSelected.length > 0, 'secondary text on a selection is not checked under increased contrast');
+  assert.deepEqual(contrastMore(kit), new Map(Object.entries(CONTRAST_MIX)), 'the check reads the mixes from tokens.css');
+});
+
 test('the theme check catches each way a theme breaks the contract', () => {
   const base = read(path.join(themeDir, 'example.css'));
   const kit = kitSource();
@@ -156,7 +182,7 @@ test('the theme check catches each way a theme breaks the contract', () => {
   assert.deepEqual(rulesOf(warm.replace('--wk-color-working: #b4740f;', '--wk-color-working: #b04a20;')), ['working-attention']);
   assert.deepEqual(rulesOf(warm.replace(/--wk-color-sidebar: #f1efe9;\n/, '')), ['grounds', 'tokens'], 'one ground left out of light (its dark value is left alone)');
   assert.deepEqual(rulesOf(warm.replace(/(@media[\s\S]*?--wk-color-accent: )#84c99a/, '$1#84c99b')), ['blocks']);
-  assert.deepEqual(rulesOf(warm.replace('--wk-color-text: #23201b;', '--wk-color-text: #77726a;')), ['text']);
+  assert.deepEqual(rulesOf(warm.replace('--wk-color-text: #23201b;', '--wk-color-text: #77726a;')), ['contrast-more', 'text'], 'low text fails, and its increased-contrast mixes fail too');
   assert.deepEqual(rulesOf(base.replace('--wk-color-attention: #bc3529;', '--wk-color-attention: #e89a92;')), ['attention-on-bg']);
   assert.deepEqual(rulesOf(base.replace('--wk-color-on-accent: #ffffff;', '--wk-color-on-accent: #6fa894;')), ['on-accent']);
   assert.deepEqual(rulesOf(warm.replace('--wk-color-accent: #2d6a45;', '--wk-color-accent: #000000;')), ['on-selected'], 'a black accent darkens the selected row under the kit\'s secondary text');
@@ -274,7 +300,7 @@ test('every selector is scoped to a wk- class or element, so linking the kit nev
       const keyframes = r.atRules.find(a => a.startsWith('@keyframes'));
       if (keyframes) { assert.match(keyframes, /^@keyframes wk-[a-z-]+$/, `${rel(file)}: ${keyframes} is not named wk-`); continue; }
       for (const sel of selectors(r.selector)) {
-        if (isTokenSelector(sel)) {
+        if (isTokenSelector(sel) || sel === CONTRAST_SELECTOR) {
           for (const [prop] of r.decls) assert.ok(prop.startsWith('--wk-'), `${rel(file)}: :root sets ${prop}; :root is for --wk-* tokens only`);
           continue;
         }
@@ -385,4 +411,58 @@ test('the design system\'s names: wk-code and wk-chip--access, not the old wk-co
   for (const file of files) assert.doesNotMatch(read(file), /wk-codeblock|wk-chip--lock/, `${rel(file)} uses an old name`);
   const css = read(path.join(src, 'components.css'));
   for (const selector of ['.wk-code {', '.wk-code--scroll > pre', '.wk-chip--access > svg', '.wk-chip--access[data-level="manage"]']) assert.ok(css.includes(selector), `components.css defines ${selector}`);
+});
+
+// Increased contrast: one block in tokens.css, under prefers-contrast: more
+// and @supports color-mix(), on :root:root:root so it outweighs a theme's
+// dark blocks. It mixes lines, outlines, secondary text and tints from the
+// theme's own text and bg.
+const CONTRAST_SELECTOR = ':root:root:root';
+const CONTRAST_MIX = {
+  '--wk-color-text-secondary': 82, '--wk-color-text-secondary-on-selected': 88, '--wk-color-hairline': 32,
+  '--wk-color-hairline-strong': 45, '--wk-color-control-border': 55, '--wk-color-field-border': 70,
+};
+const contrastBlock = () => {
+  const found = rules(kitSource()).filter(r => r.selector === CONTRAST_SELECTOR);
+  assert.equal(found.length, 1, 'one increased-contrast block');
+  return found[0];
+};
+
+test('increased contrast: one block under prefers-contrast: more, mixing only line, outline, secondary-text and tint tokens from text and bg', () => {
+  const r = contrastBlock();
+  assert.ok(r.atRules.some(a => /^@media\s*\(prefers-contrast:\s*more\)$/.test(a)), r.atRules.join(' '));
+  assert.ok(r.atRules.some(a => /^@supports\s*\(color:\s*color-mix\(/.test(a)), 'inside @supports color-mix()');
+  const declared = kitTokens().light;
+  const decls = new Map(r.decls);
+  for (const [name, pct] of Object.entries(CONTRAST_MIX)) {
+    assert.equal(decls.get(name), `color-mix(in srgb, var(--wk-color-text) ${pct}%, var(--wk-color-bg))`, name);
+  }
+  assert.equal(decls.get('--wk-color-fill'), 'color-mix(in srgb, var(--wk-color-text) 8%, transparent)');
+  assert.equal(decls.get('--wk-color-fill-strong'), 'color-mix(in srgb, var(--wk-color-text) 14%, transparent)');
+  assert.equal(decls.size, Object.keys(CONTRAST_MIX).length + 2, 'sets nothing else');
+  for (const name of decls.keys()) assert.ok(declared.has(name), `${name} is a kit token`);
+});
+
+test('increased contrast is stronger than the usual values and reaches 7:1 for secondary text, 4.5:1 for field borders, in the kit and the example theme', () => {
+  const rgba = (hex, a) => `rgba(${[1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(', ')}, ${a})`;
+  const kit = kitTokens();
+  for (const file of [path.join(src, 'tokens.css'), path.join(themeDir, 'example.css')]) {
+    const t = tokens(read(file));
+    for (const mode of ['light', 'dark']) {
+      const g = n => t[mode].get(n) ?? kit[mode].get(n);
+      const mix = pct => over(rgba(g('--wk-color-text'), pct / 100), g('--wk-color-bg'));
+      const where = `${rel(file)} (${mode})`;
+      for (const [name, pct] of Object.entries(CONTRAST_MIX)) {
+        if (name.endsWith('on-selected')) continue; // it sits on a tint, not a ground
+        assert.ok(contrast(mix(pct), g('--wk-color-bg')) > contrast(g(name), g('--wk-color-bg')), `${where}: ${name} is no stronger`);
+      }
+      for (const ground of ['bg', 'sidebar', 'surface', 'control']) {
+        assert.ok(contrast(mix(82), g(`--wk-color-${ground}`)) >= 7, `${where}: secondary text under 7:1 on ${ground}`);
+        assert.ok(contrast(mix(55), g(`--wk-color-${ground}`)) >= 3, `${where}: control border under 3:1 on ${ground}`);
+      }
+      for (const ground of ['bg', 'surface']) {
+        assert.ok(contrast(mix(70), g(`--wk-color-${ground}`)) >= 4.5, `${where}: field border under 4.5:1 on ${ground}`);
+      }
+    }
+  }
 });

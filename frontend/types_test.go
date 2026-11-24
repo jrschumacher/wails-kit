@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jrschumacher/wails-kit/desktop"
 	"github.com/jrschumacher/wails-kit/errors"
 	"github.com/jrschumacher/wails-kit/events"
 	"github.com/jrschumacher/wails-kit/settings"
@@ -65,6 +66,8 @@ func TestEventsTypeParity(t *testing.T) {
 		"UpdateReady":         updates.EventReady,
 		"UpdateError":         updates.EventError,
 		"TasksChanged":        tasks.EventChanged,
+		"DesktopShowTasks":    desktop.EventShowTasks,
+		"DesktopQuitPending":  desktop.EventQuitPending,
 	}
 	for name, value := range eventConstants {
 		if !strings.Contains(ts, `"`+value+`"`) {
@@ -81,6 +84,8 @@ func TestEventsTypeParity(t *testing.T) {
 		"UpdateReadyPayload":         reflect.TypeOf(updates.ReadyPayload{}),
 		"UpdateErrorPayload":         reflect.TypeOf(updates.ErrorPayload{}),
 		"TasksChangedPayload":        reflect.TypeOf(tasks.ChangedPayload{}),
+		"DesktopShowTasksPayload":    reflect.TypeOf(desktop.ShowTasksPayload{}),
+		"DesktopQuitPendingPayload":  reflect.TypeOf(desktop.QuitPendingPayload{}),
 	}
 
 	for name, typ := range payloads {
@@ -123,6 +128,7 @@ func TestErrorsTypeParity(t *testing.T) {
 		tasks.ErrInvalidSpec,
 		tasks.ErrInvalidState,
 		tasks.ErrUnsupported,
+		desktop.ErrInvalidColour,
 	}
 
 	for _, code := range codes {

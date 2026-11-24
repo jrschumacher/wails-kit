@@ -36,6 +36,7 @@ jobs:
             appdirs
             ci
             database
+            desktop
             diagnostics
             diagram
             editor

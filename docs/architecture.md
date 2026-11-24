@@ -48,6 +48,10 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 ┌──────────┐────▶ errors, events (optional)
 │  tasks   │
 └──────────┘
+
+┌──────────┐────▶ tasks, events, errors
+│ desktop  │────▶ wails/v3 (build tag wails: notifications, dialogs, w32)
+└──────────┘
 ```
 
 - `errors`, `events`, and `appdirs` are leaf packages with no kit dependencies
@@ -62,6 +66,7 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 - `shortcuts` depends on `events` (optional) and `wails/v3` for native menu APIs
 - `state` depends on `appdirs` and `errors`; optionally depends on `events`
 - `tasks` depends on `errors`; optionally depends on `events` (it emits `tasks:changed`, a snapshot of the whole task list, whose shape `@wails-kit/types` mirrors in `TaskSnapshot`)
+- `desktop` depends on `tasks`, `events` and `errors`: it follows `tasks:changed` and draws the work on the desktop (notifications, Windows taskbar progress, the badge, the quit question, the window background). The OS is behind small interfaces; its Wails adapters (`wails` build tag) use `wails/v3`'s application, notifications service and `w32`
 - `settings/templates/anyllm` depends on `settings` and `any-llm-go` (external); provides LLM provider settings integration
 
 ### Frontend packages
@@ -77,7 +82,7 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 │  @wails-kit/ui    │     (leaf — no imports from outside the package)
 └───────────────────┘
 ┌───────────────────┐
-│ @wails-kit/editor │╌╌▶ @wails-kit/ui  (its stylesheet and tokens, on the page; no imports)
+│ @wails-kit/editor │╌╌▶ @wails-kit/ui  (its stylesheet, tokens and, for the Markdown editor, kit.js's <wk-tabs>, on the page; no imports)
 └───────────────────┘
 ┌────────────────────┐
 │ @wails-kit/diagram │╌╌▶ @wails-kit/ui  (its stylesheet and tokens, on the page; no imports)
@@ -87,7 +92,7 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 - `@wails-kit/types` (`frontend/types`) — TypeScript type definitions mirroring Go schema types
 - `@wails-kit/settings` (`frontend/settings`) — headless settings logic: validation, condition evaluation, dynamic option resolution. Mirrors `settings/validate.go`
 - `@wails-kit/ui` (`frontend/ui`) — base UI for Wails apps: `--wk-*` tokens in light and dark, CSS components on native elements, light-DOM custom elements (`wk-dialog`, `wk-menu`, `wk-context-menu`, `wk-tabs`, `wk-tooltip`), charts, a theme file of about ten values an app overrides, and `<wk-settings>`, a settings window drawn from the `settings` schema (`GetSchema`/`GetValues`/`SetValues`). It imports nothing: it reads the schema's JSON shape (mirrored in `src/index.d.ts`) and carries its own copy of the condition and dynamic-option rules; client-side validation is pluggable, so an app with a bundler can pass `@wails-kit/settings`' `validate`. Ships as `src/` (ES modules plus `ui.css`) for bundlers and as `dist/wails-kit-ui.css` and `dist/wails-kit-ui.js` for apps without one; `scripts/build.mjs` builds `dist/`, and a test keeps it in step with `src/`
-- `@wails-kit/editor` (`frontend/editor`) — opt-in editors that need a mature library, kept out of `@wails-kit/ui` so it stays dependency-free. One entry per editor (`@wails-kit/editor/code`, a CodeMirror 6 code editor with a `highlighter()` for the diff view; Markdown and rich text to follow), each built by esbuild into one standalone module in `dist/` with its libraries bundled and their licences in `dist/THIRD-PARTY-LICENSES.txt`. Entries share `src/shared/` but never import each other. It themes the library with `var(--wk-…)` and expects `@wails-kit/ui`'s stylesheet on the page; the syntax colours (`--wk-color-code-*`) are kit tokens in `@wails-kit/ui`
+- `@wails-kit/editor` (`frontend/editor`) — opt-in editors that need a mature library, kept out of `@wails-kit/ui` so it stays dependency-free. One entry per editor (`@wails-kit/editor/code`, a CodeMirror 6 code editor with a `highlighter()` for the diff view; `@wails-kit/editor/markdown`, a Markdown editor with Write and Preview tabs and `renderMarkdown()`, a safe renderer on marked's parser; rich text to follow), built by esbuild with code splitting into one module per entry plus shared `dist/chunk-*.js` files (one copy of CodeMirror for all entries), with the libraries bundled and their licences in `dist/THIRD-PARTY-LICENSES.txt`. Apps vendor the whole `dist/`. Entries share `src/shared/` but never import each other. It themes the library with `var(--wk-…)` and expects `@wails-kit/ui`'s stylesheet on the page; the syntax colours (`--wk-color-code-*`) are kit tokens in `@wails-kit/ui`
 - `@wails-kit/diagram` (`frontend/diagram`) — opt-in diagrams from Mermaid text (flowchart, sequence, state, class, entity-relationship, Gantt), read-only with pan and zoom, kept out of `@wails-kit/ui` because Mermaid is large. `dist/diagram.js` is small and loads `dist/mermaid.js` (Mermaid with only those types, built by esbuild, licences in `dist/THIRD-PARTY-LICENSES.txt`) with `import()` on first use. Mermaid's theme variables are built from the `--wk-*` tokens at render time, and the build patches Mermaid's styling so it draws under a strict CSP. It expects `@wails-kit/ui`'s stylesheet on the page
 
 ## Design patterns

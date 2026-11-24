@@ -114,6 +114,38 @@ try {
     }
   });
 
+  await check('increased contrast is followed live, in light and dark, and wins over a theme file', async () => {
+    for (const url of ['/demo/index.html', '/demo/themed.html']) {
+      for (const scheme of ['light', 'dark']) {
+        const { page, problems } = await open(url, { colorScheme: scheme });
+        // A field's border, and what the contrast block should make it: the
+        // theme's text mixed into its bg (set through the CSSOM: the demo's
+        // CSP allows no inline style).
+        const look = () => page.evaluate(() => {
+          const field = document.querySelector('.wk-field');
+          const probe = document.createElement('i');
+          probe.style.setProperty('color', 'color-mix(in srgb, var(--wk-color-text) 70%, var(--wk-color-bg))');
+          probe.style.setProperty('background-color', 'var(--wk-color-text-secondary)');
+          document.body.append(probe);
+          const p = getComputedStyle(probe);
+          const out = { field: getComputedStyle(field).borderTopColor, mixed: p.color, secondary: p.backgroundColor };
+          probe.remove();
+          return out;
+        });
+        const usual = await look();
+        assert.notEqual(usual.field, usual.mixed, `${url} (${scheme}): already the contrast value`);
+        await page.emulateMedia({ contrast: 'more' });
+        const more = await look();
+        assert.equal(more.field, more.mixed, `${url} (${scheme}): the field border follows increased contrast`);
+        assert.notEqual(more.secondary, usual.secondary, `${url} (${scheme}): secondary text unchanged`);
+        await page.emulateMedia({ contrast: 'no-preference' });
+        assert.deepEqual(await look(), usual, `${url} (${scheme}): back to the usual values`);
+        assert.deepEqual(problems, []);
+        await page.close();
+      }
+    }
+  });
+
   await check('data-theme wins over the system appearance, for the tokens, color-scheme and the backdrop', async () => {
     for (const url of ['/demo/index.html', '/demo/themed.html']) {
       for (const [scheme, attr, want] of [['dark', 'light', 'light'], ['light', 'dark', 'dark'], ['dark', null, 'dark'], ['light', null, 'light']]) {
