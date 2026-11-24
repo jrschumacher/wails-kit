@@ -1441,6 +1441,8 @@ try {
       area.className = 'wk-field'; area.value = spec.value; area.setAttribute('aria-label', spec.label);
       // The box handles Escape and Ctrl+Enter itself, as an editor would.
       area.addEventListener('keydown', e => {
+        // swallow: the box takes Escape for itself (closing its own popup, say) and does not cancel.
+        if (e.key === 'Escape' && extra.swallow) { e.preventDefault(); window.rv.log.push(['box-own-escape']); return; }
         if (e.key === 'Escape') { e.preventDefault(); window.rv.log.push(['box-cancel']); spec.onCancel(); }
         if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); window.rv.log.push(['box-submit']); spec.onSubmit(); }
       });
@@ -1453,12 +1455,12 @@ try {
       return { element, get value() { return area.value; }, focus: () => area.focus(), destroy: () => window.rv.log.push(['destroy', spec.label]) };
     } : extra.throwing ? () => { throw new Error('no editor'); } : undefined;
     const diff = wkDiff({
-      id: 'rv', label: 'Review', diff: text, view: extra.view, comments: extra.comments, commentBox,
-      now: () => Date.parse('2026-11-23T12:00:00Z'), author: { name: 'Me' },
+      id: 'rv', label: 'Review', diff: extra.text || text, view: extra.view, comments: extra.comments, commentBox,
+      now: () => window.rvNow ?? Date.parse('2026-11-23T12:00:00Z'), author: { name: 'Me', avatar: extra.avatar },
       canComment: extra.cannot ? (file, side, line) => !(side === 'new' && line === 6) : undefined,
       oncomment: c => { window.rv.log.push(['comment', c]); return extra.sync ? undefined : new Promise((resolve, reject) => window.rv.pending.push({ resolve, reject, c })); },
       onreply: (id, body) => { window.rv.log.push(['reply', id, body]); return extra.sync ? undefined : new Promise((resolve, reject) => window.rv.pending.push({ resolve, reject })); },
-      onresolve: (id, resolved) => window.rv.log.push(['resolve', id, resolved]),
+      onresolve: (id, resolved) => { window.rv.log.push(['resolve', id, resolved]); if (extra.asyncResolve) return new Promise((resolve, reject) => window.rv.pending.push({ resolve, reject })); },
     });
     window.rv.diff = diff;
     document.getElementById('demo').prepend(diff);
@@ -1890,6 +1892,303 @@ try {
       return { sel: [sel.outlineStyle, sel.outlineColor === sys('Highlight')], plus: [plus.borderTopStyle, plus.color === sys('ButtonText'), plus.backgroundColor === sys('ButtonFace')], pending: pending.color === sys('GrayText') };
     });
     assert.deepEqual(look, { sel: ['solid', true], plus: ['solid', true, true], pending: true });
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff comments (review fixes): a diff without review keeps its shrink-to-fit width; review mode makes the body a container', async () => {
+    const { page, problems } = await open();
+    const r = await page.evaluate(async () => {
+      const { wkDiff } = await import('../src/index.js');
+      const text = 'diff --git a/x.go b/x.go\n--- a/x.go\n+++ b/x.go\n@@ -1,3 +1,3 @@\n context line that is fairly long so it has some width\n-old\n+new\n';
+      const out = {};
+      for (const [name, extra] of [['plain', {}], ['review', { oncomment: () => {} }]]) {
+        const wrap = document.createElement('div');
+        wrap.className = 'demo-shrink';
+        wrap.style.setProperty('display', 'inline-block');
+        document.getElementById('demo').prepend(wrap);
+        const d = wkDiff({ id: `fit-${name}`, diff: text, ...extra });
+        wrap.append(d);
+        const body = d.querySelector('.wk-diff-body');
+        out[name] = { review: d.hasAttribute('data-review'), container: getComputedStyle(body).containerType, width: Math.round(body.getBoundingClientRect().width), code: Math.round(d.querySelector('.wk-diff-code').scrollWidth) };
+        wrap.remove();
+      }
+      return out;
+    });
+    assert.deepEqual([r.plain.review, r.plain.container], [false, 'normal']);
+    assert.ok(r.plain.width > r.plain.code, `the plain diff sizes to its content in an inline-block (${r.plain.width} px for ${r.plain.code} px of code)`);
+    assert.deepEqual([r.review.review, r.review.container], [true, 'inline-size']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff comments (review fixes): Escape and Ctrl+Enter while an input method composes, and keys a box already handled, leave the box alone; focus stays in a box across setComments', async () => {
+    const { page, problems } = await open();
+    await mountReview(page, { comments: [{ id: 't1', path: 'x/f.go', side: 'new', line: 2, entries: [{ author: 'ana', time: 0, body: 'x' }] }] });
+    const rv = page.locator('#rv');
+    await rv.locator('.wk-diff-line[data-new="4"]').focus();
+    await page.keyboard.press('c');
+    await page.keyboard.type('かな');
+    const composing = key => page.evaluate(k => {
+      const ta = document.activeElement;
+      const e = new KeyboardEvent('keydown', { key: k, ctrlKey: k === 'Enter', bubbles: true, cancelable: true, isComposing: true, keyCode: 229 });
+      ta.dispatchEvent(e);
+      return document.querySelectorAll('#rv .wk-diff-compose').length;
+    }, key);
+    assert.equal(await composing('Escape'), 1, 'Escape during composition does not cancel');
+    assert.equal(await composing('Enter'), 1, 'Ctrl+Enter during composition does not send');
+    assert.equal((await rvLog(page)).filter(l => l[0] === 'comment').length, 0);
+    // A redraw from the app keeps focus and the caret in the box.
+    await page.evaluate(() => window.rv.diff.setComments([{ id: 't1', path: 'x/f.go', side: 'new', line: 2, entries: [{ author: 'ana', time: 0, body: 'x' }, { author: 'sam', time: 0, body: 'y' }] }]));
+    assert.equal(await rvFocus(page), 'Comment on x/f.go, line 4');
+    await page.keyboard.type('!');
+    assert.equal(await rv.locator('.wk-diff-compose textarea').inputValue(), 'かな!');
+    assert.equal(await rv.locator('.wk-diff-thread .wk-diff-comment').count(), 2);
+    await page.close();
+    // A box that handles Escape itself (preventDefault) keeps the frame from cancelling.
+    const second = await open();
+    await mountReview(second.page, { injected: true, swallow: true, sync: true });
+    await second.page.locator('#rv .wk-diff-line[data-new="4"]').focus();
+    await second.page.keyboard.press('c');
+    await second.page.keyboard.press('Escape');
+    assert.equal(await second.page.locator('#rv .wk-diff-compose').count(), 1, 'the frame leaves an Escape the box handled');
+    assert.deepEqual((await second.page.evaluate(() => window.rv.log)).at(-1), ['box-own-escape']);
+    assert.deepEqual([...problems, ...second.problems], []);
+    await second.page.close();
+  });
+
+  await check('diff comments (review fixes): Edit with a box already open adds the text to it, or keeps the failed comment when the box can’t take it', async () => {
+    for (const injected of [false, true]) {
+      const { page, problems } = await open();
+      await mountReview(page, { injected });
+      const rv = page.locator('#rv');
+      const box = () => rv.locator('.wk-diff-compose textarea');
+      await rv.locator('.wk-diff-line[data-new="4"]').focus();
+      await page.keyboard.press('c');
+      await page.keyboard.type('FIRST');
+      await page.keyboard.press('Control+Enter');
+      await page.evaluate(() => window.rv.pending.shift().reject(new Error('boom')));
+      await until(page, () => document.querySelector('#rv [data-action="edit"]'));
+      await rv.locator('.wk-diff-line[data-new="4"]').focus();
+      await page.keyboard.press('c');
+      await page.keyboard.type('SECOND');
+      await rv.locator('[data-action=edit]').click();
+      if (!injected) {
+        assert.equal(await box().inputValue(), 'SECOND\n\nFIRST', 'the failed text is added to the open box');
+        assert.equal(await rv.locator('[data-state="error"]').count(), 0, 'and the failed comment goes');
+      } else {
+        assert.equal(await box().inputValue(), 'SECOND', 'a box whose value can’t be set keeps its own text');
+        assert.equal(await rv.locator('[data-state="error"] .wk-diff-comment-body').textContent(), 'FIRST', 'and the failed comment stays, with its text');
+      }
+      assert.equal(await page.evaluate(() => document.activeElement.tagName), 'TEXTAREA', 'focus goes to the box');
+      assert.deepEqual(problems, []);
+      await page.close();
+    }
+  });
+
+  await check('diff comments (review fixes): in the split view the + button is outside anything aria-hidden; a context line is read once', async () => {
+    const { page, problems } = await open();
+    await mountReview(page, { view: 'split' });
+    const r = await page.evaluate(() => {
+      const pair = document.querySelector('#rv .wk-diff-pair');
+      pair.focus();
+      const plus = document.querySelector('#rv .wk-diff-add-comment');
+      const newHalf = pair.querySelector('[data-side="new"]');
+      return {
+        plusHidden: Boolean(plus.closest('[aria-hidden="true"]')), side: plus.parentElement.dataset.side,
+        halfHidden: newHalf.getAttribute('aria-hidden'), partsHidden: [...newHalf.children].filter(c => c !== plus).every(c => c.getAttribute('aria-hidden') === 'true'),
+        read: [...document.querySelectorAll('#rv .wk-diff-sr')].filter(x => !x.closest('[aria-hidden]')).map(x => x.textContent).filter(x => /^Line 1/.test(x)),
+      };
+    });
+    assert.deepEqual(r, { plusHidden: false, side: 'new', halfHidden: null, partsHidden: true, read: ['Line 1: '] });
+    const tree = await axTree(page);
+    assert.ok(tree.some(n => n.role?.value === 'button' && n.name?.value === 'Comment on x/f.go, line 1'), 'the + button is in the accessibility tree');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff comments (review fixes): opening a box or toggling a thread redraws only its row; 5,000 lines with 200 threads answer c within 100 ms', async () => {
+    const { page, problems } = await open();
+    await mountReview(page, { comments: [
+      { id: 'a', path: 'x/f.go', side: 'new', line: 1, entries: [{ author: 'ana', time: 0, body: 'x' }] },
+      { id: 'b', path: 'x/f.go', side: 'new', line: 5, resolved: true, entries: [{ author: 'ana', time: 0, body: 'y' }] },
+    ] });
+    const same = await page.evaluate(() => {
+      const a = document.querySelector('#rv .wk-diff-thread[data-thread="a"]');
+      const row = document.querySelector('#rv .wk-diff-line[data-new="3"]');
+      row.focus(); row.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', bubbles: true, cancelable: true }));
+      const afterOpen = a.isConnected;
+      document.querySelector('#rv .wk-diff-thread[data-thread="b"] [data-action="toggle"]').click();
+      return [afterOpen, a.isConnected, document.querySelector('#rv .wk-diff-thread[data-thread="b"] [data-action="toggle"]').getAttribute('aria-expanded')];
+    });
+    assert.deepEqual(same, [true, true, 'true'], 'thread a is the same element after a box opens and b toggles');
+    const r = await page.evaluate(async () => {
+      const { wkDiff } = await import('../src/index.js');
+      const lines = [];
+      for (let i = 1; i <= 2500; i++) lines.push(`-\tvalue_${i} := compute(${i}, "old")`, `+\tvalue_${i} := compute(${i}, "new", true)`);
+      const text = `diff --git a/big.go b/big.go\n--- a/big.go\n+++ b/big.go\n@@ -1,2500 +1,2500 @@\n${lines.join('\n')}\n`;
+      const threads = [];
+      for (let k = 0; k < 200; k++) threads.push({ id: `t${k}`, path: 'big.go', side: k % 2 ? 'old' : 'new', line: 1 + k * 12, entries: [{ author: 'a', time: 0, body: `comment ${k}` }, { author: 'b', time: 0, body: 'reply' }] });
+      const d = wkDiff({ id: 'big', diff: text, collapseAbove: 10000, collapseCharsAbove: 1e9, comments: threads, oncomment: () => {}, onreply: () => {}, onresolve: () => {} });
+      document.getElementById('demo').prepend(d);
+      const row = d.querySelector('.wk-diff-line[data-new="2400"]');
+      row.focus();
+      const times = [];
+      for (const n of [2400, 1200, 30]) {
+        const target = d.querySelector(`.wk-diff-line[data-new="${n}"]`);
+        target.focus();
+        const t = performance.now();
+        target.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', bubbles: true, cancelable: true }));
+        void d.offsetHeight;
+        times.push(performance.now() - t);
+      }
+      const t = performance.now();
+      for (let i = 0; i < 20; i++) d.querySelector('.wk-diff-line[data-new="100"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+      const arrow = (performance.now() - t) / 20;
+      return { threads: d.querySelectorAll('.wk-diff-thread').length, boxes: d.querySelectorAll('.wk-diff-compose').length, times, arrow };
+    });
+    assert.equal(r.threads, 200);
+    assert.equal(r.boxes, 3);
+    for (const t of r.times) assert.ok(t < 100, `c answered in ${t.toFixed(1)} ms`);
+    assert.ok(r.arrow < 20, `an arrow key took ${r.arrow.toFixed(1)} ms`);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff comments (review fixes): a comment that lands before setComments stays, as posted, until setComments; the working dot keeps its minimum', async () => {
+    const { page, problems } = await open();
+    await mountReview(page);
+    const rv = page.locator('#rv');
+    await rv.locator('.wk-diff-line[data-new="1"]').focus();
+    await page.keyboard.press('c');
+    await page.keyboard.type('LATE');
+    await page.keyboard.press('Control+Enter');
+    await page.evaluate(() => window.rv.pending.shift().resolve());
+    await until(page, () => document.querySelector('#rv [aria-live]').textContent.startsWith('Comment posted'));
+    const local = rv.locator('.wk-diff-thread[data-local]');
+    assert.equal(await local.count(), 1, 'the copy stays until the app redraws');
+    assert.equal(await local.locator('.wk-diff-comment').getAttribute('data-state'), null, 'no longer pending');
+    assert.equal(await local.locator('.wk-diff-comment-body').textContent(), 'LATE');
+    await page.evaluate(() => window.rv.diff.setComments([{ id: 'real', path: 'x/f.go', side: 'new', line: 1, entries: [{ author: 'Me', time: 0, body: 'LATE' }] }]));
+    assert.equal(await local.count(), 0, 'and goes when the app’s comment arrives');
+    assert.equal(await rv.locator('.wk-diff-thread').count(), 1);
+    // The dot, once shown, stays timings.indicatorMin before the outcome replaces it.
+    await rv.locator('.wk-diff-line[data-new="2"]').focus();
+    await page.keyboard.press('c');
+    await page.keyboard.type('slow');
+    await page.keyboard.press('Control+Enter');
+    await until(page, () => document.querySelector('#rv .wk-diff-comment-state:not([hidden])'));
+    const held = await page.evaluate(async () => {
+      const { timings } = await import('../src/index.js');
+      const t = performance.now();
+      window.rv.pending.shift().reject(new Error('no'));
+      await new Promise(r => { const wait = () => document.querySelector('#rv [data-state="error"]') ? r() : requestAnimationFrame(wait); wait(); });
+      return { took: performance.now() - t, min: timings.indicatorMin };
+    });
+    assert.ok(held.took >= held.min - 120, `the error replaced the dot after ${Math.round(held.took)} ms`);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff comments (review fixes): Resolve is busy while onresolve’s promise runs, with a spinner after the delay', async () => {
+    const { page, problems } = await open();
+    await mountReview(page, { asyncResolve: true, comments: [{ id: 't1', path: 'x/f.go', side: 'new', line: 2, entries: [{ author: 'ana', time: 0, body: 'x' }] }] });
+    const rv = page.locator('#rv');
+    const button = () => rv.locator('[data-action=resolve]');
+    await button().click();
+    assert.deepEqual([await button().getAttribute('data-busy'), await button().getAttribute('aria-disabled'), await button().locator('.wk-spinner').count()], ['', 'true', 0], 'busy at once, no spinner yet');
+    assert.equal(await rvFocus(page), 'Resolve', 'it keeps focus and its name');
+    await button().click({ force: true });
+    assert.equal((await rvLog(page)).filter(l => l[0] === 'resolve').length, 1, 'a second press does nothing');
+    await until(page, () => document.querySelector('#rv [data-action="resolve"] .wk-spinner'));
+    assert.equal(await button().locator('.wk-spinner').getAttribute('aria-hidden'), 'true');
+    // The app redraws as resolved, then resolves the promise.
+    await page.evaluate(() => { window.rv.diff.setComments([{ id: 't1', path: 'x/f.go', side: 'new', line: 2, resolved: true, entries: [{ author: 'ana', time: 0, body: 'x' }] }]); window.rv.pending.shift().resolve(); });
+    await until(page, () => !document.querySelector('#rv [data-busy]'));
+    assert.equal(await rv.locator('.wk-diff-thread[data-resolved]').count(), 1);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff comments (review fixes): focus moves on when setComments removes a focused thread: the next thread, else the file’s toggle', async () => {
+    const { page, problems } = await open();
+    const t = (id, line) => ({ id, path: 'x/f.go', side: 'new', line, entries: [{ author: 'ana', time: 0, body: id }] });
+    await mountReview(page, { comments: [t('gone1', 90), t('gone2', 91), t('here', 2)] });
+    const at = () => page.evaluate(() => document.activeElement.dataset.thread || document.activeElement.id || document.activeElement.className);
+    await page.locator('#rv .wk-diff-thread[data-thread="gone1"] [data-action="reply"]').focus();
+    await page.evaluate(() => window.rv.diff.setComments([{ id: 'gone2', path: 'x/f.go', side: 'new', line: 91, entries: [{ author: 'ana', time: 0, body: 'x' }] }, { id: 'here', path: 'x/f.go', side: 'new', line: 2, entries: [{ author: 'ana', time: 0, body: 'x' }] }]));
+    assert.equal(await at(), 'gone2', 'an outdated thread that goes hands focus to the next thread');
+    await page.evaluate(() => window.rv.diff.setComments([]));
+    assert.equal(await at(), 'rv-file-0-toggle', 'with no thread left, to the file’s toggle');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff comments (review fixes): unique thread ids, exact paths first, announced selections, destroy(), safe avatars, times redrawn in the user’s locale', async () => {
+    const { page, problems } = await open('/demo/index.html', { locale: 'de-DE' });
+    await page.route('https://avatars.example/**', route => route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('') }));
+    const e = (body, extra = {}) => ({ author: 'ana', time: '2026-11-23T09:00:00Z', body, ...extra });
+    const text = 'diff --git a/old.txt b/new.txt\nsimilarity index 90%\nrename from old.txt\nrename to new.txt\n--- a/old.txt\n+++ b/new.txt\n@@ -1,2 +1,2 @@\n-a\n+b\n c\ndiff --git a/old.txt b/old.txt\nnew file mode 100644\n--- /dev/null\n+++ b/old.txt\n@@ -0,0 +1 @@\n+fresh\n';
+    await mountReview(page, { injected: true, text, avatar: 'javascript:alert(1)', comments: [
+      { id: 'a.b', path: 'new.txt', side: 'new', line: 1, resolved: true, entries: [e('one', { avatar: 'https://avatars.example/a.png' })] },
+      { id: 'a_b', path: 'new.txt', side: 'new', line: 2, resolved: true, entries: [e('two', { avatar: 'javascript:alert(1)' })] },
+      { id: 'exact', path: 'old.txt', side: 'new', line: 1, entries: [e('on the new file', { avatar: 'data:image/png;base64,iVBORw0KGgo=' })] },
+    ] });
+    const rv = page.locator('#rv');
+    const ids = await rv.locator('.wk-diff-thread-body[id]').evaluateAll(xs => xs.map(x => x.id));
+    assert.equal(new Set(ids).size, 2, `thread ids are unique: ${ids}`);
+    assert.deepEqual(await rv.locator('.wk-diff-comment-count').allTextContents(), ['2 comments', '1 comment'], 'a thread on old.txt belongs to the file now called old.txt');
+    assert.equal(await rv.locator('#rv-file-1 .wk-diff-thread').getAttribute('data-thread'), 'exact');
+    const srcs = await rv.locator('img.wk-diff-avatar').evaluateAll(xs => xs.map(x => x.getAttribute('src').slice(0, 11)));
+    assert.deepEqual(srcs.sort(), ['data:image/', 'https://ava'], 'a javascript: avatar is not drawn');
+    // Locale: the user's, for relative time and the title.
+    const first = rv.locator('.wk-diff-thread[data-thread="exact"] time');
+    assert.equal(await first.textContent(), 'vor 3 Stunden');
+    await page.evaluate(() => { window.rvNow = Date.parse('2026-11-23T15:00:00Z'); });
+    await rv.locator('.wk-diff-thread[data-thread="a.b"] [data-action=toggle]').click();
+    assert.equal(await rv.locator('.wk-diff-thread[data-thread="exact"] time').textContent(), 'vor 3 Stunden', 'a toggle elsewhere redraws only its own row');
+    // Selections are announced, and the same words twice still change the region.
+    await rv.locator('#rv-file-0 .wk-diff-line[data-new="1"]').focus();
+    await page.keyboard.press('Shift+ArrowDown');
+    const live = rv.locator('[aria-live=polite]');
+    assert.equal(await live.getAttribute('aria-atomic'), 'true');
+    assert.equal((await live.textContent()).trim(), 'Lines 1 to 2 selected');
+    const said = await live.textContent();
+    await page.keyboard.press('Escape'); await page.keyboard.press('ArrowUp'); await page.keyboard.press('Shift+ArrowDown');
+    assert.equal((await live.textContent()).trim(), 'Lines 1 to 2 selected');
+    assert.notEqual(await live.textContent(), said, 'repeated words re-announce');
+    await page.keyboard.press('Escape');
+    // destroy(): open injected boxes are destroyed; setComments then does nothing.
+    await rv.locator('#rv-file-1 .wk-diff-line[data-new="1"]').focus();
+    await page.keyboard.press('c');
+    await page.evaluate(() => window.rv.diff.destroy());
+    assert.deepEqual((await rvLog(page)).at(-1), ['destroy', 'Comment on old.txt, line 1']);
+    assert.equal(await rv.locator('.wk-diff-compose').count(), 0);
+    await page.evaluate(() => window.rv.diff.setComments([]));
+    assert.equal(await rv.locator('.wk-diff-thread').count(), 3);
+    assert.deepEqual(problems.filter(p => !p.includes('avatars.example')), []);
+    await page.close();
+  });
+
+  await check('diff comments (review fixes): setComments redraws relative times and keeps avatar images; a reply box for a thread that went is destroyed', async () => {
+    const { page, problems } = await open();
+    await mountReview(page, { injected: true, sync: true, comments: [] });
+    const r = await page.evaluate(() => {
+      const entry = { author: 'ana', time: '2026-11-23T11:00:00Z', body: 'x', avatar: 'data:image/png;base64,iVBORw0KGgo=' };
+      const threads = [{ id: 't', path: 'x/f.go', side: 'new', line: 2, entries: [entry] }, { id: 'u', path: 'x/f.go', side: 'new', line: 5, entries: [{ author: 'sam', time: 0, body: 'y' }] }];
+      window.rv.diff.setComments(threads);
+      const img = document.querySelector('#rv img.wk-diff-avatar');
+      const before = document.querySelector('#rv time').textContent;
+      window.rvNow = Date.parse('2026-11-23T14:00:00Z');
+      document.querySelector('#rv .wk-diff-thread[data-thread="u"] [data-action="reply"]').click();
+      window.rv.diff.setComments(threads.slice());
+      const out = { before, after: document.querySelector('#rv time').textContent, sameImg: document.querySelector('#rv img.wk-diff-avatar') === img };
+      window.rv.diff.setComments([threads[0]]);
+      out.log = window.rv.log.slice(-1);
+      out.boxes = document.querySelectorAll('#rv .wk-diff-compose').length;
+      return out;
+    });
+    assert.deepEqual(r, { before: '1 hour ago', after: '3 hours ago', sameImg: true, log: [['destroy', 'Reply to the comments on x/f.go']], boxes: 0 });
     assert.deepEqual(problems, []);
     await page.close();
   });

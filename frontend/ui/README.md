@@ -477,7 +477,7 @@ const diff = wkDiff({
   canComment: (file, side, line) => true,     // or true / false; default true when oncomment is set
   oncomment: ({ path, side, line, endLine, body }) => api.post(...),  // a promise, or nothing
   onreply: (threadId, body) => api.reply(...),                       // a promise, or nothing
-  onresolve: (threadId, resolved) => api.resolve(...),
+  onresolve: (threadId, resolved) => api.resolve(...),  // a promise makes Resolve busy until it settles
   onretry: (threadId, entry) => api.retry(...),   // Retry on an entry you marked with error
   commentBox: spec => myEditor(spec),         // optional: the box (below); default a textarea
   commentPlaceholder: 'Leave a comment',      // the box's placeholder (a reply's is "Reply")
@@ -487,6 +487,8 @@ const diff = wkDiff({
 });
 // Later, when threads change (a comment lands, a thread is resolved):
 diff.setComments(threads);
+// When the diff goes away: closes open boxes (destroying injected editors) and stops its clock.
+diff.destroy();
 ```
 
 - **Threads.** `{ id, path, side: 'old'|'new', line, endLine?, resolved?,
@@ -495,7 +497,11 @@ diff.setComments(threads);
   `line` and `endLine` are numbers on `side` (a range runs from `line` to
   `endLine`, and the thread sits under `endLine`). `time` is a `Date`, an
   ISO string or milliseconds, shown as relative time ("3 hours ago",
-  "yesterday") in a `<time>` whose `datetime` is exact. A thread whose line
+  "yesterday", in the user's locale) in a `<time>` whose `datetime` is
+  exact, redrawn with the threads and once a minute. `avatar` is drawn only
+  for an `http(s)` or `data:image/` URL, and a redraw reuses its `<img>`.
+  A thread's `path` matches a file's path before another file's old path.
+  A thread whose line
   (or range) is not shown in one hunk on its side, or which says
   `outdated: true`, is **outdated** and listed at the top of its file with
   "Outdated · line 14". Threads for files not in the diff are not shown.
@@ -521,26 +527,51 @@ diff.setComments(threads);
   new side, removed lines on the old; in the split view, the side of the
   half. The box opens in a row under the line (or range), focused. Escape or
   Cancel closes it and returns focus to the line; Ctrl+Enter or Cmd+Enter,
-  or the Comment button, sends it. Several boxes can be open at once, and
+  or the Comment button, sends it (not while an input method is composing).
+  Several boxes can be open at once, and
   each keeps its draft through a view switch. `canComment(file, side,
   line)` returning false leaves a line without the button.
 - **Keyboard.** With commenting on, the arrow keys move between lines and
   hunk headers in a file; in the split view, left and right move between the
   halves of a line (the focus ring marks the half). Shift with Up or Down
-  selects lines, and Escape clears the selection. Anywhere in the diff,
+  selects lines (announced: "Lines 3 to 5 selected"), and Escape clears the
+  selection. Anywhere in the diff,
   `N` and `P` move to the next or previous thread (in expanded files),
   alongside `n`/`p` and `]`/`[`.
 - **Pending and failed.** When `oncomment` or `onreply` returns a promise,
   the comment shows at once as pending: secondary text, with a working dot
-  and "Posting…" after 400 ms. When the promise resolves, the pending copy
-  goes: put the real one in with `setComments` before resolving. When it
-  rejects, the comment shows "Couldn't post the comment" with the error in
-  an ErrorBox (`wk-errorbox`, with a copy button), Retry (sends it again)
-  and Edit (puts the text back in a box). Outcomes are announced politely.
+  and "Posting…" after `timings.indicatorDelay` (400 ms); once shown, the
+  dot stays at least `timings.indicatorMin` (500 ms). When the promise
+  resolves, the copy stays, no longer pending, until your next
+  `setComments` (which should hold the real comment), or for 10 s at most;
+  if you called `setComments` while it was pending, the copy goes at once.
+  When it rejects, the comment shows "Couldn't post the comment" with the
+  error in an ErrorBox (`wk-errorbox`, with a copy button), Retry (sends it
+  again) and Edit (puts the text back in a box: a new one, or added to the
+  end of a box already open there; if that box's `value` can't be set, the
+  failed comment stays). Outcomes are announced politely, in one
+  `aria-live="polite"` `aria-atomic="true"` region per diff.
   If the callback returns nothing, the app shows the comment itself; mark an
   entry `pending: true` to show it pending (the dot shows at once), or
   `error: 'raw message'` to show the ErrorBox, with Retry calling
   `onretry(threadId, entry)`.
+- **Resolving.** When `onresolve` returns a promise, Resolve (or Unresolve)
+  is busy until it settles: `data-busy` and `aria-disabled="true"` at once
+  (it keeps focus and its name, and another press does nothing), and a
+  `wk-spinner` after `timings.indicatorDelay` that stays at least
+  `timings.indicatorMin`. Update the thread with `setComments`; a rejection
+  is announced ("Couldn't resolve the comments").
+- **Review mode and layout.** With comments or commenting on, the diff has
+  `data-review`, and each file's body is an inline-size container, so a
+  comment row keeps the file's width while the code scrolls sideways. The
+  body then takes its width from its parent: inside a shrink-to-fit parent
+  (an `inline-block`, a float, an `auto` grid track), give the diff a
+  width. Without review, the diff sizes as before.
+- **Redrawing.** A box opening or closing, a thread expanding, a comment
+  being sent and a resolve redraw only the row they are in; `setComments`
+  redraws the threads of every built file. Focus stays where it was: in an
+  open box, on the same button of the same thread, else on the next
+  thread, the file's toggle, or the diff.
 - **The comment box.** `commentBox(spec)` makes the box, so an app can use
   an editor (the Markdown editor in `@wails-kit/editor`, say) while this
   package stays dependency-free. It gets

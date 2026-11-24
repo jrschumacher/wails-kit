@@ -94,7 +94,8 @@ export interface DiffSpec {
   /** A promise shows the comment as pending until it settles; a rejection shows the error with Retry. */
   oncomment?: (comment: DiffNewComment) => unknown;
   onreply?: (threadId: string, body: string) => unknown;
-  onresolve?: (threadId: string, resolved: boolean) => void;
+  /** A promise makes Resolve busy until it settles. */
+  onresolve?: (threadId: string, resolved: boolean) => unknown;
   /** Retry on an entry the app marked with error. */
   onretry?: (threadId: string, entry: DiffCommentEntry) => void;
   /** Who a comment being posted shows as. Default "You". */
@@ -107,9 +108,10 @@ export interface DiffCommentEntry { author: string; avatar?: string; time: Date 
 export interface DiffThread { id: string; path: string; side: DiffSide; line: number; endLine?: number; entries: DiffCommentEntry[]; resolved?: boolean; outdated?: boolean }
 export interface DiffNewComment { path: string; side: DiffSide; line: number; endLine: number; body: string }
 export interface DiffCommentBoxSpec { value: string; placeholder: string; label: string; onSubmit: () => void; onCancel: () => void }
-export interface DiffCommentBox { element: HTMLElement; readonly value: string; focus?: () => void; destroy?: () => void }
+/** value may also be settable: Edit then adds a failed comment's text to a box already open. */
+export interface DiffCommentBox { element: HTMLElement; value: string; focus?: () => void; destroy?: () => void }
 export interface DiffCommentPlace { thread: DiffThread; side: DiffSide; line: number; endLine: number; hunk?: number; outdated?: true }
-export function wkDiff(spec: DiffSpec): HTMLElement & { setComments(threads: DiffThread[]): void };
+export function wkDiff(spec: DiffSpec): HTMLElement & { setComments(threads: DiffThread[]): void; destroy(): void };
 export function diffCommentPlaces(file: DiffFile, threads: DiffThread[]): { placed: DiffCommentPlace[]; outdated: DiffCommentPlace[] };
 export function parseUnifiedDiff(text: string): DiffFile[];
 export function diffSplitRows(lines: DiffLine[]): { left: DiffLine | null; right: DiffLine | null }[];

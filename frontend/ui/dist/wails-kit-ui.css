@@ -1166,8 +1166,12 @@ wk-dialog { display: contents; }
    a wk-diff-comments row after their line; in the split view under the
    side they belong to (data-side). Outdated threads are listed in
    wk-diff-outdated at the top of the file. The comments row stays the
-   width of the file while the code scrolls sideways (100cqi). */
-.wk-diff-body { container-type: inline-size; }
+   width of the file while the code scrolls sideways (100cqi), so in review
+   mode (data-review, set when there are comments or commenting is on) the
+   body is an inline-size container and takes its width from its parent:
+   inside a shrink-to-fit parent (inline-block, float, auto grid track),
+   give the diff a width. Without review the body sizes as before. */
+.wk-diff[data-review] .wk-diff-body { container-type: inline-size; }
 .wk-diff-line, .wk-diff-half { position: relative; }
 .wk-diff-line:focus-visible { outline-offset: calc(-1 * var(--wk-focus-width)); }
 .wk-diff-pair:focus-visible { outline: none; }
