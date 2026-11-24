@@ -69,10 +69,10 @@ export default [
     intro: 'A spinner stays a spinner; a bar starts indeterminate and becomes determinate once the total is known, and only moves forward. <code>setProgress</code> changes the bar\'s value attributes at most every 5 s. With reduced motion the sweep becomes a fade.',
     examples: [{
       title: 'Spinner, determinate and indeterminate',
-      html: `<div class="g-row"><span class="wk-spinner" role="progressbar" aria-label="Fetching runs"></span><span class="wk-caption">Fetching runs…</span></div>
+      html: `<div class="g-row"><span class="wk-spinner" role="progressbar" aria-label="Fetching runs" id="g-spinner"></span><span class="wk-caption">Fetching runs…</span></div>
 <div class="g-bars">
   <div class="g-stack"><div class="wk-progress" role="progressbar" aria-label="Copying files" id="g-progress"></div><span class="wk-caption">12 of 40 files</span></div>
-  <div class="g-stack"><div class="wk-progress" role="progressbar" aria-label="Fetching runs"></div><span class="wk-caption">Fetching runs…</span></div>
+  <div class="g-stack"><div class="wk-progress" role="progressbar" aria-label="Fetching runs" id="g-progress-sweep"></div><span class="wk-caption">Fetching runs…</span></div>
 </div>`,
       after(el, { kit }) {
         kit.setProgress(el.querySelector('#g-progress'), { done: 12, total: 40, unit: 'files' });
@@ -97,7 +97,7 @@ export default [
   },
   {
     id: 'task', title: 'Task lifecycle', group: 'status',
-    intro: 'The states of BEHAVIOUR.md\'s action lifecycle that a page can show in seconds, run by <code>wkTask</code> with its real timings on a row\'s state cell. Press a row\'s "Try it". Waiting and the timeout take 30 s and 2 min, so this page calls <code>waiting()</code> itself. Leaving the page cancels whatever is still running.',
+    intro: 'The states of BEHAVIOUR.md\'s action lifecycle, run by <code>wkTask</code> with its real timings on a row\'s state cell. Press a row\'s "Try it". Waiting takes 30 s, so its row calls <code>waiting()</code> itself; the 2-minute timeout is shortened to 5 s on its row (<code>timeout: 5000</code>). Leaving the page cancels whatever is still running.',
     examples: [{
       title: 'Try it: one state per row',
       wide: true,
@@ -109,17 +109,39 @@ export default [
     <tr data-scenario="show"><th scope="row">Done, with Show <span class="wk-caption">(the result is elsewhere)</span></th><td>Ready</td><td></td></tr>
     <tr data-scenario="measured"><th scope="row">Measured progress</th><td>Ready</td><td></td></tr>
     <tr data-scenario="long"><th scope="row">Long, with Stop</th><td>Ready</td><td></td></tr>
+    <tr data-scenario="maybe"><th scope="row">Long wait, timed <span class="wk-caption">(might be long: Stop shows at 10 s, in space kept for it)</span></th><td>Ready</td><td></td></tr>
+    <tr data-scenario="asks"><th scope="row">Stop…, with its Alert <span class="wk-caption">(stopping loses work: it asks first)</span></th><td>Ready</td><td></td></tr>
+    <tr data-scenario="esc"><th scope="row">Esc cancels short work <span class="wk-caption">(press Esc while it runs)</span></th><td>Ready</td><td></td></tr>
     <tr data-scenario="pause"><th scope="row">Paused and resumed</th><td>Ready</td><td></td></tr>
     <tr data-scenario="waiting"><th scope="row">Waiting</th><td>Ready</td><td></td></tr>
     <tr data-scenario="stalled"><th scope="row">Stalled</th><td>Ready</td><td></td></tr>
     <tr data-scenario="queued"><th scope="row">Queued</th><td>Ready</td><td></td></tr>
     <tr data-scenario="failed"><th scope="row">Failed</th><td>Ready</td><td></td></tr>
+    <tr data-scenario="timeout"><th scope="row">Timed out <span class="wk-caption">(no progress: the timeout, shortened to 5 s)</span></th><td>Ready</td><td></td></tr>
     <tr data-scenario="cancelled"><th scope="row">Cancelled</th><td>Ready</td><td></td></tr>
     <tr data-scenario="stopped"><th scope="row">Stopped</th><td>Ready</td><td></td></tr>
     <tr data-scenario="parts"><th scope="row">Work in parts <span class="wk-caption">(one part fails)</span></th><td><span class="g-stack"><span>Reviewer 1</span><span>Reviewer 2</span><span>Reviewer 3</span></span></td><td></td></tr>
   </tbody>
-</table>`,
+</table>
+<wk-dialog id="g-stop-alert">
+  <dialog class="wk-dialog wk-dialog--alert" role="alertdialog" aria-labelledby="g-stop-alert-title" aria-describedby="g-stop-alert-body">
+    <h3 class="wk-dialog-title" id="g-stop-alert-title">Stop copying?</h3>
+    <p class="wk-dialog-body" id="g-stop-alert-body">Some files are copied; the rest won’t be.</p>
+    <div class="wk-dialog-actions">
+      <button class="wk-button wk-button--destructive" type="button" value="stop" data-wk-close>Stop copying</button>
+      <button class="wk-button wk-button--primary" type="button" value="keep" data-wk-close autofocus>Keep copying</button>
+    </div>
+  </dialog>
+</wk-dialog>`,
       after(el, { task: wkTask, track, later }) {
+        // Stop… asks first: onStop opens the Alert, and resolves to false
+        // (keep the task running) unless the person chooses to stop.
+        const alert = el.querySelector('#g-stop-alert');
+        const askToStop = t => new Promise(resolve => {
+          alert.querySelector('#g-stop-alert-body').textContent = `${t.count || 'Some files'} are copied; the rest won’t be.`;
+          alert.addEventListener('wk-close', e => resolve(e.detail?.returnValue === 'stop'), { once: true });
+          alert.show();
+        });
         const scenarios = {
           quick: async t => { await later(200); return t.done('Exported'); },
           done: async t => { await later(2000); return t.done({ words: 'Exported', visible: false }); },
@@ -136,6 +158,10 @@ export default [
           },
           measured: async t => { for (let n = 0; n <= 8; n++) { t.progress({ done: n * 5, total: 40, unit: 'files' }); await later(300); } return t.done({ words: 'Copied 40 files', visible: false }); },
           long: async t => { await later(6000); return t.done({ words: 'Synced', visible: false }); },
+          maybe: async t => { await later(15000); return t.done({ words: 'Synced', visible: false }); },
+          asks: async t => { for (let n = 0; n <= 40 && !t.signal.aborted; n += 2) { t.progress({ done: n, total: 40, unit: 'files' }); await later(500); } if (!t.signal.aborted) await t.done({ words: 'Copied 40 files', visible: false }); },
+          esc: async t => { await later(4000); return t.done({ words: 'Checked', visible: false }); },
+          timeout: async () => {},
           pause: async t => { await later(6000); return t.done({ words: 'Synced', visible: false }); },
           waiting: async t => { await later(800); t.waiting('Waiting for the server…'); await later(2500); t.progress({ done: 1, total: 2 }); await later(800); return t.done({ words: 'Uploaded', visible: false }); },
           stalled: async t => { await later(800); t.stalled('Sign-in expired · Sign in'); await later(3000); return t.fail({ words: 'Couldn’t sync: sign in again', error: new Error('401') }); },
@@ -150,6 +176,10 @@ export default [
           queued: { stop: 'cancel', queued: 'Queued · after 2 others', words: 'Exporting' },
           cancelled: { expect: 'long', stop: 'cancel', words: 'Exporting' },
           stopped: { expect: 'long', stop: 'stop', words: 'Copying files' },
+          maybe: { expect: 'maybe-long', stop: 'stop', words: 'Syncing' },
+          asks: { expect: 'long', stop: 'stop-asks', words: 'Copying files', onStop: askToStop },
+          esc: { stop: 'cancel', words: 'Checking' },
+          timeout: { words: 'Exporting', timeout: 5000 },
           parts: { words: 'Running reviewers', unit: 'reviewers' },
         };
         for (const row of el.querySelectorAll('tr[data-scenario]')) {
@@ -232,18 +262,149 @@ export default [
     }],
   },
   {
+    id: 'undo', title: 'App undo', group: 'status',
+    intro: '<code>wkUndo</code> is the frontend of the app\'s undo stack, which lives on the Go side (the <code>shortcuts</code> package\'s <code>UndoStack</code>). Here a stand-in for that stack runs in the page, and two buttons stand in for the native Edit menu: like a menu bar, they don\'t take focus. A toast\'s Undo and Edit &gt; Undo use the same stack; with text focus, Edit &gt; Undo undoes the typing first.',
+    examples: [{
+      title: 'Try it: archive, then undo from the toast or from Edit > Undo',
+      note: 'Type in the field, then press Edit &gt; Undo: the typing goes first, then the archive.',
+      html: `<div class="g-row">
+  ${tryButton('g-undo-archive', 'Archive a conversation')}
+  <input class="wk-field" id="g-undo-field" aria-label="Type, then Edit > Undo" placeholder="Type, then Edit > Undo">
+</div>
+<div class="g-row" role="group" aria-label="Edit menu (a stand-in)">
+  <button class="wk-button" type="button" id="g-edit-undo">Undo</button>
+  <button class="wk-button" type="button" id="g-edit-redo">Redo</button>
+</div>
+<div class="g-row"><ul class="g-plain-list" id="g-undo-list" aria-label="Conversations"></ul></div>`,
+      after(el, { kit, track }) {
+        // A stand-in for the Go side: shortcuts.UndoStack's events and
+        // Bindings(), as an app connects them with Wails's Events.On.
+        const conversations = ['Plans for May', 'Lunch on Friday', 'The quarterly report', 'Holiday rota'];
+        const list = el.querySelector('#g-undo-list');
+        const drawList = () => { list.replaceChildren(...conversations.map(name => Object.assign(document.createElement('li'), { textContent: name }))); };
+        drawList();
+        const listeners = {};
+        const emit = (name, payload) => { for (const fn of listeners[name] || []) fn(payload); };
+        const go = { undo: [], redo: [], seq: 0, textFocus: false };
+        const entry = (e, verb) => (e ? { id: e.id, name: e.name, label: `${verb} ${e.name}` } : null);
+        const state = () => ({ undo: entry(go.undo.at(-1), 'Undo'), redo: entry(go.redo.at(-1), 'Redo'), busy: false, textFocus: go.textFocus });
+        const changed = () => emit('undo:changed', state());
+        const push = (name, undo, redo) => { const id = `g-undo-${++go.seq}`; go.undo.push({ id, name, undo, redo }); go.redo = []; changed(); return id; };
+        const undo = id => {
+          const top = go.undo.at(-1);
+          if (!top) throw { code: 'undo_empty' };
+          if (id && top.id !== id) throw { code: 'undo_stale' };
+          top.undo(); go.undo.pop(); go.redo.push(top); changed();
+        };
+        const redo = () => { const top = go.redo.pop(); if (!top) throw { code: 'undo_empty' }; top.redo(); go.undo.push(top); changed(); };
+        const disconnect = kit.wkUndo.connect({
+          on: (name, fn) => { (listeners[name] ??= []).push(fn); return () => { listeners[name] = listeners[name].filter(f => f !== fn); }; },
+          bindings: {
+            State: async () => state(),
+            Undo: async () => undo(),
+            Redo: async () => redo(),
+            UndoID: async id => undo(id),
+            SetTextFocus: async on => { go.textFocus = on; changed(); },
+          },
+        });
+        // Edit > Undo and Redo, as UndoStack.MenuUndo does them: typing first.
+        const menu = op => () => {
+          if (go.textFocus) { emit('undo:text', { op }); return; }
+          try { if (op === 'undo') undo(); else redo(); } catch { /* nothing to undo */ }
+        };
+        const undoItem = el.querySelector('#g-edit-undo'), redoItem = el.querySelector('#g-edit-redo');
+        for (const [b, op] of [[undoItem, 'undo'], [redoItem, 'redo']]) {
+          b.addEventListener('mousedown', e => e.preventDefault()); // a menu bar doesn't take focus
+          b.addEventListener('click', menu(op));
+        }
+        // The menu's labels follow the stack, as the native menu's do.
+        const label = () => {
+          const s = kit.wkUndo.state();
+          undoItem.textContent = s.textFocus ? 'Edit > Undo Typing' : `Edit > ${s.undo?.label || 'Undo'}`;
+          redoItem.textContent = s.textFocus ? 'Edit > Redo Typing' : `Edit > ${s.redo?.label || 'Redo'}`;
+          undoItem.setAttribute('aria-disabled', String(!s.textFocus && !s.undo));
+          redoItem.setAttribute('aria-disabled', String(!s.textFocus && !s.redo));
+        };
+        document.addEventListener('wk-undo-change', label);
+        label();
+        el.querySelector('#g-undo-archive').addEventListener('click', () => {
+          if (!conversations.length) return;
+          const [name] = conversations.splice(0, 1);
+          drawList();
+          const id = push('Archive', () => { conversations.unshift(name); drawList(); }, () => { conversations.splice(conversations.indexOf(name), 1); drawList(); });
+          const toast = kit.wkToast({ words: `“${name}” archived`, action: kit.wkUndo.action(id) });
+          track(new Promise(resolve => requestAnimationFrame(() => resolve(toast))));
+        });
+        return () => {
+          document.removeEventListener('wk-undo-change', label);
+          disconnect();
+          document.querySelector('.wk-toast')?.remove();
+        };
+      },
+    }],
+  },
+  {
+    id: 'announcer', title: 'Announcer', group: 'status',
+    intro: '<code>announce(words)</code> says words through two visually hidden live regions, polite and assertive, in the page from load; words within 500 ms are joined. A modal makes the rest of the page inert, live regions too, so while one is open the regions sit inside it. <code>wk-dialog</code> moves them, and so does any <code>&lt;dialog&gt;</code>\'s <code>open</code> attribute; <code>placeAnnouncer(dialog, open)</code> does it by hand for a modal opened some other way.',
+    examples: [{
+      title: 'Try it: say something, from the page and from a modal',
+      note: 'What the regions say shows below, with where they are.',
+      html: `<div class="g-row">
+  ${tryButton('g-say', 'Say “Saved”')}
+  ${tryButton('g-say-modal', 'Open a modal, and say something there')}
+</div>
+<p class="wk-caption">The regions are in <b id="g-announcer-home">the page</b>.</p>
+<pre class="g-log" id="g-said" aria-label="What the announcer said" tabindex="0"></pre>
+<dialog class="wk-dialog" id="g-plain-modal" aria-labelledby="g-plain-modal-title">
+  <h3 class="wk-dialog-title" id="g-plain-modal-title">A plain dialog</h3>
+  <p class="wk-dialog-body">Opened with showModal(), not wk-dialog; the page calls placeAnnouncer(dialog, true), so what's said here is still heard.</p>
+  <div class="wk-dialog-actions"><button class="wk-button wk-button--primary" type="button" id="g-plain-close">Close</button></div>
+</dialog>`,
+      after(el, { kit, track }) {
+        const log = el.querySelector('#g-said');
+        const home = el.querySelector('#g-announcer-home');
+        const modal = el.querySelector('#g-plain-modal');
+        const host = document.wkAnnouncer;
+        // A readout of the regions: what they say, and where they are.
+        const show = () => {
+          const where = host.parentNode === modal ? 'the modal' : 'the page';
+          if (home.textContent !== where) home.textContent = where;
+          for (const r of host.querySelectorAll('[aria-live]')) {
+            if (r.textContent && r.textContent !== r.dataset.gallerySaid) log.textContent = `${r.getAttribute('aria-live')}: ${r.textContent}\n${log.textContent}`.split('\n').slice(0, 4).join('\n');
+            r.dataset.gallerySaid = r.textContent;
+          }
+        };
+        const watch = new MutationObserver(show);
+        watch.observe(document.documentElement, { subtree: true, childList: true, characterData: true });
+        const said = () => track(new Promise(resolve => setTimeout(resolve, 600)));
+        el.querySelector('#g-say').addEventListener('click', () => { kit.announce('Saved'); said(); });
+        el.querySelector('#g-say-modal').addEventListener('click', () => {
+          modal.showModal();
+          kit.placeAnnouncer(modal, true);
+          kit.announce('Said from inside the modal');
+          said();
+        });
+        el.querySelector('#g-plain-close').addEventListener('click', () => modal.close());
+        modal.addEventListener('close', () => kit.placeAnnouncer(modal, false));
+        return () => { watch.disconnect(); if (modal.open) modal.close(); };
+      },
+    }],
+  },
+  {
     id: 'skeleton', title: 'Skeleton rows', group: 'status',
-    intro: 'For a table that loads: from 400 ms the body\'s rows give way to still bars at the real row height, for at least 500 ms, then the new rows swap in, in one step. The table has <code>aria-busy</code> until then.',
+    intro: 'For a table that loads: from 400 ms the body\'s rows give way to still bars at the real row height, for at least 500 ms, then the new rows swap in, in one step. The table has <code>aria-busy</code> until then. After 3 s (<code>timings.loadingLine</code>) a line says what\'s loading and from where; the kit doesn\'t draw it yet (BEHAVIOUR.md, Known gaps), so the app adds it, as this page does.',
     examples: [{
       title: 'Try it: reload the table',
-      note: 'Fast answers in 200 ms (no skeleton ever shows); Slow in 1.5 s.',
-      html: `<div class="g-row">${tryButton('g-skeleton-fast', 'Reload (fast)')}${tryButton('g-skeleton-slow', 'Reload (slow)')}</div>
+      note: 'Fast answers in 200 ms (no skeleton ever shows); Slow in 1.5 s; Very slow in 5 s, with the loading line from 3 s.',
+      html: `<div class="g-row">${tryButton('g-skeleton-fast', 'Reload (fast)')}${tryButton('g-skeleton-slow', 'Reload (slow)')}${tryButton('g-skeleton-long', 'Reload (very slow)')}</div>
 <table class="wk-table" id="g-skeleton-table">
   <thead><tr><th>Name</th><th>State</th><th class="wk-num">Runs</th></tr></thead>
   <tbody><tr><td>alpha</td><td>Running</td><td class="wk-num">19</td></tr><tr><td>beta</td><td>Ready</td><td class="wk-num">4</td></tr><tr><td>gamma</td><td>Offline</td><td class="wk-num">0</td></tr></tbody>
-</table>`,
+</table>
+<p class="wk-caption" id="g-skeleton-line" hidden>Fetching runs from server.example…</p>`,
       after(el, { kit, track, later }) {
         const body = el.querySelector('tbody');
+        const line = el.querySelector('#g-skeleton-line');
         let n = 0;
         const draw = () => {
           n++;
@@ -251,11 +412,15 @@ export default [
         };
         const reload = ms => () => track((async () => {
           const loading = kit.wkSkeleton(body);
+          // The loading line is the app's: shown after 3 s, gone with the skeleton.
+          let waited = true;
+          later(kit.timings.loadingLine, () => { if (waited) line.hidden = false; });
           await later(ms);
-          await loading.done(draw);
+          await loading.done(() => { waited = false; line.hidden = true; draw(); });
         })());
         el.querySelector('#g-skeleton-fast').addEventListener('click', reload(200));
         el.querySelector('#g-skeleton-slow').addEventListener('click', reload(1500));
+        el.querySelector('#g-skeleton-long').addEventListener('click', reload(5000));
       },
     }],
   },

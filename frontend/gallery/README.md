@@ -28,14 +28,19 @@ dependencies; `npm ci` is only for the tests.
   with its "When to use" and "Do and don't".
 - **"Try it" buttons** for the behaviour in [`BEHAVIOUR.md`](../ui/BEHAVIOUR.md),
   with the kit's real timings: a busy button, a bar a task moves, the states of
-  the action lifecycle a page can show in seconds, each on a row (quiet wait, working, done, measured progress,
-  long with Stop, paused, waiting, stalled, queued, failed, cancelled, stopped,
-  work in parts), the task list and its summary, toasts with and without Undo,
-  copy feedback (and a copy that fails), skeleton rows and a loading chart.
-  Leaving a page cancels, quietly, whatever its "Try it" buttons started.
-- **`#/all`**, every page one below the other, for visual review. The kit's own
-  review pages (`ui/demo/index.html` and the editor's and diagram's demo pages)
-  are linked from the overview.
+  the action lifecycle, each on a row (quiet wait, working, done, measured
+  progress, long with Stop, a timed long wait that shows Stop at 10 s, Stop…
+  with its confirming Alert, Esc cancelling short work, paused, waiting,
+  stalled, queued, failed, the timeout's failure (shortened to 5 s), cancelled,
+  stopped, work in parts), the task list and its summary, toasts with and
+  without Undo, app undo (`wkUndo`, with a stand-in for the Go stack and for
+  Edit > Undo and Redo), the announcer and `placeAnnouncer`, copy feedback (and
+  a copy that fails), skeleton rows with the app's 3 s loading line, and a
+  loading chart. Leaving a page cancels, quietly, whatever its "Try it" buttons
+  started. Time left ("About 3 min left") isn't shown: `wkTask` doesn't draw it
+  yet (BEHAVIOUR.md, Known gaps).
+- **`#/all`**, every page one below the other, for visual review. The editor's
+  and diagram's own demo pages are linked from the overview.
 
 ## The toolbar
 
@@ -76,7 +81,9 @@ widen one package's server, the gallery has its own: `serve.mjs` serves
 `/ui/`, `/editor/` and `/diagram/` from the packages' folders, `/gallery/`
 itself, and `/design-system/<Name>/README.md` from `docs/design-system/`, and
 refuses everything else: `..`, dotfiles, `node_modules/`, a file whose real
-path (after symlinks) leaves its folder, and any other path. It answers only
+path (after symlinks) leaves the folder the request named (`/ui/…` only from
+`frontend/ui/`) or lands in a `node_modules/` or dot folder there, and any
+other path. It answers only
 requests whose `Host` is `127.0.0.1` or `localhost` on its port. The editors
 and diagrams load from the packages' prebuilt `dist/` modules, as an app vendors
 them.
@@ -87,14 +94,32 @@ them.
 npm ci
 npm test                                            # the server's paths, the CSP, the page list, the source helpers
 CHROME_PATH=/usr/bin/google-chrome npm run test:browser
+CHECK='^menu' npm run test:browser                  # only the checks whose names match
 ```
 
-The browser tests load every page in light, dark, the example theme (light and
-dark) and forced colours, and fail on any console error or warning, any CSP
-violation, any request outside the local server, any duplicate id and any
-sideways scroll. They also check that every interactive element on every page
-has an accessible name; that every sidebar entry has its page, with examples
-and their markup; that every `.wk-*` class in `ui/src/components.css` and
-`ui/src/base.css` appears on some page once its "Try it" buttons have run; the
-appearance, theme, text-size and source switches; the gallery's keyboard
-navigation; and a "Try it" run's timings.
+`npm run test:browser` runs two files, which share `test/helpers.mjs` (the
+server, Chrome, a page that records every problem, and the fake clock:
+`open(path, { clock: true })` starts the page's timers at a fixed
+`CLOCK_T0`, `pauseClock(page)` stops them a minute on, and the check moves
+them with `page.clock.runFor`):
+
+- **`test/browser.mjs`, the gallery itself.** It loads every page in light,
+  dark, the example theme (light and dark) and forced colours, and fails on
+  any console error or warning, any CSP violation, any request outside the
+  local server, any duplicate id and any sideways scroll. It also checks that
+  every interactive element on every page has an accessible name; that every
+  sidebar entry has its page, with examples and their markup; that every
+  `.wk-*` class in `ui/src/components.css` and `ui/src/base.css` appears on
+  some page once its "Try it" buttons have run; the appearance, theme,
+  text-size and source switches; the gallery's keyboard navigation; and the
+  "Try it" runs' timings, on the fake clock: the busy button, Stop at 10 s,
+  Stop… and its Alert, Esc, the timeout, the loading line, app undo and the
+  announcer.
+- **`test/components.mjs`, the kit's components**, on the gallery's pages:
+  the checks that were `@wails-kit/ui`'s own browser tests on its demo pages.
+  The WAI-ARIA keyboard patterns of every custom element, focus return,
+  imperative construction and clean-up, forced colours, themes and increased
+  contrast, the chart, the diff and its review comments, the settings window,
+  `wkTask`, the announcer, the task list, the toast, app undo, copy feedback
+  and skeleton rows. `@wails-kit/ui` keeps only what must stay in the package
+  (its files on their own, the fonts, `dist/`'s exports).

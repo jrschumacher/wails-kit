@@ -11,7 +11,8 @@
 //
 // Any other path, a path with "..", a dotfile or dot folder, anything under
 // node_modules/, and a file whose real path (after symlinks) leaves the
-// frontend/ or the cards' folder is a 404. A request whose Host isn't
+// folder the request named (frontend/<root>/ or the cards' folder), or lands
+// in a node_modules/ or dot folder there, is a 404. A request whose Host isn't
 // 127.0.0.1 or localhost on the server's port is refused (421), so a page
 // on another site can't reach it through DNS rebinding.
 import http from 'node:http';
@@ -37,11 +38,15 @@ export function resolve(pathname) {
   return path.join(frontend, file);
 }
 
-// The file's real path, or null when it leaves the folder it was served from.
-async function inside(file) {
-  const base = await realpath(file.startsWith(cards) ? cards : frontend);
+// The file's real path, or null when it leaves the folder the request named
+// (frontend/<root>/, or the cards' folder), or lands in a node_modules/ or
+// dot folder inside it.
+export async function inside(file) {
+  const root = file.startsWith(cards) ? cards : path.join(frontend, path.relative(frontend, file).split(path.sep)[0]);
+  const base = await realpath(root);
   const real = await realpath(file);
-  return real.startsWith(base + path.sep) ? real : null;
+  if (!real.startsWith(base + path.sep)) return null;
+  return path.relative(base, real).split(path.sep).some(p => p === 'node_modules' || p.startsWith('.')) ? null : real;
 }
 // The Host header names this server: 127.0.0.1 or localhost, on its port.
 export function hostAllowed(host, port) {

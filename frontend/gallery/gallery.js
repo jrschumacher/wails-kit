@@ -327,12 +327,8 @@ function overview() {
     <dt>Text size</dt><dd>Zooms the pages, as the web view's zoom does: the kit's sizes are in px.</dd>
     <dt>Kit from</dt><dd><code>src/</code> (the ES modules) or the prebuilt <code>dist/</code> files an app vendors.</dd>
     <dt>Forced colours</dt><dd>Turned on by the system or the browser, not by the page; the gallery says how.</dd></dl></section>
-    <section class="gallery-example" aria-labelledby="overview-pages-h"><h2 class="wk-subheading" id="overview-pages-h">The packages' own review pages</h2>
+    <section class="gallery-example" aria-labelledby="overview-pages-h"><h2 class="wk-subheading" id="overview-pages-h">The editor's and diagram's own review pages</h2>
     <ul class="gallery-links">
-      <li><a class="wk-link" href="../ui/demo/index.html">@wails-kit/ui, every component on one page</a></li>
-      <li><a class="wk-link" href="../ui/demo/themed.html">@wails-kit/ui with the example theme</a></li>
-      <li><a class="wk-link" href="../ui/demo/dist.html">@wails-kit/ui from dist/</a></li>
-      <li><a class="wk-link" href="../ui/demo/settings.html">The settings window</a></li>
       <li><a class="wk-link" href="../editor/demo/index.html">The code editor</a>, <a class="wk-link" href="../editor/demo/markdown.html">the Markdown editor</a> and <a class="wk-link" href="../editor/demo/richtext.html">the rich-text editor</a></li>
       <li><a class="wk-link" href="../diagram/demo/index.html">Diagrams</a></li>
     </ul></section>`;

@@ -42,7 +42,7 @@ export default [
 </table>`,
     }, {
       title: 'Zebra, with names, actions, a muted and a selected row',
-      html: `<table class="wk-table wk-table--zebra">
+      html: `<table class="wk-table wk-table--zebra" id="g-zebra">
   <thead><tr><th>Name</th><th>State</th><th class="wk-num">Runs</th><th><span class="wk-visually-hidden">Actions</span></th></tr></thead>
   <tbody>
     <tr><td><button class="wk-table-name" type="button">alpha</button></td><td><span class="g-state"><span class="wk-dot" data-tone="working" aria-hidden="true"></span>Running</span></td><td class="wk-num">19</td><td><span class="wk-table-actions"><button class="wk-button wk-button--small" type="button">Pause</button><button class="wk-button wk-button--small" type="button">Stop…</button></span></td></tr>
