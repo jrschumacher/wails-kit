@@ -36,7 +36,7 @@ test('announce loads and does nothing without a DOM', async () => {
 
 test('index.js exports announce and wkTask, and index.d.ts declares them', () => {
   const index = read('../src/index.js');
-  assert.match(index, /export \{ announce \} from '\.\/announce\.js';/);
+  assert.match(index, /export \{ announce, placeAnnouncer \} from '\.\/announce\.js';/);
   assert.match(index, /export \{ wkTask \} from '\.\/task\.js';/);
   const dts = read('../src/index.d.ts');
   for (const name of ['export function announce(', 'export const wkTask:', 'follow(id: string', 'connect(options:', "'wk-task': CustomEvent<TaskEventDetail>"]) assert.ok(dts.includes(name), name);

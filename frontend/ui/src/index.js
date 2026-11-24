@@ -4,7 +4,7 @@
 // dist/wails-kit-ui.js is these modules in one file, with the same exports.
 export { WkMenu, WkContextMenu, WkTabs, WkTooltip, WkDialog, syncSteppers, setProgress } from './kit.js';
 export { timings, motion, reducedMotion } from './motion.js';
-export { announce } from './announce.js';
+export { announce, placeAnnouncer } from './announce.js';
 export { wkTask } from './task.js';
 export { wkChart, niceTicks, labelStep, runs, roundedTop, roundedEnd, tableModel, readout } from './chart.js';
 export { wkDiff, parseUnifiedDiff, diffSplitRows, diffWordRanges } from './diff.js';

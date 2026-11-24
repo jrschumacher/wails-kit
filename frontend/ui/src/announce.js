@@ -12,6 +12,11 @@
 // frame. Each window (each document) has one announcer, shared by every copy
 // of the kit in it (src/ and dist/). Nothing that ticks (a countdown, a
 // progress value, streamed output) belongs here.
+//
+// A modal <dialog> makes everything outside it inert, live regions too, so
+// while one is open the regions live inside the top-most modal, and go back
+// to <body> when it closes. They move when a dialog opens or closes, not
+// while words wait to be said.
 
 const JOIN_WINDOW = 500;
 const JOIN_MAX = 2_000;
@@ -25,6 +30,34 @@ const queuesOf = () => {
   if (!host) return {};
   return (host.wkQueues ??= { polite: null, assertive: null });
 };
+
+// The open modal dialogs, in the order they opened (shared on the regions'
+// element by every copy of the kit); the last one still open is on top.
+function topModal(host) {
+  const stack = (host.wkModals ??= []);
+  for (let i = stack.length - 1; i >= 0; i--) {
+    if (stack[i].isConnected && stack[i].matches(':modal')) return stack[i];
+    stack.splice(i, 1);
+  }
+  // A modal opened without an event the kit saw: the last in the document.
+  return [...document.querySelectorAll('dialog')].filter(d => d.matches(':modal')).pop() || null;
+}
+
+// Puts the regions where a screen reader can hear them: called when a dialog
+// opens (open true) or closes. wk-dialog calls it; the toggle and close
+// events catch a plain <dialog>.
+function placeAnnouncer(dialog, open) {
+  if (typeof document === 'undefined') return;
+  const host = document.querySelector(`[${ANNOUNCER}]`);
+  if (!host) return;
+  const stack = (host.wkModals ??= []);
+  if (dialog) {
+    const at = stack.indexOf(dialog);
+    if (at >= 0) stack.splice(at, 1);
+    if (open && dialog.matches(':modal')) stack.push(dialog);
+  }
+  region('polite');
+}
 
 // The two regions, made once per document and found again if another copy
 // of the kit made them first. A region the app removed (a framework that
@@ -44,7 +77,8 @@ function region(kind) {
       host.append(r);
     }
   }
-  if (!host.isConnected) (document.body || document.documentElement).append(host);
+  const home = topModal(host) || document.body || document.documentElement;
+  if (host.parentNode !== home) home.append(host);
   regions.polite = host.querySelector('[data-wk-live="polite"]');
   regions.assertive = host.querySelector('[data-wk-live="assertive"]');
   return regions[kind];
@@ -90,6 +124,11 @@ function announce(words, { assertive = false } = {}) {
 if (typeof document !== 'undefined') {
   if (document.body) region('polite');
   else document.addEventListener('DOMContentLoaded', () => region('polite'), { once: true });
+  const onDialog = e => {
+    if (e.target instanceof HTMLDialogElement) placeAnnouncer(e.target, e.type === 'toggle' ? e.newState === 'open' : false);
+  };
+  document.addEventListener('toggle', onDialog, true);
+  document.addEventListener('close', onDialog, true);
 }
 
-export { announce };
+export { announce, placeAnnouncer };

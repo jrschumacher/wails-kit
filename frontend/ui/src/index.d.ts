@@ -37,6 +37,8 @@ export function reducedMotion(): boolean;
 // ---- Announcer (announce.js) ----
 /** Says words through the window's polite (or assertive) live region; messages within 500 ms are joined. */
 export function announce(words: string, options?: { assertive?: boolean }): void;
+/** Moves the announcer into the top-most open modal dialog (or back to <body>); wk-dialog and the dialog toggle/close events call it. */
+export function placeAnnouncer(dialog?: HTMLDialogElement | null, open?: boolean): void;
 
 // ---- Tasks (task.js) ----
 export type TaskState = 'queued' | 'running' | 'waiting' | 'paused' | 'stalled' | 'done' | 'failed' | 'cancelled' | 'stopped';
@@ -118,7 +120,8 @@ export const wkTask: {
   (spec: TaskSpec): TaskHandle;
   connect(options: { subscribe: (listener: (payload: { tasks: TaskSnapshotLike[] }) => void) => (() => void) | void; bindings?: TaskBindings; confirmStop?: (snapshot: TaskSnapshotLike) => boolean | Promise<boolean> }): () => void;
   follow(id: string, options?: { control?: Element | Element[]; target?: Element; bar?: HTMLElement; scope?: Element; stopIn?: Element; expect?: 'short' | 'maybe-long' | 'long' }): TaskFollower;
-  summary(): HTMLButtonElement;
+  /** The summary button; dispose() stops it updating. */
+  summary(): HTMLButtonElement & { dispose(): void };
   showList(options?: { opener?: Element }): WkDialog;
   words: Record<string, string | ((...args: any[]) => string)>;
 };

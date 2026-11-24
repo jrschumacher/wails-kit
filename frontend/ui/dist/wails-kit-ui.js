@@ -42,6 +42,142 @@ const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(pre
 
 export { timings, motion, reducedMotion };
 
+// ---- announce.js ----
+// The window's announcer (BEHAVIOUR.md, "Announcer"): one polite and one
+// assertive live region, visually hidden, in the page from load, because a
+// region added together with its text often goes unread.
+//
+//   announce(words, { assertive = false })
+//
+// Messages within 500 ms of each other are joined into one ("Link copied.
+// Comment posted"), so a screen reader reads them once, in order, instead
+// of cutting one off with the next. A message goes out 500 ms after the
+// last one, and never more than 2 s after the first. Words the region
+// already holds are announced again: it is cleared and set on the next
+// frame. Each window (each document) has one announcer, shared by every copy
+// of the kit in it (src/ and dist/). Nothing that ticks (a countdown, a
+// progress value, streamed output) belongs here.
+//
+// A modal <dialog> makes everything outside it inert, live regions too, so
+// while one is open the regions live inside the top-most modal, and go back
+// to <body> when it closes. They move when a dialog opens or closes, not
+// while words wait to be said.
+
+const JOIN_WINDOW = 500;
+const JOIN_MAX = 2_000;
+const ANNOUNCER = 'data-wk-announcer';
+
+const regions = { polite: null, assertive: null };
+// The messages waiting to go out live on the regions' element, so every
+// copy of the kit in the window joins into the same ones.
+const queuesOf = () => {
+  const host = regions.polite?.parentNode;
+  if (!host) return {};
+  return (host.wkQueues ??= { polite: null, assertive: null });
+};
+
+// The open modal dialogs, in the order they opened (shared on the regions'
+// element by every copy of the kit); the last one still open is on top.
+function topModal(host) {
+  const stack = (host.wkModals ??= []);
+  for (let i = stack.length - 1; i >= 0; i--) {
+    if (stack[i].isConnected && stack[i].matches(':modal')) return stack[i];
+    stack.splice(i, 1);
+  }
+  // A modal opened without an event the kit saw: the last in the document.
+  return [...document.querySelectorAll('dialog')].filter(d => d.matches(':modal')).pop() || null;
+}
+
+// Puts the regions where a screen reader can hear them: called when a dialog
+// opens (open true) or closes. wk-dialog calls it; the toggle and close
+// events catch a plain <dialog>.
+function placeAnnouncer(dialog, open) {
+  if (typeof document === 'undefined') return;
+  const host = document.querySelector(`[${ANNOUNCER}]`);
+  if (!host) return;
+  const stack = (host.wkModals ??= []);
+  if (dialog) {
+    const at = stack.indexOf(dialog);
+    if (at >= 0) stack.splice(at, 1);
+    if (open && dialog.matches(':modal')) stack.push(dialog);
+  }
+  region('polite');
+}
+
+// The two regions, made once per document and found again if another copy
+// of the kit made them first. A region the app removed (a framework that
+// owns <body>) is put back.
+function region(kind) {
+  if (typeof document === 'undefined') return null;
+  let host = document.querySelector(`[${ANNOUNCER}]`);
+  if (!host) {
+    host = document.createElement('div');
+    host.setAttribute(ANNOUNCER, '');
+    host.className = 'wk-announcer wk-visually-hidden';
+    for (const live of ['polite', 'assertive']) {
+      const r = document.createElement('div');
+      r.setAttribute('aria-live', live);
+      r.setAttribute('aria-atomic', 'true');
+      r.dataset.wkLive = live;
+      host.append(r);
+    }
+  }
+  const home = topModal(host) || document.body || document.documentElement;
+  if (host.parentNode !== home) home.append(host);
+  regions.polite = host.querySelector('[data-wk-live="polite"]');
+  regions.assertive = host.querySelector('[data-wk-live="assertive"]');
+  return regions[kind];
+}
+
+const join = list => list.reduce((text, w) => (text ? `${text}${/[.!?…:]$/.test(text) ? ' ' : '. '}${w}` : w), '');
+
+function flush(kind) {
+  const queues = queuesOf();
+  const q = queues[kind];
+  queues[kind] = null;
+  if (!q) return;
+  clearTimeout(q.timer);
+  const r = region(kind);
+  if (!r) return;
+  const text = join(q.words);
+  if (r.textContent !== text) { r.textContent = text; return; }
+  // The same words again: clear, then set them on the next frame, so the
+  // change is heard. A hidden window may not run frames, so a timer backs
+  // the frame up; whichever comes first sets them.
+  r.textContent = '';
+  let done = false;
+  const set = () => { if (!done) { done = true; r.textContent = text; } };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(set);
+  setTimeout(set, 100);
+}
+
+function announce(words, { assertive = false } = {}) {
+  const text = String(words ?? '').replace(/\s+/g, ' ').trim();
+  if (!text || typeof document === 'undefined') return;
+  const kind = assertive ? 'assertive' : 'polite';
+  region(kind);
+  const queues = queuesOf();
+  const now = Date.now();
+  let q = queues[kind];
+  if (!q) q = queues[kind] = { words: [], first: now, timer: 0 };
+  if (q.words[q.words.length - 1] !== text) q.words.push(text);
+  clearTimeout(q.timer);
+  q.timer = setTimeout(() => flush(kind), Math.max(0, Math.min(JOIN_WINDOW, q.first + JOIN_MAX - now)));
+}
+
+// In the page from load: now if the body exists, else as soon as it does.
+if (typeof document !== 'undefined') {
+  if (document.body) region('polite');
+  else document.addEventListener('DOMContentLoaded', () => region('polite'), { once: true });
+  const onDialog = e => {
+    if (e.target instanceof HTMLDialogElement) placeAnnouncer(e.target, e.type === 'toggle' ? e.newState === 'open' : false);
+  };
+  document.addEventListener('toggle', onDialog, true);
+  document.addEventListener('close', onDialog, true);
+}
+
+export { announce, placeAnnouncer };
+
 // ---- kit.js ----
 // @wails-kit/ui custom elements for the components that need
 // behaviour a native element does not give. Light DOM only, no shadow DOM,
@@ -733,6 +869,7 @@ class WkDialog extends Wired {
     const back = this.opener;
     this.opener = null;
     dialog.close();
+    placeAnnouncer(dialog, false);
     this.reflect(false);
     if (focusless()) focusEl(back);
   }
@@ -759,12 +896,14 @@ class WkDialog extends Wired {
     this.opener = focusless() ? opener || clicked : document.activeElement;
     this.dialog.returnValue = '';
     this.dialog.showModal();
+    // The page behind is inert now, live regions too: the announcer moves in.
+    placeAnnouncer(this.dialog, true);
     this.reflect(true);
     emit(this, 'wk-open', {});
   }
 
   close(returnValue = '') {
-    if (this.dialog?.open) this.dialog.close(returnValue);
+    if (this.dialog?.open) { this.dialog.close(returnValue); placeAnnouncer(this.dialog, false); }
   }
 }
 
@@ -876,103 +1015,6 @@ define('wk-dialog', WkDialog);
 
 export { WkMenu, WkContextMenu, WkTabs, WkTooltip, WkDialog, syncSteppers, setProgress };
 
-// ---- announce.js ----
-// The window's announcer (BEHAVIOUR.md, "Announcer"): one polite and one
-// assertive live region, visually hidden, in the page from load, because a
-// region added together with its text often goes unread.
-//
-//   announce(words, { assertive = false })
-//
-// Messages within 500 ms of each other are joined into one ("Link copied.
-// Comment posted"), so a screen reader reads them once, in order, instead
-// of cutting one off with the next. A message goes out 500 ms after the
-// last one, and never more than 2 s after the first. Words the region
-// already holds are announced again: it is cleared and set on the next
-// frame. Each window (each document) has one announcer, shared by every copy
-// of the kit in it (src/ and dist/). Nothing that ticks (a countdown, a
-// progress value, streamed output) belongs here.
-
-const JOIN_WINDOW = 500;
-const JOIN_MAX = 2_000;
-const ANNOUNCER = 'data-wk-announcer';
-
-const regions = { polite: null, assertive: null };
-// The messages waiting to go out live on the regions' element, so every
-// copy of the kit in the window joins into the same ones.
-const queuesOf = () => {
-  const host = regions.polite?.parentNode;
-  if (!host) return {};
-  return (host.wkQueues ??= { polite: null, assertive: null });
-};
-
-// The two regions, made once per document and found again if another copy
-// of the kit made them first. A region the app removed (a framework that
-// owns <body>) is put back.
-function region(kind) {
-  if (typeof document === 'undefined') return null;
-  let host = document.querySelector(`[${ANNOUNCER}]`);
-  if (!host) {
-    host = document.createElement('div');
-    host.setAttribute(ANNOUNCER, '');
-    host.className = 'wk-announcer wk-visually-hidden';
-    for (const live of ['polite', 'assertive']) {
-      const r = document.createElement('div');
-      r.setAttribute('aria-live', live);
-      r.setAttribute('aria-atomic', 'true');
-      r.dataset.wkLive = live;
-      host.append(r);
-    }
-  }
-  if (!host.isConnected) (document.body || document.documentElement).append(host);
-  regions.polite = host.querySelector('[data-wk-live="polite"]');
-  regions.assertive = host.querySelector('[data-wk-live="assertive"]');
-  return regions[kind];
-}
-
-const join = list => list.reduce((text, w) => (text ? `${text}${/[.!?…:]$/.test(text) ? ' ' : '. '}${w}` : w), '');
-
-function flush(kind) {
-  const queues = queuesOf();
-  const q = queues[kind];
-  queues[kind] = null;
-  if (!q) return;
-  clearTimeout(q.timer);
-  const r = region(kind);
-  if (!r) return;
-  const text = join(q.words);
-  if (r.textContent !== text) { r.textContent = text; return; }
-  // The same words again: clear, then set them on the next frame, so the
-  // change is heard. A hidden window may not run frames, so a timer backs
-  // the frame up; whichever comes first sets them.
-  r.textContent = '';
-  let done = false;
-  const set = () => { if (!done) { done = true; r.textContent = text; } };
-  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(set);
-  setTimeout(set, 100);
-}
-
-function announce(words, { assertive = false } = {}) {
-  const text = String(words ?? '').replace(/\s+/g, ' ').trim();
-  if (!text || typeof document === 'undefined') return;
-  const kind = assertive ? 'assertive' : 'polite';
-  region(kind);
-  const queues = queuesOf();
-  const now = Date.now();
-  let q = queues[kind];
-  if (!q) q = queues[kind] = { words: [], first: now, timer: 0 };
-  if (q.words[q.words.length - 1] !== text) q.words.push(text);
-  clearTimeout(q.timer);
-  q.timer = setTimeout(() => flush(kind), Math.max(0, Math.min(JOIN_WINDOW, q.first + JOIN_MAX - now)));
-}
-
-// In the page from load: now if the body exists, else as soon as it does.
-if (typeof document !== 'undefined') {
-  if (document.body) region('polite');
-  else document.addEventListener('DOMContentLoaded', () => region('polite'), { once: true });
-}
-
-export { announce };
-
 // ---- task.js ----
 // wkTask: the action lifecycle (BEHAVIOUR.md, "The action lifecycle" and
 // "Building blocks › wkTask"). The kit runs the clocks, the busy control,
@@ -1018,6 +1060,7 @@ const words = {
   paused: 'Paused',
   stopped: 'Stopped',
   cancelled: 'Cancelled',
+  failedState: 'Failed',
   unsafe: 'This can’t be stopped',
   timedOut: ms => `Timed out after ${duration(ms)}`,
   count: (done, total, unit) => `${done} of ${total}${unit ? ` ${unit}` : ''}`,
@@ -1027,7 +1070,19 @@ const words = {
   tasks: 'Tasks',
   noTasks: 'No tasks',
   running: n => taskPlural(n, 'task running', 'tasks running'),
+  queuedCount: n => `${n} queued`,
+  pausedCount: n => `${n} paused`,
+  stalledCount: n => `${n} need${n === 1 ? 's' : ''} you`,
   failed: n => `${n} failed`,
+  // When a call to the Go side fails, by binding.
+  couldNot: {
+    Stop: 'Couldn\u2019t stop the task',
+    Pause: 'Couldn\u2019t pause the task',
+    Resume: 'Couldn\u2019t resume the task',
+    Retry: 'Couldn\u2019t retry the task',
+    Dismiss: 'Couldn\u2019t dismiss the task',
+    DismissFinished: 'Couldn\u2019t clear finished tasks',
+  },
   retry: 'Retry',
   retryNow: 'Retry now',
   dismiss: 'Dismiss',
@@ -1040,6 +1095,7 @@ const words = {
   },
 };
 
+const isMac = () => /^mac|^ip(hone|ad|od)/i.test(navigator.userAgentData?.platform || navigator.platform || '');
 const taskEl = (tag, className, text) => {
   const e = document.createElement(tag);
   if (className) e.className = className;
@@ -1057,6 +1113,21 @@ const emitTask = (node, detail) => {
   at.dispatchEvent(new CustomEvent('wk-task', { bubbles: true, detail }));
 };
 
+// Makes parent's children exactly nodes, in order, moving only what is out
+// of place, so the element with focus keeps it (a removed and reinserted
+// element loses focus). If focus was lost all the same, it goes back.
+function syncChildren(parent, nodes) {
+  const had = document.activeElement;
+  const want = new Set(nodes);
+  for (const n of [...parent.childNodes]) if (!want.has(n)) n.remove();
+  let ref = parent.firstChild;
+  for (const n of nodes) {
+    if (n === ref) { ref = ref.nextSibling; continue; }
+    parent.insertBefore(n, ref);
+  }
+  if (had && had !== document.activeElement && parent.contains(had)) had.focus({ preventScroll: true });
+}
+
 // ---- Busy controls -------------------------------------------------------
 // A control may be busy for more than one task; it goes back to rest, with
 // the aria-disabled it had before (a locked control stays locked), when
@@ -1068,6 +1139,23 @@ function makeBusy(control) {
   busy.set(control, { count: 1, aria: control.getAttribute('aria-disabled'), data: control.getAttribute('data-busy') });
   control.setAttribute('aria-disabled', 'true');
   control.setAttribute('data-busy', '');
+}
+// The spinner in a button, shared like the busy state: it goes when the
+// last task that showed it ends.
+const spinners = new WeakMap();
+function addSpinner(button) {
+  const sp = spinners.get(button);
+  if (sp) { sp.count++; return; }
+  const el = taskEl('span', 'wk-spinner');
+  el.setAttribute('aria-hidden', 'true');
+  button.prepend(el);
+  spinners.set(button, { count: 1, el });
+}
+function dropSpinner(button) {
+  const sp = spinners.get(button);
+  if (!sp || --sp.count > 0) return;
+  spinners.delete(button);
+  sp.el.remove();
 }
 function release(control) {
   const b = busy.get(control);
@@ -1086,6 +1174,10 @@ let remote = [];               // the latest Go snapshots
 let connection = null;         // { bindings, confirmStop, unsubscribe, seen }
 const followers = new Map();   // id -> Set<Task>
 const watchers = new Set();
+const summaries = new Set();   // summary buttons in use
+let list = null;               // the task list, once built
+// Whether the window has somewhere to find a failed task: a task list.
+const hasTaskList = () => Boolean(list) || [...summaries].some(b => b.isConnected);
 let notifyQueued = false;
 function changed() {
   if (notifyQueued) return;
@@ -1185,6 +1277,8 @@ class Task {
   // them (follow).
   quiet({ restart = true } = {}) {
     if (this.external || this.ended) return;
+    // A task in parts is as quiet as its parts: each has its own clocks.
+    if (this.parts.length) { this.timer('waiting', null); this.timer('timeout', null); return; }
     const counting = this.state === 'running' || this.state === 'waiting';
     const timeout = this.ownTimeout === undefined ? (this.spec.timeout ?? timings.timeout) : this.ownTimeout;
     this.timer('waiting', counting && this.state === 'running' ? timings.waiting : null, () => this.kitWaiting());
@@ -1225,13 +1319,7 @@ class Task {
     if (this.target) this.draw();
     else {
       const button = this.controls.find(c => c.classList.contains('wk-button'));
-      if (button && !button.querySelector(':scope > .wk-spinner')) {
-        const s = taskEl('span', 'wk-spinner');
-        s.setAttribute('aria-hidden', 'true');
-        s.dataset.wkTask = this.id;
-        button.prepend(s);
-        this.spinner = s;
-      }
+      if (button) { addSpinner(button); this.spinner = button; }
     }
     if (this.bar) {
       this.bar.hidden = false;
@@ -1255,12 +1343,20 @@ class Task {
     if (!t) return;
     if (this.shownAt == null && (this.state === 'running' || this.state === 'waiting')) return;
     if (!this.saved) this.saved = [...t.childNodes].filter(n => n !== this.stopEl);
+    // One line, changed in place; the Stop button stays where it is, so
+    // focus on it survives every redraw.
+    if (!this.line) {
+      this.line = taskEl('span', 'wk-task-state');
+      this.lineDot = dot(null);
+      this.lineWords = taskEl('span', 'wk-task-words');
+    }
     const tone = this.state === 'running' ? 'working' : this.state === 'stalled' || this.state === 'failed' ? 'attention' : null;
-    const line = taskEl('span', 'wk-task-state');
-    line.dataset.state = this.state;
-    if (this.state !== 'queued' && !(FINAL.has(this.state) && this.state !== 'failed')) line.append(dot(tone));
-    line.append(taskEl('span', 'wk-task-words', this.text));
-    t.replaceChildren(line, ...(this.stopEl && ACTIVE.has(this.state) ? [this.stopEl] : []));
+    this.line.dataset.state = this.state;
+    if (tone) this.lineDot.dataset.tone = tone; else delete this.lineDot.dataset.tone;
+    const withDot = this.state !== 'queued' && !(FINAL.has(this.state) && this.state !== 'failed');
+    syncChildren(this.line, withDot ? [this.lineDot, this.lineWords] : [this.lineWords]);
+    if (this.lineWords.textContent !== this.text) this.lineWords.textContent = this.text;
+    syncChildren(t, [this.line, ...(this.stopEl && ACTIVE.has(this.state) ? [this.stopEl] : [])]);
   }
 
   // ---- Stop, Cancel, Pause ----
@@ -1344,14 +1440,16 @@ class Task {
     const esc = this.spec.esc ?? (this.stopMode === 'cancel' && this.expect !== 'long');
     if (!esc || this.external) return;
     this.keys = new AbortController();
+    // In the bubble phase, after the page: an Escape a menu, a tooltip or
+    // the app already used (and prevented) is left alone. ⌘. only on macOS.
     window.addEventListener('keydown', e => {
-      const key = (e.key === 'Escape' && !e.ctrlKey && !e.metaKey && !e.altKey) || (e.metaKey && e.key === '.');
-      if (!key || e.defaultPrevented || e.isComposing || !this.inScope()) return;
+      const key = (e.key === 'Escape' && !e.ctrlKey && !e.metaKey && !e.altKey) || (e.metaKey && e.key === '.' && isMac());
+      if (!key || e.defaultPrevented || e.isComposing || this.stopping || !this.inScope()) return;
       // Prevented, the key doesn't close the Sheet it's in either.
       e.preventDefault();
       e.stopPropagation();
       this.stop();
-    }, { capture: true, signal: this.keys.signal });
+    }, { signal: this.keys.signal });
   }
 
   // ---- reports from the app ----
@@ -1484,11 +1582,17 @@ class Task {
     this.words = String(o.words);
     if (o.error !== undefined) this.error = o.error;
     if (o.retry) this.retryFn = o.retry;
-    this.spinner?.remove();
+    if (this.spinner) dropSpinner(this.spinner);
     this.spinner = null;
     for (const c of this.controls) release(c);
     this.stopEl?.remove();
-    if (stopHadFocus) [...this.controls, this.target?.closest('tr, [role="row"], .wk-list-row')].some(n => { n?.focus?.({ preventScroll: true }); return n && document.activeElement === n; });
+    if (stopHadFocus) {
+      // Focus goes to the control, else the row (or the target), made
+      // focusable for it if it isn't; never to the page.
+      const row = this.target?.closest('tr, [role="row"], .wk-list-row') || this.target;
+      const moved = [...this.controls, row].some(n => { n?.focus?.({ preventScroll: true }); return n && document.activeElement === n; });
+      if (!moved && row) { if (!row.hasAttribute('tabindex')) row.tabIndex = -1; row.focus({ preventScroll: true }); }
+    }
     if (this.bar) this.bar.hidden = true;
     const t = this.target;
     if (t) {
@@ -1511,7 +1615,7 @@ class Task {
     const announced = !this.parent && !o.quiet && (state !== 'cancelled' || this.shownAt != null);
     if (announced) {
       let text = this.words;
-      if (state === 'failed' && !assertive && this.retryFn && watchers.size) text = `${text}${/[.!?]$/.test(text) ? '' : '.'} ${words.retryInTasks}`;
+      if (state === 'failed' && !assertive && this.retryFn && hasTaskList()) text = `${text}${/[.!?]$/.test(text) ? '' : '.'} ${words.retryInTasks}`;
       announce(text, { assertive });
     }
     const { words: _, quiet: __, ...payload } = o;
@@ -1528,6 +1632,7 @@ class Task {
     if (this.ended) throw new Error('wkTask: part() after the task ended');
     const p = new Task({ timeout: this.spec.timeout, stop: this.stopMode, esc: false, ...spec, id: spec.id ?? `${this.id}-${this.parts.length + 1}` }, { parent: this, listed: false });
     this.parts.push(p);
+    this.quiet();
     this.partChanged();
     return p;
   }
@@ -1537,7 +1642,14 @@ class Task {
     if (this.progressState.total === undefined) this.partProgress = true;
     if (this.partProgress) { this.progressState.done = ended.length; this.progressState.total = this.parts.length; this.progressState.unit = this.spec.unit || ''; this.moveBar(); this.draw(); }
     changed();
-    if (ended.length < this.parts.length) return;
+    if (ended.length < this.parts.length || this.closing) return;
+    // Settle in a microtask: a part that ends at once, before the next is
+    // added, doesn't end the task.
+    this.closing = true;
+    queueMicrotask(() => { this.closing = false; this.settleParts(); });
+  }
+  settleParts() {
+    if (this.ended || this.parts.some(p => !p.ended)) return;
     const count = s => this.parts.filter(p => p.state === s).length;
     const n = this.parts.length, finished = count('done'), failed = count('failed');
     const summary = (this.spec.summary || words.summary)({ finished, failed, stopped: count('stopped'), cancelled: count('cancelled'), total: n, unit: this.spec.unit || '' });
@@ -1590,7 +1702,14 @@ function connect({ subscribe, bindings = {}, confirmStop } = {}) {
   const off = subscribe(payload => { conn.seen = true; take(payload?.tasks); });
   conn.disconnect = () => {
     if (typeof off === 'function') off();
-    if (connection === conn) { connection = null; remote = []; changed(); }
+    if (connection !== conn) return;
+    connection = null;
+    remote = [];
+    // Followed tasks end quietly: their controls go back to rest.
+    const all = [...followers.values()].flatMap(set => [...set]);
+    followers.clear();
+    for (const f of all) f.end();
+    changed();
   };
   connection = conn;
   // A reloaded window asks for the tasks as they are, unless an event has
@@ -1599,7 +1718,12 @@ function connect({ subscribe, bindings = {}, confirmStop } = {}) {
   return conn.disconnect;
 }
 
-const call = (name, ...args) => Promise.resolve().then(() => connection?.bindings?.[name]?.(...args)).catch(() => {});
+// Calls a binding. A failure is said in words (the raw error stays out):
+// assertive while focus is in the task list, where the person pressed it.
+const call = (name, ...args) => Promise.resolve().then(() => connection?.bindings?.[name]?.(...args)).catch(() => {
+  const said = words.couldNot?.[name];
+  if (said) announce(said, { assertive: Boolean(list?.host.open && list.dialog.contains(document.activeElement)) });
+});
 
 async function stopRemote(snapshot) {
   if (snapshot.stop === 'stop-asks' && connection?.confirmStop && !(await connection.confirmStop(snapshot))) return false;
@@ -1616,6 +1740,7 @@ function follow(id, { control, target, bar, scope, stopIn, expect } = {}) {
   id = String(id);
   let task = null, last = null;
   const f = {
+    end() { if (task && !task.ended) task.finish('cancelled', { words: words.cancelled, quiet: true }); },
     apply(snap) {
       if (!snap) {
         // Gone from the list (dismissed): put things back, quietly.
@@ -1650,12 +1775,12 @@ function follow(id, { control, target, bar, scope, stopIn, expect } = {}) {
       }
       switch (snap.state) {
         case 'queued': if (task.state !== 'queued') task.queued(snap.words); break;
-        case 'running': task.running(snap.words); break;
+        case 'running': if (task.state === 'paused') task.resumed(snap.words); else task.running(snap.words); break;
         case 'waiting': if (task.state !== 'waiting' || task.words !== snap.words) task.waiting(snap.words); break;
         case 'paused': if (task.state !== 'paused' || task.words !== snap.words) task.paused(snap.words); break;
         case 'stalled': if (task.state !== 'stalled' || task.words !== snap.words) task.stalled(snap.words); break;
         case 'done': task.finish('done', { words: snap.words, quiet }); break;
-        case 'failed': task.finish('failed', { words: snap.error?.userMsg || snap.words, error: snap.error, retry: () => call('Retry', id), quiet }); break;
+        case 'failed': task.finish('failed', { words: snap.words || snap.error?.userMsg || words.failedState, error: snap.error, ...(snap.retry !== 'unsafe' ? { retry: () => call('Retry', id) } : {}), quiet }); break;
         case 'cancelled': task.finish('cancelled', { words: words.cancelled, quiet }); break;
         case 'stopped': task.finish('stopped', { words: snap.words || words.stopped, quiet }); break;
       }
@@ -1683,13 +1808,15 @@ function follow(id, { control, target, bar, scope, stopIn, expect } = {}) {
 }
 
 // ---- The summary and the task list -----------------------------------------
-function counts(list = entries()) {
-  const top = list.filter(s => !s.parent);
-  return {
-    running: top.filter(s => ACTIVE.has(s.state)).length,
-    failed: top.filter(s => s.state === 'failed').length,
-    attention: top.some(s => s.state === 'failed' || s.state === 'stalled'),
-  };
+// Top-level tasks by what the person can tell apart: running (Waiting
+// counts: it may finish by itself), queued, paused, stalled and failed.
+function counts(all = entries()) {
+  const top = all.filter(s => !s.parent);
+  const n = (...states) => top.filter(s => states.includes(s.state)).length;
+  const c = { running: n('running', 'waiting'), queued: n('queued'), paused: n('paused'), stalled: n('stalled'), failed: n('failed') };
+  c.active = c.running + c.queued + c.paused + c.stalled;
+  c.attention = c.failed > 0 || c.stalled > 0;
+  return c;
 }
 
 // The summary shows while two or more tasks run, or any has failed: one
@@ -1708,20 +1835,29 @@ function summary() {
     const c = counts();
     // It stays while the list it opened is open, or while it has focus,
     // so focus never goes with it; it hides once focus leaves.
-    b.hidden = !(c.running >= 2 || c.failed > 0 || list?.host.open || document.activeElement === b);
-    text.textContent = [c.running ? words.running(c.running) : '', c.failed ? words.failed(c.failed) : ''].filter(Boolean).join(' · ');
+    if (!b.isConnected && b.wasConnected) { dispose(); return; }
+    if (b.isConnected) b.wasConnected = true;
+    b.hidden = !(c.active >= 2 || c.attention || list?.host.open || document.activeElement === b);
+    text.textContent = [
+      c.running ? words.running(c.running) : '', c.queued ? words.queuedCount(c.queued) : '', c.paused ? words.pausedCount(c.paused) : '',
+      c.stalled ? words.stalledCount(c.stalled) : '', c.failed ? words.failed(c.failed) : '',
+    ].filter(Boolean).join(' · ');
     if (c.attention) d.dataset.tone = 'attention';
     else if (c.running) d.dataset.tone = 'working';
     else delete d.dataset.tone;
   };
+  // dispose(): stop updating it. A summary taken out of the page stops by
+  // itself at the next change; make a new one to put back.
+  const dispose = () => { watchers.delete(draw); summaries.delete(b); };
+  b.dispose = dispose;
   watchers.add(draw);
+  summaries.add(b);
   draw();
   b.addEventListener('click', () => showList({ opener: b }));
   b.addEventListener('focusout', draw);
   return b;
 }
 
-let list = null;
 function buildList() {
   const host = document.createElement('wk-dialog');
   host.className = 'wk-task-list-host';
@@ -1801,7 +1937,7 @@ function rowActions(s) {
 function rowText(s) {
   const count = s.total > 0 ? words.count(s.done, s.total, s.unit) : '';
   const stage = [s.steps ? words.step(s.step, s.steps) : '', s.stage].filter(Boolean).join(' · ');
-  const said = s.state === 'failed' ? s.error?.userMsg || s.words : s.words;
+  const said = s.state === 'failed' ? s.words || s.error?.userMsg || '' : s.words;
   const extra = s.nextTry && s.state === 'waiting' ? words.nextTry(s.nextTry) : s.stop === 'unsafe' && ACTIVE.has(s.state) ? words.unsafe : '';
   const title = s.subject || said;
   const line = [s.subject ? said : '', ACTIVE.has(s.state) ? stage : '', ACTIVE.has(s.state) ? count : '', extra].filter(Boolean).join(' · ');
@@ -1834,7 +1970,7 @@ function drawRow(li, s) {
     keep.delete(action);
     return b;
   });
-  actions.replaceChildren(...next);
+  syncChildren(actions, next);
   if (had && [...keep.values()].includes(had)) (next[0] || li).focus({ preventScroll: true });
 }
 
@@ -1866,7 +2002,7 @@ function drawList() {
       } else sub?.remove();
       return li;
     });
-    ul.replaceChildren(...lis);
+    syncChildren(ul, lis);
   };
   // A row that goes while focus is in it hands focus to the next row.
   const staying = new Set(all.map(s => s.id));

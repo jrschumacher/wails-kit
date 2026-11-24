@@ -2994,8 +2994,12 @@ try {
     await page.keyboard.press('Escape');
     assert.equal(await page.evaluate(() => c1.state), 'running', 'focus outside the scope: Esc does nothing');
     await page.focus('#t-check');
+    // ⌘. is macOS's: elsewhere Meta+. is the system's (the emoji picker on Windows).
     await page.keyboard.press('Meta+Period');
-    assert.deepEqual(await page.evaluate(() => [c1.state, c2.state]), ['cancelled', 'running'], '⌘. cancels; a Stop task is not cancelled by a key');
+    assert.deepEqual(await page.evaluate(() => [c1.state, c2.state]), ['running', 'running'], 'Meta+. does nothing off macOS');
+    await page.evaluate(() => Object.defineProperty(navigator, 'userAgentData', { get: () => ({ platform: 'macOS' }), configurable: true }));
+    await page.keyboard.press('Meta+Period');
+    assert.deepEqual(await page.evaluate(() => [c1.state, c2.state]), ['cancelled', 'running'], '⌘. cancels on macOS; a Stop task is not cancelled by a key');
     await page.evaluate(() => { c2.cancelled(); });
     await page.evaluate(() => { document.getElementById('t-sheet').show(); window.c3 = kit.wkTask({ control: document.getElementById('t-add'), words: 'Adding', stop: 'cancel' }); });
     await page.focus('#t-in');
@@ -3048,7 +3052,8 @@ try {
     assert.deepEqual(await page.evaluate(() => [window.calls.join(), f.state]), ['Stop:t1', 'running'], 'Stop asks the Go side; its snapshot ends the task');
     await page.evaluate(() => send([window.initial[0], snap({ state: 'waiting', words: 'Waiting for GitHub…', done: 3, total: 10, unit: 'files' })]));
     assert.equal(await page.evaluate(() => f.state), 'waiting');
-    await page.evaluate(() => send([window.initial[0], snap({ state: 'failed', words: 'Exporting', error: { code: 'x', userMsg: 'Couldn’t export the report', message: 'EIO' } })]));
+    // The app's words, not the error code's generic message.
+    await page.evaluate(() => send([window.initial[0], snap({ state: 'failed', words: 'Couldn’t export the report', error: { code: 'x', userMsg: 'Couldn’t finish this', message: 'EIO' } })]));
     await run(1000);
     assert.deepEqual(await page.evaluate(() => [f.state, document.getElementById('t-go').hasAttribute('data-busy'), document.querySelectorAll('.wk-task-stop').length]), ['failed', false, 0]);
     // An id the Go side doesn't know: asked once, then left alone.
@@ -3198,6 +3203,186 @@ try {
     assert.deepEqual(problems, []);
     await page.close();
   });
+  await check('announcer: while a modal Sheet is open the regions are inside it, so the accessibility tree still has what is said; they go back when it closes', async () => {
+    const { page, problems, run } = await openTasks();
+    const heard = async text => (await axTree(page)).some(n => String(n.name?.value ?? '').includes(text));
+    await page.evaluate(() => kit.wkTask.showList());
+    await run(100);
+    assert.equal(await page.evaluate(() => document.querySelector('.wk-task-list').contains(document.querySelector('[data-wk-announcer]'))), true);
+    await page.evaluate(() => kit.announce('Exported the report'));
+    await run(600);
+    assert.equal(await heard('Exported the report'), true, 'not inert under the modal');
+    await page.keyboard.press('Escape');
+    await run(100);
+    assert.equal(await page.evaluate(() => document.querySelector('[data-wk-announcer]').parentNode === document.body), true);
+    await page.evaluate(() => kit.announce('Back in the window'));
+    await run(600);
+    assert.equal(await heard('Back in the window'), true);
+    // A plain <dialog> the app opens itself: the toggle event moves them too.
+    await page.evaluate(() => { const d = document.createElement('dialog'); d.id = 't-plain'; d.innerHTML = '<p>Plain</p>'; document.body.append(d); d.showModal(); });
+    await run(10);
+    await page.evaluate(() => kit.announce('Said in a plain dialog'));
+    await run(600);
+    assert.equal(await heard('Said in a plain dialog'), true);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('wkTask: focus on a Stop button in a target, or on a task list action, survives progress redraws; a target row without a focusable control keeps focus at the end', async () => {
+    const { page, problems, run } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<div id="t-row"><span id="t-cell">Idle</span></div><button class="wk-button" type="button" id="t-two">Two</button>';
+      window.t = kit.wkTask({ target: document.getElementById('t-cell'), words: 'Copying', stop: 'stop', expect: 'long' });
+      window.t2 = kit.wkTask({ control: document.getElementById('t-two'), words: 'Syncing', stop: 'stop', expect: 'long' });
+    });
+    await run(450);
+    await page.$eval('#t-cell .wk-task-stop', b => b.focus());
+    await page.evaluate(() => { t.progress({ done: 1, total: 4, unit: 'files' }); t.setWords('Copying files'); t.progress({ done: 2, total: 4, unit: 'files', step: 1, steps: 2, stage: 'Copying' }); });
+    assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('wk-task-stop')), true, 'focus stays on Stop in the target');
+    await page.evaluate(() => kit.wkTask.showList());
+    await run(50);
+    await page.$eval('.wk-task-list li[data-id="' + await page.evaluate(() => t.id) + '"] button[data-action="stop"]', b => b.focus());
+    await page.evaluate(() => { t.progress({ done: 3, total: 4, unit: 'files', step: 2, steps: 2, stage: 'Checking' }); t2.progress({ done: 1, total: 2 }); });
+    await run(10);
+    assert.equal(await page.evaluate(() => document.activeElement?.dataset.action), 'stop', 'focus stays on the row action');
+    await page.keyboard.press('Escape');
+    await run(10);
+    // Stop in a target whose row has no focusable control: the end moves focus to the row, not the page.
+    await page.$eval('#t-cell .wk-task-stop', b => b.focus());
+    await page.evaluate(() => { t.done('Copied'); });
+    await run(600);
+    assert.equal(await page.evaluate(() => document.activeElement !== document.body && document.getElementById('t-cell').contains(document.activeElement) || document.activeElement === document.getElementById('t-cell')), true);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('wkTask: a shared control keeps its spinner until its last task ends; a task in parts doesn\'t time out while its parts report; a part that ends at once doesn\'t end the task', async () => {
+    const { page, problems, run } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<button class="wk-button" type="button" id="t-go">Go</button><button class="wk-button" type="button" id="t-run">Run</button>';
+      window.a = kit.wkTask({ control: document.getElementById('t-go'), words: 'A' });
+      window.b = kit.wkTask({ control: document.getElementById('t-go'), words: 'B' });
+    });
+    await run(450);
+    await page.evaluate(() => { a.done('A done'); });
+    await run(600);
+    const shared = () => page.evaluate(() => { const g = document.getElementById('t-go'); return [g.getAttribute('aria-disabled'), g.querySelectorAll('.wk-spinner').length]; });
+    assert.deepEqual(await shared(), ['true', 1], 'B still runs: busy, one spinner');
+    await page.evaluate(() => { b.done('B done'); });
+    await run(600);
+    assert.deepEqual(await shared(), [null, 0]);
+    await page.evaluate(() => {
+      window.whole = kit.wkTask({ control: document.getElementById('t-run'), words: 'Running reviewers', unit: 'reviewers' });
+      window.ps = [whole.part({ words: 'A' }), whole.part({ words: 'B' })];
+    });
+    for (let i = 0; i < 15; i++) { await run(10_000); await page.evaluate(n => { ps[0].progress({ done: n, total: 20 }); ps[1].progress({ done: n, total: 20 }); }, i); }
+    assert.equal(await page.evaluate(() => whole.state), 'running', '150 s of progress in its parts');
+    const sync = await page.evaluate(() => {
+      const t = kit.wkTask({ words: 'Removing', unit: 'items' });
+      const p1 = t.part({ words: 'a' });
+      p1.done('a removed');
+      let threw = null;
+      try { t.part({ words: 'b' }).done('b removed'); } catch (e) { threw = e.message; }
+      return new Promise(res => queueMicrotask(() => queueMicrotask(() => res([threw, t.state]))));
+    });
+    assert.deepEqual(sync, [null, 'done']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('wkTask: Esc goes to an open menu inside the scope first; Esc while a Stop is under way is not swallowed', async () => {
+    const { page, problems, run } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<wk-dialog id="t-sheet"><dialog class="wk-dialog wk-dialog--sheet"><h2 class="wk-dialog-title">Sheet</h2>'
+        + '<wk-menu id="t-menu"><button class="wk-button" type="button" id="t-more">More</button><div role="menu" class="wk-menu" hidden><button role="menuitem" type="button">One</button></div></wk-menu>'
+        + '<button class="wk-button" type="button" id="t-chk">Check</button></dialog></wk-dialog>';
+      document.getElementById('t-sheet').show();
+      window.t = kit.wkTask({ control: document.getElementById('t-chk'), words: 'Checking', stop: 'cancel', onStop: () => new Promise(() => {}) });
+    });
+    await page.$eval('#t-more', b => { b.focus(); b.click(); });
+    await run(10);
+    await page.keyboard.press('Escape');
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => [t.state, document.getElementById('t-menu').open, document.querySelector('#t-sheet dialog').open]), ['running', false, true], 'the menu closes; the work and the Sheet stay');
+    // First Esc: Stop starts (onStop never settles); the second isn't held by it.
+    await page.keyboard.press('Escape');
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => [t.state, document.querySelector('#t-sheet dialog').open]), ['running', true]);
+    await page.keyboard.press('Escape');
+    await run(10);
+    assert.equal(await page.evaluate(() => document.querySelector('#t-sheet dialog').open), false);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('wkTask.follow: a resumed task reads Pause again and is announced; an unsafe failure has no Retry hint; disconnect() puts followed controls back; a failed binding is said in words', async () => {
+    const { page, problems, run, said } = await openTasks();
+    await page.evaluate(() => { document.getElementById('tbox').innerHTML = '<button class="wk-button" type="button" id="t-go">Export</button><button class="wk-button" type="button" id="t-two">Two</button>'; });
+    await fakeTasks(page);
+    await page.evaluate(() => {
+      window.sum = kit.wkTask.summary(); document.getElementById('tbox').append(sum);
+      send([snap({ stop: 'pause' })]);
+      window.f = kit.wkTask.follow('t1', { control: document.getElementById('t-go'), expect: 'long' });
+    });
+    await run(500);
+    await page.evaluate(() => send([snap({ stop: 'pause', state: 'paused', words: 'Paused · 3 of 9' })]));
+    await run(10);
+    assert.equal(await page.evaluate(() => document.querySelector('.wk-task-stop').textContent), 'Resume');
+    await run(600);
+    await said();
+    await page.evaluate(() => send([snap({ stop: 'pause', state: 'running', words: 'Exporting' })]));
+    await run(600);
+    assert.equal(await page.evaluate(() => [f.state, document.querySelector('.wk-task-stop').textContent].join()), 'running,Pause');
+    assert.deepEqual(await said(), [['polite', 'Exporting']]);
+    // An unsafe failure: no Retry, so no "Retry is in Tasks."
+    await page.evaluate(() => send([snap({ state: 'failed', words: 'Couldn’t confirm the comment was posted', retry: 'unsafe', error: { code: 'x', userMsg: 'x', message: 'x' } })]));
+    await run(600);
+    assert.deepEqual(await said(), [['polite', 'Couldn’t confirm the comment was posted']]);
+    // disconnect() ends what it follows, quietly.
+    await page.evaluate(() => { send([snap({ id: 't2' })]); window.f2 = kit.wkTask.follow('t2', { control: document.getElementById('t-two') }); });
+    await run(1000);
+    await said();
+    await page.evaluate(() => disconnect());
+    await run(600);
+    assert.deepEqual(await page.evaluate(() => { const b = document.getElementById('t-two'); return [b.getAttribute('aria-disabled'), b.querySelectorAll('.wk-spinner').length, f2.state]; }), [null, 0, 'cancelled']);
+    assert.deepEqual(await said(), []);
+    // A binding that fails is said in words.
+    await fakeTasks(page);
+    await page.evaluate(() => { window.bindings.Stop = async () => { throw new Error('boom'); }; send([snap({ id: 't3', subject: 'a' }), snap({ id: 't4', subject: 'b' })]); kit.wkTask.showList(); });
+    await run(10);
+    await page.$eval('.wk-task-list li[data-id="t3"] button[data-action="stop"]', b => { b.focus(); b.click(); });
+    await run(600);
+    assert.deepEqual(await said(), [['assertive', 'Couldn’t stop the task']]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('task list: the summary names running, queued, paused, stalled and failed apart; it can be disposed, and stops when taken out of the page', async () => {
+    const { page, problems, run } = await openTasks();
+    await fakeTasks(page);
+    await page.evaluate(() => { window.sum = kit.wkTask.summary(); document.getElementById('tbox').append(sum); });
+    const text = () => page.evaluate(() => [sum.hidden, sum.textContent].join('|'));
+    await page.evaluate(() => send([snap({ id: 'a' }), snap({ id: 'b', state: 'paused' })]));
+    await run(10);
+    assert.equal(await text(), 'false|1 task running · 1 paused');
+    await page.evaluate(() => send([snap({ id: 'a', state: 'waiting' }), snap({ id: 'c', state: 'queued' }), snap({ id: 'd', state: 'stalled' }), snap({ id: 'e', state: 'failed' })]));
+    await run(10);
+    assert.equal(await text(), 'false|1 task running · 1 queued · 1 needs you · 1 failed');
+    await page.evaluate(() => sum.remove());
+    await page.evaluate(() => send([snap({ id: 'a' })]));
+    await run(10);
+    await page.evaluate(() => send([snap({ id: 'a' }), snap({ id: 'z' })]));
+    await run(10);
+    assert.equal(await text(), 'false|1 task running · 1 queued · 1 needs you · 1 failed', 'out of the page: it stopped updating');
+    assert.equal(await page.evaluate(() => typeof sum.dispose), 'function');
+    // A summary made but never shown is no task list: a failure doesn't send the person to one.
+    await page.evaluate(() => { kit.wkTask.summary(); kit.wkTask({ words: 'Saving' }).fail({ words: 'Couldn\u2019t save', retry: () => {} }); });
+    await run(600);
+    assert.deepEqual(await page.evaluate(() => window.said.splice(0)), [['polite', 'Couldn\u2019t save']]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
 
 if (failures.length) {
