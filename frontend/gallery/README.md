@@ -32,6 +32,7 @@ dependencies; `npm ci` is only for the tests.
   long with Stop, paused, waiting, stalled, queued, failed, cancelled, stopped,
   work in parts), the task list and its summary, toasts with and without Undo,
   copy feedback (and a copy that fails), skeleton rows and a loading chart.
+  Leaving a page cancels, quietly, whatever its "Try it" buttons started.
 - **`#/all`**, every page one below the other, for visual review. The kit's own
   review pages (`ui/demo/index.html` and the editor's and diagram's demo pages)
   are linked from the overview.
@@ -74,7 +75,9 @@ serves itself (`@wails-kit/ui` refuses any path outside the package). Rather tha
 widen one package's server, the gallery has its own: `serve.mjs` serves
 `/ui/`, `/editor/` and `/diagram/` from the packages' folders, `/gallery/`
 itself, and `/design-system/<Name>/README.md` from `docs/design-system/`, and
-refuses everything else (`..`, `node_modules/`, any other path). The editors
+refuses everything else: `..`, dotfiles, `node_modules/`, a file whose real
+path (after symlinks) leaves its folder, and any other path. It answers only
+requests whose `Host` is `127.0.0.1` or `localhost` on its port. The editors
 and diagrams load from the packages' prebuilt `dist/` modules, as an app vendors
 them.
 

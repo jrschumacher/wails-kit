@@ -375,6 +375,13 @@ try {
     for (const s of ['done', 'long', 'parts', 'queued']) await page.click(`tr[data-scenario="${s}"] [data-gallery-try]`);
     await until(page, () => document.querySelector('tr[data-scenario="long"] .wk-task-state'));
     assert.ok(await page.evaluate(() => window.galleryPending) > 0);
+    // Everything the announcer is given from here on.
+    await page.evaluate(() => {
+      window.said = [];
+      const regions = () => document.querySelectorAll('[data-wk-announcer] [aria-live], [data-wk-announcer][aria-live]');
+      new MutationObserver(() => { for (const r of regions()) if (r.textContent.trim()) window.said.push(r.textContent.trim()); })
+        .observe(document.documentElement, { subtree: true, childList: true, characterData: true });
+    });
     await go(page, '#/task-list');
     await settled(page);
     await until(page, () => document.querySelector('#g-tasks-footer .wk-task-summary')?.hidden === true);
@@ -382,6 +389,9 @@ try {
     await until(page, () => document.querySelector('dialog[open]'));
     assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('dialog[open] .wk-task-row')].map(r => r.textContent)), []);
     await page.keyboard.press('Escape');
+    // The cancel was the gallery's, not the person's: nothing says "Cancelled".
+    await page.evaluate(() => new Promise(r => setTimeout(r, 2600)));
+    assert.deepEqual(await page.evaluate(() => window.said.filter(w => /cancel/i.test(w))), []);
     assert.deepEqual(problems, []);
     await page.close();
   });

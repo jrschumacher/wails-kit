@@ -65,7 +65,7 @@ export default [
   },
   {
     id: 'markdown-editor', title: 'Markdown editor', group: 'editors',
-    intro: '<code>wkMarkdownEditor(spec)</code>: a comment box with Write and Preview tabs, a toolbar, a count and its actions. Mod-B, Mod-I, Mod-E and Mod-K format; Mod-Enter submits; Escape cancels. <code>renderMarkdown()</code> draws a posted comment with no raw HTML, safe links and no remote images.',
+    intro: '<code>wkMarkdownEditor(spec)</code>: a comment box with Write and Preview tabs, a toolbar, a count and its actions. Mod-B, Mod-I, Mod-E and Mod-K format; Mod-Enter submits; Escape cancels. Its busy submit is a <code>wkTask</code> (through <code>document.wkTask</code>): "Sending…" from 400 ms, then "Sent"; this one\'s stand-in server takes 1.2 s. <code>renderMarkdown()</code> draws a posted comment with no raw HTML, safe links and no remote images.',
     examples: [{
       title: 'A comment box',
       async build(host) {
@@ -103,7 +103,7 @@ export default [
   },
   {
     id: 'richtext-editor', title: 'Rich-text editor', group: 'editors',
-    intro: '<code>wkRichTextEditor(spec)</code> on ProseMirror, reading and writing Markdown (or HTML). Mod-B, Mod-I, Mod-E and Mod-K format; Markdown shortcuts work as you type; Mod-Enter submits; Escape cancels.',
+    intro: '<code>wkRichTextEditor(spec)</code> on ProseMirror, reading and writing Markdown (or HTML). Mod-B, Mod-I, Mod-E and Mod-K format; Markdown shortcuts work as you type; Mod-Enter submits; Escape cancels. Its busy submit is a <code>wkTask</code> too: "Sending…" from 400 ms.',
     examples: [{
       title: 'Every feature',
       async build(host) {

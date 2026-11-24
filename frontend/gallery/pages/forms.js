@@ -193,7 +193,7 @@ of text.</textarea></div>
   },
   {
     id: 'settings-window', title: 'Settings window', group: 'forms',
-    intro: '<code>&lt;wk-settings&gt;</code> drawn from a settings schema: every field type, a condition, advanced fields, a computed value and a check. A stand-in for SetValues rejects an empty name and a port under 1024; a stand-in for CheckValue accepts a folder starting with / or ~/ after 600 ms.',
+    intro: '<code>&lt;wk-settings&gt;</code> drawn from a settings schema: every field type, a condition, advanced fields, a computed value and a check. A stand-in for SetValues rejects an empty name and a port under 1024; a stand-in for CheckValue accepts a folder starting with / or ~/ after 600 ms. Each check is a <code>wkTask</code> on the field\'s line: its words with the working dot from 400 ms, and the outcome to the announcer; checks stay out of the task list.',
     examples: [{
       title: 'The window',
       html: '<div class="g-settings-window"><wk-settings id="g-settings" label="Settings"></wk-settings></div>',

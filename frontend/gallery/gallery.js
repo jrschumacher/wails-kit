@@ -217,14 +217,15 @@ async function track(promise) {
 }
 // What a drawn page's examples get. When the page goes, its waits settle at
 // once (so a run never hangs), any wait asked for afterwards settles at once
-// too, and every task it started is cancelled, with its parts: nothing it
+// too, and every task it started is cancelled quietly, with its parts: nothing it
 // started runs on in the task list or the summary.
 function pageContext() {
   const cleanups = [];
   const waits = new Set();
   let alive = true;
   const own = handle => {
-    cleanups.push(() => handle.cancelled());
+    // Quietly: the person didn't ask for this cancel, so nothing says it.
+    cleanups.push(() => handle.cancelled({ quiet: true }));
     return new Proxy(handle, { get: (h, key) => (key === 'part' ? spec => own(h.part(spec)) : h[key]) });
   };
   return {
