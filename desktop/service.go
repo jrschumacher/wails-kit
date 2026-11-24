@@ -142,6 +142,19 @@ func WithClock(c tasks.Clock) ServiceOption {
 	}
 }
 
+// WithReaskAfter lets a quit attempt ask again when the last question has
+// gone this long without an answer: for a dialog that can be dismissed
+// without answering (a GTK dialog closed with Esc runs no button). An
+// earlier question's answer still counts when it comes. 0 (the default)
+// never asks while a question is open. Attach sets 1 min on Linux.
+func WithReaskAfter(d time.Duration) ServiceOption {
+	return func(s *Service) {
+		if d >= 0 {
+			s.reaskAfter = d
+		}
+	}
+}
+
 // WithErrorHandler receives errors from the notifier, badge and taskbar,
 // which the service otherwise ignores: none of them may stop the work.
 func WithErrorHandler(f func(error)) ServiceOption {
@@ -187,12 +200,17 @@ type Service struct {
 	nextID       int
 	sent         map[string][]string // notification ID -> task IDs
 	sentOrder    []string
-	asking       bool
+	windows      map[uint]bool // focused windows, by ID (WindowFocused)
+	asked        int           // quit questions open
+	askedAt      time.Time     // when the last one was asked
+	reaskAfter   time.Duration // a quit attempt this long after an unanswered question asks again
 	quitAllowed  bool
 	quitPending  bool
 
-	// The operating system's side, applied in order under osMu.
+	// The operating system's side, applied in order under osMu, and only
+	// once started: Wails's badge and taskbar need the running app.
 	osMu        sync.Mutex
+	started     bool
 	shownBadge  int
 	shownBar    taskbarWant
 	notifyMu    sync.Mutex
@@ -220,6 +238,7 @@ func NewService(opts ...ServiceOption) *Service {
 		focused:     true,
 		states:      map[string]tasks.State{},
 		sent:        map[string][]string{},
+		windows:     map[uint]bool{},
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -349,6 +368,9 @@ func progressOf(active []tasks.Snapshot) taskbarWant {
 func (s *Service) apply() {
 	s.osMu.Lock()
 	defer s.osMu.Unlock()
+	if !s.started {
+		return // state is kept; Start applies it
+	}
 	s.mu.Lock()
 	count, bar := s.attention, s.progress
 	if s.taskbarError {
@@ -364,25 +386,59 @@ func (s *Service) apply() {
 			err = s.badge.SetBadge(strconv.Itoa(count))
 		}
 		s.report(err)
-		s.shownBadge = count
+		if err == nil {
+			s.shownBadge = count
+		}
 	}
 	if s.taskbar != nil && bar != s.shownBar {
+		var err error
 		switch bar.state {
 		case TaskbarError:
 			// The value goes to full first: Error over Indeterminate would
 			// draw a made-up percentage.
-			s.report(s.taskbar.SetProgressValue(1, 1))
-			s.report(s.taskbar.SetProgressState(TaskbarError))
+			err = s.taskbar.SetProgressValue(1, 1)
+			if err == nil {
+				err = s.taskbar.SetProgressState(TaskbarError)
+			}
 		case TaskbarNormal:
 			if s.shownBar.state != TaskbarNormal {
-				s.report(s.taskbar.SetProgressState(TaskbarNormal))
+				err = s.taskbar.SetProgressState(TaskbarNormal)
 			}
-			s.report(s.taskbar.SetProgressValue(bar.done, bar.total))
+			if err == nil {
+				err = s.taskbar.SetProgressValue(bar.done, bar.total)
+			}
 		default:
-			s.report(s.taskbar.SetProgressState(bar.state))
+			err = s.taskbar.SetProgressState(bar.state)
 		}
-		s.shownBar = bar
+		s.report(err)
+		if err == nil {
+			s.shownBar = bar // else the next change tries again from what is shown
+		} else {
+			s.shownBar = taskbarWant{state: -1}
+		}
 	}
+}
+
+// Start lets the service reach the operating system, and draws the badge
+// and the taskbar as they stand. Until then it only records the state:
+// Wails's dock service and taskbar crash before app.Run. Attach calls it on
+// Wails's ApplicationStarted; an app without Attach calls it once its
+// Badge and Taskbar are ready.
+func (s *Service) Start() {
+	s.osMu.Lock()
+	s.started = true
+	s.osMu.Unlock()
+	s.apply()
+}
+
+// RefreshTaskbar draws the taskbar's state again on every window, for a
+// window whose taskbar button was just created. Attach calls it on each
+// window's first show.
+func (s *Service) RefreshTaskbar() {
+	s.osMu.Lock()
+	s.shownBar = taskbarWant{state: -1}
+	s.osMu.Unlock()
+	s.apply()
 }
 
 func (s *Service) report(err error) {
@@ -397,11 +453,33 @@ func (s *Service) emit(name string, data any) {
 	}
 }
 
-// SetFocused records whether any of the app's windows is focused. Attach
-// calls it from the windows' focus events. Focus clears the taskbar's
-// Error, and drops notifications not yet sent: the person is watching.
+// SetFocused records whether any of the app's windows is focused, for an
+// app that tracks focus itself. Focus clears the taskbar's Error, and drops
+// notifications not yet sent: the person is watching.
 func (s *Service) SetFocused(focused bool) {
 	s.mu.Lock()
+	s.setFocusedLocked(focused)
+	s.mu.Unlock()
+	s.apply()
+}
+
+// WindowFocused records whether one window is focused; the app is focused
+// while any window is. Attach calls it from each window's focus events,
+// with the window's own IsFocused, so events that arrive out of order
+// still leave the right answer. Closing a window passes false.
+func (s *Service) WindowFocused(id uint, focused bool) {
+	s.mu.Lock()
+	if focused {
+		s.windows[id] = true
+	} else {
+		delete(s.windows, id)
+	}
+	s.setFocusedLocked(len(s.windows) > 0)
+	s.mu.Unlock()
+	s.apply()
+}
+
+func (s *Service) setFocusedLocked(focused bool) {
 	s.focused = focused
 	if focused {
 		s.taskbarError = false
@@ -411,8 +489,6 @@ func (s *Service) SetFocused(focused bool) {
 			s.group = nil
 		}
 	}
-	s.mu.Unlock()
-	s.apply()
 }
 
 // flushNotifications sends one notification for the tasks that finished
@@ -421,7 +497,10 @@ func (s *Service) flushNotifications() {
 	s.mu.Lock()
 	group := s.pending
 	s.pending, s.group = nil, nil
-	if s.closed || s.focused || len(group) == 0 {
+	notifier := s.notifier
+	// Focus empties pending, so a non-empty group means no window was
+	// focused since these tasks ended.
+	if s.closed || notifier == nil || len(group) == 0 {
 		s.mu.Unlock()
 		return
 	}
@@ -443,18 +522,18 @@ func (s *Service) flushNotifications() {
 	if n.Title == "" {
 		n.Title = n.Body
 	}
-	s.send(n)
+	s.send(notifier, n)
 }
 
 // send asks for permission the first time a notification would help, then
 // sends it if the app may.
-func (s *Service) send(n Notification) {
+func (s *Service) send(notifier Notifier, n Notification) {
 	s.notifyMu.Lock()
 	defer s.notifyMu.Unlock()
-	ok, err := s.notifier.Authorized()
+	ok, err := notifier.Authorized()
 	if !ok && !s.askedNotify {
 		s.askedNotify = true
-		ok, err = s.notifier.RequestAuthorization()
+		ok, err = notifier.RequestAuthorization()
 	}
 	if err != nil {
 		s.report(err)
@@ -463,7 +542,7 @@ func (s *Service) send(n Notification) {
 	if !ok {
 		return // without permission, the badge and the window's words carry it
 	}
-	s.report(s.notifier.Notify(n))
+	s.report(notifier.Notify(n))
 }
 
 // SetNotifier sets the notifier after NewService, for a notifier that needs the
@@ -495,6 +574,22 @@ func (s *Service) NotificationClicked(id string) bool {
 	return true
 }
 
+// systemDark is the system's appearance for a window background: what the
+// running app says once started, else what can be read before Run (on
+// Windows, the registry), else the running app's answer, which is light
+// before Run.
+func (s *Service) systemDark(running func() bool, beforeRun func() (dark, known bool)) bool {
+	s.osMu.Lock()
+	started := s.started
+	s.osMu.Unlock()
+	if !started && beforeRun != nil {
+		if dark, known := beforeRun(); known {
+			return dark
+		}
+	}
+	return running()
+}
+
 // Running returns the number of top-level tasks that haven't finished.
 func (s *Service) Running() int {
 	s.mu.Lock()
@@ -515,8 +610,10 @@ func (s *Service) ShouldQuit() bool {
 		s.mu.Unlock()
 		return true
 	}
-	if !s.asking {
-		s.asking = true
+	now := s.clock.Now()
+	if s.asked == 0 || (s.reaskAfter > 0 && now.Sub(s.askedAt) >= s.reaskAfter) {
+		s.asked++
+		s.askedAt = now
 		q := QuitQuestion{
 			Message:      s.words.QuitMessage(s.running),
 			Detail:       s.words.QuitDetail,
@@ -531,15 +628,19 @@ func (s *Service) ShouldQuit() bool {
 	return false
 }
 
+// ask asks one quit question and applies the answer whenever it comes,
+// even after another question was asked (see WithReaskAfter).
 func (s *Service) ask(asker Asker, q QuitQuestion) {
 	choice := asker.AskQuit(q)
 	s.mu.Lock()
-	s.asking = false
+	s.asked--
 	quit, pending := false, false
-	switch choice {
-	case QuitNow:
+	switch {
+	case s.quitAllowed || s.closed:
+		// Already quitting, or closed: nothing more to do.
+	case choice == QuitNow:
 		s.quitAllowed, s.quitPending, quit = true, false, true
-	case QuitWhenDone:
+	case choice == QuitWhenDone:
 		if s.running == 0 {
 			s.quitAllowed, quit = true, true
 		} else {

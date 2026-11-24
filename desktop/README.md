@@ -59,6 +59,20 @@ app.Run()
 
 Build the app with `-tags wails` (the tag the kit's Wails adapters sit behind).
 
+The badge needs Wails's dock service registered with the app
+(`application.NewService(badge)` above): its `Startup` creates what it draws with.
+
+## What each platform gets
+
+| | macOS | Windows | Linux |
+|---|---|---|---|
+| Notifications | Yes, after permission | Yes | Yes (D-Bus) |
+| Taskbar or Dock progress | No: needs a custom Dock tile view, which Wails doesn't expose | Yes, `ITaskbarList3` (amd64 and arm64) | No standard equivalent |
+| Badge | Dock badge | Overlay icon on the taskbar button | Nothing (Wails's badge is a no-op) |
+| Quit question | Keep Running, Quit When Done, Quit | Yes or No only (Wails's MessageBox); no Quit When Done | Keep Running, Quit When Done, Quit |
+| Background before Run | Light, repainted on start and first show | The system's, read from the registry | Light, repainted on start and first show |
+| Sleep and wake | Clock-jump detection (`tasks`) | Power events | Clock-jump detection (`tasks`) |
+
 ### What Attach does
 
 `Attach(app)` wires the service to a Wails app. Call it after `application.New` and
@@ -79,6 +93,13 @@ before `app.Run`. It:
 It fills in what wasn't set with an option: the quit function (`app.Quit`), the window
 to bring forward on a notification click, the notifications' title (the app's name),
 the quit question (a Wails question dialog) and the taskbar.
+
+**Nothing touches the OS before the app runs.** Wails's dock service and taskbar crash
+when called before `app.Run`, so until Wails's `ApplicationStarted` the service only
+records the state; `Attach` then calls `Start`, which draws the badge and the taskbar
+as they stand. An app without `Attach` calls `Start` itself once its `Badge` and
+`Taskbar` are ready. On each window's first show, `Attach` repaints its background and
+draws the taskbar state on its new taskbar button (`RefreshTaskbar`).
 
 ## Notifications
 
@@ -116,14 +137,17 @@ The taskbar button shows the running work's combined progress:
 - **Indeterminate** when any of them hasn't;
 - nothing when none runs. Queued, paused and stalled work isn't drawn: **Paused** (yellow)
   is never used, so paused work shows in the window's words;
-- **Error** (red) only for a failure that needs the person (`WithNeedsPerson`) while no
-  window is focused. The value goes to full first, since Error over Indeterminate
+- **Error** (red) only for a new failure that needs the person (`WithNeedsPerson`)
+  while no window is focused. The value goes to full first, since Error over Indeterminate
   draws a made-up percentage. It clears when a window is focused, or when nothing needs
   the person any more.
 
 Wails doesn't expose `ITaskbarList3`'s progress: the adapter uses the object Wails's
 `w32` package creates and calls `SetProgressState` and `SetProgressValue` through its
-vtable, on the main thread, for every window. No cgo. macOS has no standard Dock
+vtable, on the main thread, for every window; a window that fails doesn't stop the
+others, and the failures come back joined, each with its HRESULT. A state that failed
+to draw is drawn again on the next change. No cgo. Only amd64 and arm64: 32-bit Windows
+gets no taskbar progress. macOS has no standard Dock
 progress (it needs a custom Dock tile view, which Wails doesn't expose), and Linux has
 no standard equivalent, so there is no taskbar there.
 
@@ -152,16 +176,30 @@ false and asks on another goroutine; the answer calls the quit function again. A
 quit while the question is open doesn't ask twice. Without an `Asker`, quitting is never
 held up.
 
+Closing the last window asks too, where that quits the app (`Attach` hooks each
+window's closing). An app that closes its last window itself while work may run
+checks first: `if desk.ShouldQuit() { w.Close() }`; when the answer is Quit, the quit
+function runs and closes it.
+
 Wails's question dialog on Windows is a MessageBox with Yes and No only, so there it
 asks "Quit while 2 tasks are running?" with **Yes** (quit) and **No** (keep running, the
 default), without Quit When Done. An app that wants all three choices on Windows sets
-its own `Asker` (`WithAsker`), such as a sheet in the window. A Linux (GTK) dialog closed
-with Esc runs no button, so it counts as Keep Running after a minute.
+its own `Asker` (`WithAsker`), such as a sheet in the window.
+
+A Linux (GTK) dialog closed with Esc runs no button, and Wails can't close or query a
+dialog. So on Linux the question stays open as far as the service knows: a quit within a
+minute doesn't ask again, and one after a minute does (`WithReaskAfter`, which `Attach`
+sets on Linux). An answer from an earlier dialog still counts whenever it comes; once
+the app is quitting, later answers do nothing.
 
 ## Launch background
 
 `desk.WindowBackground(app)` is the theme's `--wk-color-bg` for the current appearance,
-for a new window's `BackgroundColour`, so a dark launch doesn't flash white. `Attach`
+for a new window's `BackgroundColour`, so a dark launch doesn't flash white. Before
+`app.Run`, Wails can't tell the system's appearance (it answers light): on Windows the
+service reads it from the registry (`AppsUseLightTheme`); on macOS and Linux a window
+made before Run opens in the light `bg` and is repainted when the app starts and when
+it first shows. `Attach`
 repaints every window when the system appearance changes. The defaults are the kit's
 own (`#fcfcfb` and `#181a1f`, checked against `tokens.css` by a test); an app with its
 own theme passes its values:
@@ -196,6 +234,7 @@ lines, outlines and secondary text under `prefers-contrast: more`, live.
 | `WithGroupWindow(d)` | 1 s | How long to wait for other tasks to end with one, to share a notification |
 | `WithBackground(light, dark)` | the kit's `bg` | The window background in each appearance |
 | `WithClock(c)` | real clock | The tasks package's `Clock`; tests inject a fake |
+| `WithReaskAfter(d)` | 0 (Linux: 1 min, from `Attach`) | Ask again when a quit comes this long after an unanswered question |
 | `WithErrorHandler(f)` | ignore | Errors from the notifier, badge and taskbar, which never stop the work |
 
 ## Methods
@@ -205,7 +244,10 @@ lines, outlines and secondary text under `prefers-contrast: more`, live.
 | `ShouldQuit() bool` | For `application.Options.ShouldQuit`; see [Quitting while work runs](#quitting-while-work-runs) |
 | `QuitPending()`, `CancelQuit()` | Whether Quit When Done is pending; take it back |
 | `Running() int` | Top-level tasks not finished |
-| `SetFocused(bool)` | Whether any window is focused (`Attach` calls it) |
+| `Start()` | Lets the service reach the OS and draws the current state (`Attach` calls it on `ApplicationStarted`) |
+| `RefreshTaskbar()` | Draws the taskbar state again, for a new taskbar button (`Attach` calls it on a window's first show) |
+| `WindowFocused(id, bool)` | One window's focus; the app is focused while any window is (`Attach` calls it, asking the window itself so out-of-order events settle right) |
+| `SetFocused(bool)` | Whether any window is focused, for an app that tracks focus itself |
 | `NotificationClicked(id) bool` | Handles a click on one of its notifications; false for one it didn't send |
 | `SetNotifier(n)` | Sets the notifier after `NewService` |
 | `Background(systemDark) Colour`, `SetAppearance(a)` | The window background for an appearance; the app's own light or dark setting |

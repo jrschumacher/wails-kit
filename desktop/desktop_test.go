@@ -108,6 +108,7 @@ func newHarness(t *testing.T, opts ...ServiceOption) *harness {
 		WithNotifier(h.notify), WithBadge(h.os), WithTaskbar(h.os),
 	}
 	h.desk = NewService(append(base, opts...)...)
+	h.desk.Start()
 	t.Cleanup(func() { h.desk.Close(); h.tasks.Close() })
 	return h
 }
@@ -697,4 +698,194 @@ func TestCloseStopsFollowing(t *testing.T) {
 			t.Fatal("badge set after Close")
 		}
 	}
+}
+
+// ---- Review fixes ----
+
+func TestNothingTouchesTheOSBeforeStart(t *testing.T) {
+	clock := newFakeClock()
+	em := events.NewEmitter(events.NewMemoryEmitter())
+	ts := tasks.NewService(tasks.WithEmitter(em), tasks.WithClock(clock), tasks.WithTimeout(tasks.NoTimeout),
+		tasks.WithWaitingAfter(tasks.NoTimeout), tasks.WithWakeDetection(0, 0), tasks.WithProgressInterval(0))
+	defer ts.Close()
+	failed, _ := ts.Add(tasks.Spec{ID: "early"})
+	failed.Fail(stderrors.New("x"), "Couldn't") // before the service exists: read by WithTasks
+	osFake := &fakeOS{}
+	d := NewService(WithEmitter(em), WithTasks(ts), WithClock(clock), WithBadge(osFake), WithTaskbar(osFake))
+	defer d.Close()
+	d.SetFocused(false)
+	k, _ := ts.Add(tasks.Spec{ID: "late"})
+	k.Progress(tasks.Progress{Done: 1, Total: 2})
+	d.RefreshTaskbar()
+	if got := osFake.take(); got != nil {
+		t.Fatalf("touched the OS before Start: %q", got)
+	}
+	d.Start()
+	want := []string{"badge 1", "state normal", "value 1/2"}
+	if got := osFake.take(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("on Start: %q, want %q", got, want)
+	}
+}
+
+func TestSystemDarkBeforeRun(t *testing.T) {
+	running := func(dark bool) func() bool { return func() bool { return dark } }
+	before := func(dark, known bool) func() (bool, bool) { return func() (bool, bool) { return dark, known } }
+	d := NewService()
+	if !d.systemDark(running(false), before(true, true)) {
+		t.Fatal("before Run: the registry's dark is ignored for Wails's light")
+	}
+	if d.systemDark(running(false), before(true, false)) {
+		t.Fatal("before Run with nothing known: want the running answer")
+	}
+	d.Start()
+	if d.systemDark(running(false), before(true, true)) {
+		t.Fatal("after Start: the running app's answer wins")
+	}
+	if got := d.Background(d.systemDark(running(true), nil)); got != DefaultBackgroundDark {
+		t.Fatalf("Background = %s, want dark", got.Hex())
+	}
+}
+
+// flakyTaskbar fails its first n calls.
+type flakyTaskbar struct {
+	fakeOS
+	fail int
+}
+
+func (f *flakyTaskbar) SetProgressState(s TaskbarState) error {
+	if f.fail > 0 {
+		f.fail--
+		return stderrors.New("no taskbar button yet")
+	}
+	return f.fakeOS.SetProgressState(s)
+}
+
+func TestTaskbarStateIsKeptOnlyWhenDrawn(t *testing.T) {
+	bar := &flakyTaskbar{fail: 1}
+	var errs []error
+	h := newHarness(t, WithBadge(nil), WithTaskbar(bar), WithErrorHandler(func(err error) { errs = append(errs, err) }))
+	k := h.add(tasks.Spec{})
+	if len(errs) != 1 || bar.take() != nil {
+		t.Fatalf("errs = %v; want the first draw to fail", errs)
+	}
+	// The same state again: drawn now, not skipped as already shown.
+	k.SetWords("still exporting")
+	if got, want := bar.take(), []string{"state indeterminate"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("after a failed draw: %q, want %q", got, want)
+	}
+	// A new window's taskbar button gets the state too.
+	h.desk.RefreshTaskbar()
+	if got, want := bar.take(), []string{"state indeterminate"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("on refresh: %q, want %q", got, want)
+	}
+}
+
+func TestWindowFocusOutOfOrder(t *testing.T) {
+	h := newHarness(t, WithBadge(nil))
+	h.desk.WindowFocused(1, true)
+	// Focus moves from window 1 to window 2; the events arrive reversed.
+	h.desk.WindowFocused(2, true)
+	h.desk.WindowFocused(1, false)
+	k := h.add(tasks.Spec{})
+	h.os.take()
+	k.Fail(stderrors.New("x"), "Couldn't")
+	for _, c := range h.os.take() {
+		if c == "state error" {
+			t.Fatal("unfocused while window 2 had focus")
+		}
+	}
+	h.desk.WindowFocused(2, false)
+	if h.desk.focusedNow() {
+		t.Fatal("focused with no window focused")
+	}
+	// Many windows at once, from many goroutines: the answer is the set.
+	var wg sync.WaitGroup
+	for i := range 50 {
+		wg.Add(1)
+		go func(id uint) {
+			defer wg.Done()
+			h.desk.WindowFocused(id, true)
+			h.desk.WindowFocused(id, id%2 == 0)
+		}(uint(i + 10))
+	}
+	wg.Wait()
+	if !h.desk.focusedNow() {
+		t.Fatal("unfocused with even windows focused")
+	}
+}
+
+func TestReaskAfterAnUnansweredQuestion(t *testing.T) {
+	asker := newAsker()
+	quit := make(chan struct{}, 2)
+	h := newHarness(t, WithAsker(asker), WithQuit(func() { quit <- struct{}{} }), WithReaskAfter(time.Minute))
+	h.add(tasks.Spec{})
+	h.desk.ShouldQuit()
+	<-asker.asked // dismissed with Esc: never answered
+	h.clock.Advance(30 * time.Second)
+	h.desk.ShouldQuit()
+	select {
+	case <-asker.asked:
+		t.Fatal("asked again before the re-ask time")
+	case <-time.After(50 * time.Millisecond):
+	}
+	h.clock.Advance(30 * time.Second)
+	h.desk.ShouldQuit()
+	select {
+	case <-asker.asked:
+	case <-time.After(time.Second):
+		t.Fatal("didn't ask again after the re-ask time")
+	}
+	// The first question's answer, late, still counts.
+	asker.answer <- QuitNow
+	waitQuit(t, quit, true)
+	asker.answer <- QuitNow // the second dialog's: already quitting
+	waitQuit(t, quit, false)
+}
+
+func TestNeedsPersonDecidesTheTaskbarError(t *testing.T) {
+	// Only a stalled task needs the person here; a failure is the app's
+	// to handle.
+	h := newHarness(t, WithNeedsPerson(func(s tasks.Snapshot) bool { return s.State == tasks.StateStalled }))
+	h.desk.SetFocused(false)
+	h.add(tasks.Spec{}).Stalled("Sign-in expired")
+	k := h.add(tasks.Spec{})
+	h.os.take()
+	k.Fail(stderrors.New("x"), "Couldn't")
+	for _, c := range h.os.take() {
+		if c == "state error" || c == "badge 2" {
+			t.Fatalf("%q for a failure the app says needs no one", c)
+		}
+	}
+}
+
+func TestOnlyAnEndFromUnfinishedIsNotified(t *testing.T) {
+	h := newHarness(t)
+	h.desk.SetFocused(false)
+	start := int64(0)
+	snap := func(state tasks.State) tasks.ChangedPayload {
+		return tasks.ChangedPayload{Tasks: []tasks.Snapshot{{ID: "x", State: state, Words: "Exported", StartedAt: &start, UpdatedAt: 60_000}}}
+	}
+	h.desk.onChanged(snap(tasks.StateFailed))
+	h.desk.onChanged(snap(tasks.StateFailed)) // known now
+	h.desk.onChanged(snap(tasks.StateDone))   // finished to finished: not an end
+	h.clock.Advance(DefaultGroupWindow)
+	if got := h.notify.bodies(); got != nil {
+		t.Fatalf("notified a change between finished states: %q", got)
+	}
+}
+
+func TestNotifierRemovedBeforeTheGroupIsSent(t *testing.T) {
+	h := newHarness(t)
+	h.desk.SetFocused(false)
+	k := h.add(tasks.Spec{})
+	h.clock.Advance(time.Minute)
+	k.Done("Done")
+	h.desk.SetNotifier(nil)
+	h.clock.Advance(DefaultGroupWindow) // must not panic
+}
+
+func (s *Service) focusedNow() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.focused
 }

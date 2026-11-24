@@ -2,70 +2,9 @@
 
 package desktop
 
-import (
-	"syscall"
-	"unsafe"
+import "github.com/wailsapp/wails/v3/pkg/w32"
 
-	"github.com/wailsapp/wails/v3/pkg/application"
-	"github.com/wailsapp/wails/v3/pkg/w32"
-)
-
-// taskbarVtbl is ITaskbarList3's vtable, in order. Wails's w32 package
-// creates the object and calls SetOverlayIcon, but keeps the vtable
-// unexported, so the two progress methods are called through this copy of
-// its layout: a COM object's first word is its vtable pointer.
-type taskbarVtbl struct {
-	QueryInterface, AddRef, Release, HrInit, AddTab, DeleteTab, ActivateTab, SetActiveAlt uintptr
-	MarkFullscreenWindow, SetProgressValue, SetProgressState                              uintptr
-}
-
-// windowsTaskbar draws progress on every window's taskbar button through
-// ITaskbarList3, on the main thread as COM's apartment needs.
-type windowsTaskbar struct {
-	app  *application.App
-	list *w32.ITaskbarList3
-	err  error
-	made bool
-}
-
-func newPlatformTaskbar(app *application.App) Taskbar { return &windowsTaskbar{app: app} }
-
-// each runs f for every window's handle on the main thread, creating the
-// ITaskbarList3 on first use.
-func (t *windowsTaskbar) each(f func(vtbl *taskbarVtbl, this, hwnd uintptr) uintptr) error {
-	return application.InvokeSyncWithError(func() error {
-		if !t.made {
-			t.made = true
-			t.list, t.err = w32.NewTaskbarList3()
-		}
-		if t.err != nil {
-			return t.err
-		}
-		this := uintptr(unsafe.Pointer(t.list))
-		vtbl := *(**taskbarVtbl)(unsafe.Pointer(t.list))
-		for _, w := range t.app.Window.GetAll() {
-			hwnd := uintptr(w.NativeWindow())
-			if hwnd == 0 {
-				continue
-			}
-			if hr := f(vtbl, this, hwnd); hr != 0 {
-				return syscall.Errno(hr)
-			}
-		}
-		return nil
-	})
-}
-
-func (t *windowsTaskbar) SetProgressState(state TaskbarState) error {
-	return t.each(func(v *taskbarVtbl, this, hwnd uintptr) uintptr {
-		r, _, _ := syscall.SyscallN(v.SetProgressState, this, hwnd, uintptr(state))
-		return r
-	})
-}
-
-func (t *windowsTaskbar) SetProgressValue(completed, total uint64) error {
-	return t.each(func(v *taskbarVtbl, this, hwnd uintptr) uintptr {
-		r, _, _ := syscall.SyscallN(v.SetProgressValue, this, hwnd, uintptr(completed), uintptr(total))
-		return r
-	})
-}
+// darkBeforeRun reads the system's appearance from the registry
+// (HKCU\...\Themes\Personalize\AppsUseLightTheme), which Wails's own
+// IsDarkMode can't do before app.Run.
+func darkBeforeRun() (dark, known bool) { return w32.IsCurrentlyDarkMode(), true }

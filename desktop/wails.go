@@ -21,8 +21,13 @@ func (c Colour) RGBA() application.RGBA {
 // (WebviewWindowOptions.BackgroundColour), so the window opens in the
 // theme's bg for the current appearance before the web view paints. Attach
 // keeps it in step afterwards.
+//
+// Before app.Run, Wails can't say whether the system is dark (it answers
+// light). On Windows the service reads the system's setting from the
+// registry instead; on macOS and Linux a window made before Run opens light
+// and is repainted when the app starts and when the window first shows.
 func (s *Service) WindowBackground(app *application.App) application.RGBA {
-	return s.Background(app.Env.IsDarkMode()).RGBA()
+	return s.Background(s.systemDark(app.Env.IsDarkMode, darkBeforeRun)).RGBA()
 }
 
 // Attach wires the service to a Wails app. Call it after application.New
@@ -43,6 +48,11 @@ func (s *Service) WindowBackground(app *application.App) application.RGBA {
 // the window to bring forward on a notification click, the notification
 // title (the app's name), the quit question (a Wails question dialog) and
 // the taskbar.
+//
+// Nothing touches the badge or the taskbar until Wails's ApplicationStarted
+// (Start): Wails's dock service and taskbar need the running app. Every
+// window is repainted then, and on its first show, which also draws the
+// taskbar's state on its new taskbar button.
 func (s *Service) Attach(app *application.App) {
 	s.mu.Lock()
 	if s.quit == nil {
@@ -56,6 +66,9 @@ func (s *Service) Attach(app *application.App) {
 	}
 	if s.asker == nil {
 		s.asker = dialogAsker{app: app}
+		if runtime.GOOS == "linux" && s.reaskAfter == 0 {
+			s.reaskAfter = linuxReaskAfter
+		}
 	}
 	s.onAppearance = func() { s.paintAll(app) }
 	s.mu.Unlock()
@@ -68,41 +81,35 @@ func (s *Service) Attach(app *application.App) {
 	}
 	s.osMu.Unlock()
 
-	f := &focusSet{ids: map[uint]bool{}}
 	for _, w := range app.Window.GetAll() {
-		s.watch(app, w, f)
+		s.watch(app, w)
 	}
-	app.Window.OnCreate(func(w application.Window) { s.watch(app, w, f) })
+	app.Window.OnCreate(func(w application.Window) { s.watch(app, w) })
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		s.Start()
+		s.paintAll(app)
+	})
 	app.Event.OnApplicationEvent(events.Common.ThemeChanged, func(*application.ApplicationEvent) { s.paintAll(app) })
 	if s.tasks != nil {
 		app.Event.OnApplicationEvent(events.Windows.APMSuspend, func(*application.ApplicationEvent) { s.tasks.Sleep() })
 		app.Event.OnApplicationEvent(events.Windows.APMResumeAutomatic, func(*application.ApplicationEvent) { s.tasks.Wake() })
 	}
-	s.apply()
 }
 
-// focusSet tracks which windows are focused.
-type focusSet struct {
-	mu  sync.Mutex
-	ids map[uint]bool
-}
-
-func (f *focusSet) set(id uint, focused bool) bool {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if focused {
-		f.ids[id] = true
-	} else {
-		delete(f.ids, id)
-	}
-	return len(f.ids) > 0
-}
-
-func (s *Service) watch(app *application.App, w application.Window, f *focusSet) {
+func (s *Service) watch(app *application.App, w application.Window) {
 	id := w.ID()
-	w.OnWindowEvent(events.Common.WindowFocus, func(*application.WindowEvent) { s.SetFocused(f.set(id, true)) })
-	w.OnWindowEvent(events.Common.WindowLostFocus, func(*application.WindowEvent) { s.SetFocused(f.set(id, false)) })
-	w.OnWindowEvent(events.Common.WindowClosing, func(*application.WindowEvent) { s.SetFocused(f.set(id, false)) })
+	// Focus events can arrive out of order: each asks the window itself.
+	focus := func(*application.WindowEvent) { s.WindowFocused(id, w.IsFocused()) }
+	w.OnWindowEvent(events.Common.WindowFocus, focus)
+	w.OnWindowEvent(events.Common.WindowLostFocus, focus)
+	w.OnWindowEvent(events.Common.WindowClosing, func(*application.WindowEvent) { s.WindowFocused(id, false) })
+	var shown sync.Once
+	w.OnWindowEvent(events.Common.WindowShow, func(*application.WindowEvent) {
+		shown.Do(func() {
+			w.SetBackgroundColour(s.WindowBackground(app))
+			s.RefreshTaskbar() // its taskbar button exists now
+		})
+	})
 	w.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		if quitsOnLastWindow(app) && len(app.Window.GetAll()) <= 1 && !s.ShouldQuit() {
 			e.Cancel()
@@ -111,7 +118,7 @@ func (s *Service) watch(app *application.App, w application.Window, f *focusSet)
 	w.SetBackgroundColour(s.WindowBackground(app))
 	// A window can be created focused, before its focus event is hooked.
 	if w.IsFocused() {
-		s.SetFocused(f.set(id, true))
+		s.WindowFocused(id, true)
 	}
 }
 
@@ -154,16 +161,16 @@ func bringForward(app *application.App) {
 	w.Focus()
 }
 
-// linuxUnanswered is how long the Linux quit question waits for a button
-// before it counts as Keep Running: a GTK dialog closed with Esc runs no
-// button's callback.
-const linuxUnanswered = time.Minute
+// linuxReaskAfter is how long an unanswered quit question on Linux holds
+// up asking again: a GTK dialog closed with Esc runs no button's callback,
+// and Wails can't close or query the dialog.
+const linuxReaskAfter = time.Minute
 
 // dialogAsker asks the quit question with a Wails question dialog.
 //
 // Wails's Windows question dialog is a MessageBox with Yes and No only, so
-// there it asks "Quit now?" without Quit When Done: Yes quits, No (the
-// default) keeps running. An app that wants all three choices on Windows
+// there it asks the question ("Quit while 2 tasks are running?") without
+// Quit When Done: Yes quits, No (the default) keeps running. An app that wants all three choices on Windows
 // sets its own Asker (WithAsker), for example a sheet in the window.
 type dialogAsker struct{ app *application.App }
 
@@ -196,14 +203,9 @@ func (d dialogAsker) AskQuit(q QuitQuestion) QuitChoice {
 	dialog.AddButton(q.QuitWhenDone).OnClick(pick(QuitWhenDone))
 	dialog.AddButton(q.QuitNow).OnClick(pick(QuitNow))
 	dialog.Show()
-	if runtime.GOOS == "linux" {
-		select {
-		case c := <-answer:
-			return c
-		case <-time.After(linuxUnanswered):
-			return QuitKeepRunning
-		}
-	}
+	// On Linux the answer may never come (Esc); the service asks again on
+	// a later quit after WithReaskAfter, and still applies this answer if
+	// it comes late.
 	return <-answer
 }
 
