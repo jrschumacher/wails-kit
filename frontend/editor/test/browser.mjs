@@ -1001,6 +1001,8 @@ try {
       ['nested links', '[a '.repeat(5000) + 'b' + '](x)'.repeat(5000)],
       // A fence in a quote ends at a line without the quote's marker: the scan must not read it as code.
       ['after a fence in a quote', '> ```\n   ' + '*'.repeat(20000) + 'a' + '*'.repeat(20000)],
+      // A delimiter row with more cells than its header is no table: one paragraph of 33,600 markers.
+      ['a fake table', 'a|b\n|-|-|-|\n' + Array(12).fill('| ' + '**a '.repeat(700)).join('\n') + '\n| b\n' + Array(12).fill('| ' + ' a**'.repeat(700)).join('\n')],
     ];
     for (const [label, text] of cases) {
       for (const how of ['spec', 'setter', 'paste']) {
@@ -1025,7 +1027,7 @@ try {
         }, [text, how]);
         assert.equal(r.threw, undefined, `${label} (${how}) threw`);
         assert.deepEqual([r.length, r.source], [text.length, true], `${label} (${how})`);
-        assert.ok(r.ms < 3000, `${label} (${how}): ${Math.round(r.ms)} ms`);
+        assert.ok(r.ms < 1500, `${label} (${how}): ${Math.round(r.ms)} ms`);
       }
     }
     // Just under the delimiter limit: highlighted in Write, rendered in Preview.
@@ -1081,7 +1083,7 @@ try {
         const mark = '\u2063overflow\u2063', text = `# Title ${mark} *x*`;
         const native = String.prototype.charCodeAt;
         let fired = false;
-        const arm = () => { String.prototype.charCodeAt = function (i) { if (!fired && this.includes(mark)) { fired = true; throw new RangeError('forced overflow'); } return native.call(this, i); }; };
+        const arm = () => { String.prototype.charCodeAt = function (i) { if (!fired && this.includes(mark)) { fired = true; throw new RangeError('Maximum call stack size exceeded'); } return native.call(this, i); }; };
         try {
           let ed;
           if (how === 'spec') { arm(); ed = wkMarkdownEditor({ label: 'Forced', value: text }); document.getElementById('demo').replaceChildren(ed); }
@@ -1105,6 +1107,22 @@ try {
       }, how);
       assert.deepEqual(r, { fired: true, kept: true, spans: 0, again: true }, how);
     }
+    // Any other RangeError is not an overflow: it is thrown as it is, with no retry.
+    const other = await page.evaluate(async () => {
+      const { wkMarkdownEditor } = await import('/editor/dist/markdown.js');
+      const mark = '\u2063other\u2063';
+      const native = String.prototype.charCodeAt;
+      let calls = 0;
+      String.prototype.charCodeAt = function (i) { if (this.includes(mark)) { calls++; throw new RangeError('not an overflow'); } return native.call(this, i); };
+      const out = [];
+      try { wkMarkdownEditor({ label: 'Other', value: `# ${mark}` }); out.push('built'); } catch (e) { out.push(e.message); }
+      const ed = wkMarkdownEditor({ label: 'Other', value: 'fine' });
+      try { ed.value = `# ${mark}`; out.push('set'); } catch (e) { out.push(e.message); }
+      String.prototype.charCodeAt = native;
+      out.push(ed.value, calls);
+      return out;
+    });
+    assert.deepEqual(other, ['not an overflow', 'not an overflow', 'fine', 2]);
     assert.deepEqual(problems, []);
     await page.close();
   });

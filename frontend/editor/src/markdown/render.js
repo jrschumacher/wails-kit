@@ -197,6 +197,12 @@ export const MAX_MARKDOWN_LENGTH = 100000;
 export const MAX_MARKDOWN_DEPTH = 32;
 /** Most emphasis and link delimiters (* _ ~ [ ]) in one run of inline text (see markdownLimits) rendered as Markdown. */
 export const MAX_MARKDOWN_DELIMITERS = 2000;
+/**
+ * Most delimiters between two blank lines or headings, whatever the runs in
+ * between: a backstop that keeps the parser's time bounded (about 0.7 s in
+ * the worst case) even if a run reset is wrong.
+ */
+export const MAX_MARKDOWN_BLOCK_DELIMITERS = 8000;
 
 const container = /^[ \t]*(?:>|[-*+](?=[ \t]|$)|\d{1,9}[.)](?=[ \t]|$))[ \t]?/;
 // One quote marker, as CommonMark allows it (up to three spaces before).
@@ -207,21 +213,30 @@ const closing = /^[ \t]*(`{3,}|~{3,})[ \t]*$/;
 const heading = /^ {0,3}#{1,6}(?:[ \t]|$)/;
 const tableDelimiterRow = /^[ \t]*\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$/;
 const delimiter = /[*_~[\]]/g;
+// A table row's cells, as GFM counts them: split on pipes that are not
+// escaped, without the optional pipes at either end.
+function cellCount(row) {
+  let text = row.trim();
+  if (text.startsWith('|')) text = text.slice(1);
+  if (text.endsWith('|') && !text.endsWith('\\|')) text = text.slice(0, -1);
+  return text.split(/(?<!\\)\|/).length;
+}
 const columns = ws => ws.replace(/\t/g, '    ').length;
 const leading = line => columns(line.match(/^[ \t]*/)[0]);
 
 /**
- * Scans the text for the limits above: { depth, delimiters }, the deepest
+ * Scans the text for the limits above: { depth, delimiters, blocks }, the deepest
  * nesting of quotes and lists on a line (the markers it starts with, plus
  * its list indentation at two columns a level) and the most delimiters in
  * one run of text emphasis could span, both outside fenced code. A run ends
  * where Markdown ends inline content: a blank line, a heading, a new list
- * item, a table row. It errs on the high side: where the parser might read a
+ * item, a table row; blocks is the most between blank lines and headings,
+ * whatever the runs. It errs on the high side: where the parser might read a
  * line either way (a fence that its quote or list item ends, a list marker
  * that may only continue a paragraph), the line is counted.
  */
 export function markdownLimits(text) {
-  let depth = 0, delimiters = 0, run = 0, fence = null;
+  let depth = 0, delimiters = 0, run = 0, block = 0, blocks = 0, fence = null, header = null;
   // The content column of the last list item line, whether the last
   // non-blank line started an item, and whether a table is open.
   let itemColumn = 0, afterItem = false, table = false;
@@ -239,7 +254,7 @@ export function markdownLimits(text) {
       }
       fence = null;
     }
-    if (!line.trim()) { run = 0; table = false; continue; }
+    if (!line.trim()) { run = 0; block = 0; table = false; header = null; continue; }
     let rest = line, level = 0, quotes = 0, list = null, m;
     while ((m = rest.match(container))) {
       const marker = m[0].trim();
@@ -258,6 +273,8 @@ export function markdownLimits(text) {
       for (let i = 0; i < quotes; i++) afterQuotes = afterQuotes.slice(afterQuotes.match(quoteMarker)?.[0].length ?? 0);
       fence = { char: f[2][0], length: f[2].length, quotes, column: columns(afterQuotes.slice(0, afterQuotes.length - rest.length)) + f[1].length };
       run = 0;
+      block = 0;
+      header = null;
       continue;
     }
     // A list item ends the run before it. Only a marker that must start an
@@ -273,14 +290,27 @@ export function markdownLimits(text) {
     const row = table && rest.includes('|');
     if (!row) table = false;
     if (isHeading || row) run = 0;
-    run += (rest.match(delimiter) || []).length;
+    if (isHeading) block = 0;
+    const count = (rest.match(delimiter) || []).length;
+    run += count;
+    block += count;
     if (run > delimiters) delimiters = run;
+    if (block > blocks) blocks = block;
     if (isHeading || row) run = 0;
-    if (!table && rest.includes('|') && tableDelimiterRow.test(rest)) { table = true; run = 0; }
+    if (isHeading) block = 0;
+    // A delimiter row makes a table only under a header row with as many
+    // cells (GFM); otherwise it is text and resets nothing.
+    if (!table && header !== null && rest.includes('|') && tableDelimiterRow.test(rest) && cellCount(rest) === cellCount(header)) { table = true; run = 0; }
+    header = !table && rest.includes('|') ? rest : null;
     afterItem = item;
     if (depth > MAX_MARKDOWN_DEPTH && delimiters > MAX_MARKDOWN_DELIMITERS) break;
   }
-  return { depth, delimiters };
+  return { depth, delimiters, blocks };
+}
+
+/** Whether markdownLimits' counts are past a limit (the length aside). */
+export function exceedsMarkdownLimits({ depth, delimiters, blocks }) {
+  return depth > MAX_MARKDOWN_DEPTH || delimiters > MAX_MARKDOWN_DELIMITERS || blocks > MAX_MARKDOWN_BLOCK_DELIMITERS;
 }
 
 /** markdownLimits(text).depth. */
@@ -295,8 +325,7 @@ export function nestingDepth(text) {
 export function pastMarkdownLimits(text) {
   text = String(text ?? '');
   if (text.length > MAX_MARKDOWN_LENGTH) return true;
-  const { depth, delimiters } = markdownLimits(text);
-  return depth > MAX_MARKDOWN_DEPTH || delimiters > MAX_MARKDOWN_DELIMITERS;
+  return exceedsMarkdownLimits(markdownLimits(text));
 }
 
 // The text as it is, in one paragraph that keeps its line breaks.

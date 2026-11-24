@@ -446,7 +446,8 @@ the parser:
 |---|---|---|
 | `MAX_MARKDOWN_LENGTH` | characters (UTF-16 code units) in the text | 100,000 |
 | `MAX_MARKDOWN_DEPTH` | nesting of quotes and lists on a line: the quote and list markers it starts with, plus its list indentation at two columns a level | 32 |
-| `MAX_MARKDOWN_DELIMITERS` | emphasis and link delimiters (`*`, `_`, `~`, `[`, `]`) in one run of inline text: a run ends where emphasis cannot carry on, at a blank line, a heading, a new list item or a table row, so a long list or table counts each item or row on its own | 2,000 |
+| `MAX_MARKDOWN_DELIMITERS` | emphasis and link delimiters (`*`, `_`, `~`, `[`, `]`) in one run of inline text: a run ends where emphasis cannot carry on, at a blank line, a heading, a new list item or a table row (only under a header row with as many cells as the delimiter row, as GFM makes a table), so a long list or table counts each item or row on its own | 2,000 |
+| `MAX_MARKDOWN_BLOCK_DELIMITERS` | the same delimiters between two blank lines or headings, whatever the runs: a backstop that keeps the parser's time bounded (under a second) even if a run reset is wrong. A list or table longer than this with no blank line or heading renders as its source | 8,000 |
 
 The scan reads fences as CommonMark does (a backtick fence's info string has
 no backtick; `\r\n`, `\r` and `\n` end lines) and errs on the high side: a
@@ -461,10 +462,13 @@ source too. The limits are exported.
 The editor's Write tab drops Markdown highlighting while the text is past
 the depth or delimiter limit, since CodeMirror's Markdown parser and
 highlighter recurse too. Under that, a safety net for text the scan misses:
-a stack overflow (`RangeError`) while building the editor, setting `value`
-or applying an edit (typing, a paste) builds the state again with
-highlighting off for that text, so nothing throws and no edit is lost.
-Highlighting comes back when the app sets a new `value`.
+a stack overflow (a `RangeError` whose message mentions the call stack)
+while building the editor, setting `value` or applying an edit (typing, a
+paste, from the editor's current state) builds the state again with
+highlighting off for that text, so nothing throws and no edit is lost. The
+editor changes its own state only once that retry has worked; any other
+error, or a retry that fails, is thrown as it was. Highlighting comes back
+when the app sets a new `value`.
 
 ## Layout
 

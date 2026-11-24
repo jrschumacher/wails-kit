@@ -31,7 +31,7 @@ class Text {
 }
 // Imported before the fake document exists, so CodeMirror loads as it does
 // in node; the renderer reads the global document when it builds.
-const { renderMarkdown, renderMarkdownElement, safeUrl, decodeEntities, nestingDepth, markdownLimits, pastMarkdownLimits, MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH, MAX_MARKDOWN_DELIMITERS } = await import('../src/markdown/render.js');
+const { renderMarkdown, renderMarkdownElement, safeUrl, decodeEntities, nestingDepth, markdownLimits, pastMarkdownLimits, MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH, MAX_MARKDOWN_DELIMITERS, MAX_MARKDOWN_BLOCK_DELIMITERS } = await import('../src/markdown/render.js');
 globalThis.document = {
   createElement: tag => new Node(tag),
   createTextNode: t => new Text(t),
@@ -345,6 +345,36 @@ test('the run resets cannot be used to smuggle a bomb: only lines that end inlin
     assert.ok(text.length <= MAX_MARKDOWN_LENGTH, `${label}: too long to test the delimiter limit`);
     assert.ok(markdownLimits(text).delimiters > MAX_MARKDOWN_DELIMITERS, `${label}: ${markdownLimits(text).delimiters}`);
     assert.ok(timed(500, label, () => render(text)).html.startsWith(SOURCE), label);
+  }
+});
+
+// A delimiter row with no matching header is not a table (GFM): its "rows"
+// are one paragraph, and 33,600 strong markers stalled marked for about 5 s.
+const lines = (n, line) => Array.from({ length: n }, () => line).join('\n');
+const OPEN = '**a '.repeat(700), CLOSE = ' a**'.repeat(700);
+const fakeTables = [
+  ['a delimiter row with more cells than the header', 'a|b\n|-|-|-|\n' + lines(12, '| ' + OPEN) + '\n| b\n' + lines(12, '| ' + CLOSE)],
+  ['a delimiter row with no header', 'x\n\n|---|\n' + lines(12, '| ' + OPEN) + '\n| b\n' + lines(12, '| ' + CLOSE)],
+];
+
+test('a fake table does not reset the count: (a) the run limit and (b) the block backstop each catch it, in time', () => {
+  for (const [label, text] of fakeTables) {
+    const limits = markdownLimits(text);
+    // (a) Without a header row of as many cells there is no table, so the run is the whole paragraph.
+    assert.ok(limits.delimiters > MAX_MARKDOWN_DELIMITERS, `${label}: run ${limits.delimiters}`);
+    // (b) The backstop counts every delimiter between blank lines and headings, whatever the runs.
+    assert.ok(limits.blocks > MAX_MARKDOWN_BLOCK_DELIMITERS, `${label}: block ${limits.blocks}`);
+    assert.ok(timed(250, label, () => render(text)).html.startsWith(SOURCE), label);
+  }
+  // A real table resets its runs per row, but the backstop still bounds it.
+  const real = '|a|\n|-|\n' + lines(12, '| ' + OPEN) + '\n| b\n' + lines(12, '| ' + CLOSE);
+  assert.ok(markdownLimits(real).delimiters <= MAX_MARKDOWN_DELIMITERS);
+  assert.ok(markdownLimits(real).blocks > MAX_MARKDOWN_BLOCK_DELIMITERS);
+  assert.ok(timed(250, 'a real table of bombs', () => render(real)).html.startsWith(SOURCE));
+  // Header and delimiter rows count cells as GFM does: end pipes optional, escaped pipes kept.
+  for (const [header, row, table] of [['a|b', '-|-', true], ['| a | b |', '|:-|-:|', true], ['| a \\| b |', '|---|', true], ['a|b', '|-|-|-|', false], ['a', '|-|-|', false]]) {
+    const t = `${header}\n${row}\n${lines(3, '| ' + '*x* '.repeat(400))}`;
+    assert.equal(markdownLimits(t).delimiters <= MAX_MARKDOWN_DELIMITERS, table, `${header} / ${row}`);
   }
 });
 

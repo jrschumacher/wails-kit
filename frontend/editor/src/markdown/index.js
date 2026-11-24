@@ -7,18 +7,19 @@
 //
 // The tabs are @wails-kit/ui's <wk-tabs>: the page loads @wails-kit/ui's
 // script (kit.js, or dist/wails-kit-ui.js), which defines it.
-import { EditorSelection, EditorState, Compartment, Prec, Transaction } from '@codemirror/state';
+import { EditorSelection, EditorState, Compartment, Prec } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { StyleModule } from 'style-mod';
 import { createCodeEditor } from '../shared/code-editor.js';
 import {
-  renderMarkdown, renderMarkdownElement, safeUrl, mountPreviewStyles, markdownLimits,
-  MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH, MAX_MARKDOWN_DELIMITERS,
+  renderMarkdown, renderMarkdownElement, safeUrl, mountPreviewStyles, markdownLimits, exceedsMarkdownLimits,
+  MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH, MAX_MARKDOWN_DELIMITERS, MAX_MARKDOWN_BLOCK_DELIMITERS,
 } from './render.js';
 import { resolve } from '../shared/languages.js';
+import { overflowDispatch, isStackOverflow, isPlain } from './overflow.js';
 import { editorStyles } from './style-spec.js';
 
-export { renderMarkdown, renderMarkdownElement, MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH, MAX_MARKDOWN_DELIMITERS };
+export { renderMarkdown, renderMarkdownElement, MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH, MAX_MARKDOWN_DELIMITERS, MAX_MARKDOWN_BLOCK_DELIMITERS };
 
 const SVG = 'http://www.w3.org/2000/svg';
 const MODES = ['write', 'preview'];
@@ -192,35 +193,30 @@ export function wkMarkdownEditor(spec = {}) {
   // or delimiter limit: Lezer's parser and highlighter recurse per level of
   // nesting and per emphasis run, and overflow the stack on hostile text
   // (building the editor, setting its value or a paste would throw).
-  const tooDeep = doc => {
-    const { depth, delimiters } = markdownLimits(doc);
-    return depth > MAX_MARKDOWN_DEPTH || delimiters > MAX_MARKDOWN_DELIMITERS;
-  };
-  // A safety net under the scan, for text it misses: a RangeError (a stack
-  // overflow) while building or updating the state with highlighting turns
-  // highlighting off for this text (`broken`, until the app sets a new
-  // value) and builds it again, so nothing throws and no edit is lost.
+  const tooDeep = doc => exceedsMarkdownLimits(markdownLimits(doc));
+  // A safety net under the scan, for text it misses (overflow.js): a stack
+  // overflow while building the editor, setting its value or applying an
+  // edit builds that state again with highlighting off for this text
+  // (`broken`, until the app sets a new value), so nothing throws and no edit
+  // is lost. The flags change only once the retry has worked; otherwise the
+  // original error is thrown.
   let broken = false;
-  let plain = tooDeep(String(spec.value ?? ''));
+  // Whether a state built now (the editor, a new value) starts plain.
+  let buildPlain = tooDeep(String(spec.value ?? ''));
   const language = new Compartment();
-  const languageFor = () => (plain ? [] : resolve('markdown'));
-  const overflow = e => e instanceof RangeError && !plain;
-  const goPlain = () => { broken = true; plain = true; };
-  // An edit (typing, a paste, a command) whose new state overflows is applied
-  // again in one transaction with highlighting off. view.update reads each
-  // transaction's state before it changes anything, so a throw leaves the
-  // view as it was.
-  const dispatchTransactions = (trs, v) => {
-    try { v.update(trs); } catch (e) {
-      if (!overflow(e)) throw e;
-      goPlain();
-      let changes = trs[0].changes;
-      for (const tr of trs.slice(1)) changes = changes.compose(tr.changes);
-      const last = trs[trs.length - 1];
-      v.update([v.state.update({
-        changes, selection: last.selection, scrollIntoView: last.scrollIntoView,
-        effects: language.reconfigure([]), userEvent: last.annotation(Transaction.userEvent),
-      })]);
+  const markdownLanguage = () => resolve('markdown');
+  const dispatchTransactions = overflowDispatch(language, () => { broken = true; });
+  // Builds a state (the editor, a new value) with highlighting as the scan
+  // says, and, on a stack overflow, once more without it.
+  const withNet = (wantPlain, make) => {
+    buildPlain = wantPlain;
+    try { return make(); } catch (e) {
+      if (!isStackOverflow(e) || wantPlain) throw e;
+      buildPlain = true;
+      let out;
+      try { out = make(); } catch { buildPlain = wantPlain; throw e; }
+      broken = true;
+      return out;
     }
   };
   const build = () => createCodeEditor({
@@ -233,13 +229,15 @@ export function wkMarkdownEditor(spec = {}) {
     name: 'wkMarkdownEditor',
     extensions: () => [
       state.of(stateFor()),
-      language.of(languageFor()),
+      language.of(buildPlain ? [] : markdownLanguage()),
+      // Highlighting follows the scan as the text changes (and stays off
+      // while the safety net has turned it off). The current setting is
+      // read from the state, so a transaction that fails changes nothing.
       EditorState.transactionExtender.of(tr => {
         if (!tr.docChanged) return null;
         const want = broken || tooDeep(tr.newDoc.toString());
-        if (want === plain) return null;
-        plain = want;
-        return { effects: language.reconfigure(languageFor()) };
+        if (want === isPlain(language, tr.startState)) return null;
+        return { effects: language.reconfigure(want ? [] : markdownLanguage()) };
       }),
       Prec.high(keymap.of([
         { key: 'Mod-Enter', run: () => { submit(); return true; } },
@@ -253,13 +251,7 @@ export function wkMarkdownEditor(spec = {}) {
     },
     dispatchTransactions,
   });
-  let built;
-  try { built = build(); } catch (e) {
-    if (!overflow(e)) throw e;
-    goPlain();
-    built = build();
-  }
-  const { el: text, view } = built;
+  const { el: text, view } = withNet(buildPlain, build);
   // A number is pixels; a string is any CSS length.
   const length = v => (typeof v === 'number' && Number.isFinite(v) ? `${v}px` : String(v));
   if (spec.minHeight != null && spec.minHeight !== '') text.style.minHeight = length(spec.minHeight);
@@ -482,12 +474,11 @@ export function wkMarkdownEditor(spec = {}) {
       get: () => view.state.doc.toString(),
       set: next => {
         if (destroyed) return;
+        const wasBroken = broken;
         broken = false;
-        plain = tooDeep(String(next ?? ''));
-        try { text.value = next; } catch (e) {
-          if (!overflow(e)) throw e;
-          goPlain();
-          text.value = next;
+        try { withNet(tooDeep(String(next ?? '')), () => { text.value = next; }); } catch (e) {
+          broken = wasBroken;
+          throw e;
         }
         setError(null);
         update();

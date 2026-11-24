@@ -28,6 +28,8 @@ export const MAX_MARKDOWN_LENGTH: number;
 export const MAX_MARKDOWN_DEPTH: number;
 /** A paragraph with more emphasis and link delimiters (* _ ~ [ ]) than this makes the text render as its source. */
 export const MAX_MARKDOWN_DELIMITERS: number;
+/** Text with more delimiters than this between two blank lines or headings renders as its source (a backstop). */
+export const MAX_MARKDOWN_BLOCK_DELIMITERS: number;
 
 export interface MarkdownEditorAction {
   label: string;
