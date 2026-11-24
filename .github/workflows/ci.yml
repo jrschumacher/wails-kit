@@ -237,7 +237,7 @@ jobs:
 
   gallery-test:
     name: Gallery Test
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     defaults:
       run:
         working-directory: frontend/gallery
@@ -246,8 +246,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/gallery/package-lock.json
       - run: npm ci
       # The server's paths, the CSP and the page list.
       - run: npm test
