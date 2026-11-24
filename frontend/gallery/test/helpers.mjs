@@ -43,15 +43,17 @@ export const settled = page => page.waitForFunction(() => window.galleryPending 
 // server, any console error or warning (a CSP violation among them), any
 // failed request and any HTTP error goes to problems. init scripts run before
 // the page's own; clock installs the fake clock at CLOCK_T0; ready: false
-// returns once the document has loaded, without waiting for the gallery.
-export async function open(path = '/gallery/', { clock, init = [], ready: wait = true, ...options } = {}) {
+// returns once the document has loaded, without waiting for the gallery;
+// blob: true allows blob: URLs too (the gallery's own checks, for the
+// editors and diagrams it draws), which the component checks don't.
+export async function open(path = '/gallery/', { clock, init = [], ready: wait = true, blob = false, ...options } = {}) {
   const page = await browser.newPage({ viewport: { width: 1200, height: 900 }, colorScheme: 'light', ...options });
   for (const script of init) await page.addInitScript(script);
   if (clock) await page.clock.install({ time: CLOCK_T0 });
   const problems = [];
   page.on('pageerror', e => problems.push(`pageerror: ${e.message}`));
   page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') problems.push(`console ${m.type()}: ${m.text()}`); });
-  page.on('request', r => { if (!r.url().startsWith(`${origin}/`) && !r.url().startsWith('data:') && !r.url().startsWith('blob:')) problems.push(`network: ${r.url()}`); });
+  page.on('request', r => { if (!r.url().startsWith(`${origin}/`) && !r.url().startsWith('data:') && !(blob && r.url().startsWith('blob:'))) problems.push(`network: ${r.url()}`); });
   page.on('requestfailed', r => problems.push(`failed: ${r.url()}`));
   page.on('response', r => { if (r.status() >= 400) problems.push(`HTTP ${r.status()}: ${r.url()}`); });
   await page.goto(origin + path);

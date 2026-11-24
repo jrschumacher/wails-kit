@@ -156,7 +156,7 @@ export default [
       <button role="menuitemradio" type="button" aria-checked="false" data-value="large">Large</button>
     </div>
   </wk-context-menu>
-  <wk-tooltip id="g-menu-tip"><button class="wk-button" type="button">Hover or focus me</button><span role="tooltip" class="wk-tooltip" hidden>Copies the code to the clipboard</span></wk-tooltip>
+  <wk-tooltip id="g-menu-tip"><button class="wk-button" type="button">Copy link</button><span role="tooltip" class="wk-tooltip" hidden>Copies a link to this file to the clipboard</span></wk-tooltip>
 </div>
 <pre class="g-log" id="g-menu-log" aria-label="Menu events" tabindex="0"></pre>`,
       after(el) {
@@ -179,7 +179,7 @@ export default [
 </div>`,
     }, {
       title: 'Inline menu',
-      note: 'wk-menu--inline in a &lt;wk-menu&gt; with no button, in a popover surface: the same keys in place, one tab stop. The first item is a link.',
+      note: 'wk-menu--inline in a &lt;wk-menu&gt; with no button, in a popover surface: the same keys in place, one tab stop. The first item is a link; here Help goes to <code>#g-inline</code>, an anchor on this page, so following it changes the address\'s hash but not the page.',
       html: `<div class="wk-popover g-inline-menu">
   <wk-menu id="g-inline">
     <div role="menu" class="wk-menu wk-menu--inline" aria-label="App">

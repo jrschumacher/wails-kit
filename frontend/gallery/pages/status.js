@@ -345,48 +345,73 @@ export default [
   },
   {
     id: 'announcer', title: 'Announcer', group: 'status',
-    intro: '<code>announce(words)</code> says words through two visually hidden live regions, polite and assertive, in the page from load; words within 500 ms are joined. A modal makes the rest of the page inert, live regions too, so while one is open the regions sit inside it. <code>wk-dialog</code> moves them, and so does any <code>&lt;dialog&gt;</code>\'s <code>open</code> attribute; <code>placeAnnouncer(dialog, open)</code> does it by hand for a modal opened some other way.',
+    intro: '<code>announce(words)</code> says words through two visually hidden live regions, polite and assertive, in the page from load; words within 500 ms are joined. A modal makes the rest of the page inert, live regions too, so while one is open the regions sit inside it. <code>wk-dialog</code> moves them, and so does any <code>&lt;dialog&gt;</code> in the document when its <code>open</code> attribute changes. The kit can\'t see a modal <code>&lt;dialog&gt;</code> inside another component\'s shadow root: for that one the app calls <code>placeAnnouncer(dialog, open)</code> when it opens and closes.',
     examples: [{
-      title: 'Try it: say something, from the page and from a modal',
-      note: 'What the regions say shows below, with where they are.',
+      title: 'Try it: say something, from the page, a dialog and a modal the kit can\'t see',
+      note: 'What the regions say shows below, with where they are. The dialog needs nothing from the app; the modal in a shadow root needs placeAnnouncer.',
       html: `<div class="g-row">
   ${tryButton('g-say', 'Say “Saved”')}
-  ${tryButton('g-say-modal', 'Open a modal, and say something there')}
+  ${tryButton('g-say-dialog', 'Open a dialog, and say something there')}
+  ${tryButton('g-say-modal', 'Open a modal in a shadow root, and say something there')}
 </div>
 <p class="wk-caption">The regions are in <b id="g-announcer-home">the page</b>.</p>
 <pre class="g-log" id="g-said" aria-label="What the announcer said" tabindex="0"></pre>
 <dialog class="wk-dialog" id="g-plain-modal" aria-labelledby="g-plain-modal-title">
   <h3 class="wk-dialog-title" id="g-plain-modal-title">A plain dialog</h3>
-  <p class="wk-dialog-body">Opened with showModal(), not wk-dialog; the page calls placeAnnouncer(dialog, true), so what's said here is still heard.</p>
+  <p class="wk-dialog-body">Opened with showModal(), not wk-dialog. The kit sees its open attribute change and moves the regions into it by itself.</p>
   <div class="wk-dialog-actions"><button class="wk-button wk-button--primary" type="button" id="g-plain-close">Close</button></div>
-</dialog>`,
+</dialog>
+<div id="g-shadow-host"></div>`,
       after(el, { kit, track }) {
         const log = el.querySelector('#g-said');
         const home = el.querySelector('#g-announcer-home');
-        const modal = el.querySelector('#g-plain-modal');
+        const plain = el.querySelector('#g-plain-modal');
         const host = document.wkAnnouncer;
+        // Another component's modal, in its shadow root: the kit's observer
+        // and its dialog events don't reach in there.
+        const shadow = el.querySelector('#g-shadow-host').attachShadow({ mode: 'open' });
+        const sheet = document.getElementById('gallery-kit').cloneNode();
+        sheet.removeAttribute('id');
+        const box = document.createElement('div');
+        box.className = 'wk-root';
+        box.innerHTML = `<dialog class="wk-dialog" aria-labelledby="t"><h3 class="wk-dialog-title" id="t">A modal in a shadow root</h3>
+<p class="wk-dialog-body">The kit can't see this dialog open, so the page calls placeAnnouncer(dialog, true), and placeAnnouncer(dialog, false) when it closes.</p>
+<div class="wk-dialog-actions"><button class="wk-button wk-button--primary" type="button">Close</button></div></dialog>`;
+        shadow.append(sheet, box);
+        const modal = box.querySelector('dialog');
         // A readout of the regions: what they say, and where they are.
         const show = () => {
-          const where = host.parentNode === modal ? 'the modal' : 'the page';
+          const where = host.parentNode === modal ? 'the modal in the shadow root' : host.parentNode === plain ? 'the dialog' : 'the page';
           if (home.textContent !== where) home.textContent = where;
           for (const r of host.querySelectorAll('[aria-live]')) {
             if (r.textContent && r.textContent !== r.dataset.gallerySaid) log.textContent = `${r.getAttribute('aria-live')}: ${r.textContent}\n${log.textContent}`.split('\n').slice(0, 4).join('\n');
             r.dataset.gallerySaid = r.textContent;
           }
         };
+        // The regions' own changes wherever they are, and their moves.
         const watch = new MutationObserver(show);
         watch.observe(document.documentElement, { subtree: true, childList: true, characterData: true });
+        watch.observe(host, { subtree: true, childList: true, characterData: true });
         const said = () => track(new Promise(resolve => setTimeout(resolve, 600)));
         el.querySelector('#g-say').addEventListener('click', () => { kit.announce('Saved'); said(); });
+        el.querySelector('#g-say-dialog').addEventListener('click', () => {
+          plain.showModal();
+          kit.announce('Said from inside the dialog');
+          said();
+        });
+        el.querySelector('#g-plain-close').addEventListener('click', () => plain.close());
         el.querySelector('#g-say-modal').addEventListener('click', () => {
           modal.showModal();
           kit.placeAnnouncer(modal, true);
           kit.announce('Said from inside the modal');
           said();
         });
-        el.querySelector('#g-plain-close').addEventListener('click', () => modal.close());
+        modal.querySelector('button').addEventListener('click', () => modal.close());
         modal.addEventListener('close', () => kit.placeAnnouncer(modal, false));
-        return () => { watch.disconnect(); if (modal.open) modal.close(); };
+        return () => {
+          watch.disconnect();
+          for (const d of [plain, modal]) if (d.open) d.close();
+        };
       },
     }],
   },

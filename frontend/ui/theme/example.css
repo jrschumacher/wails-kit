@@ -1,7 +1,8 @@
 /* An example theme for @wails-kit/ui (THEMING.md is the contract): a green
    accent, an amber working tone, a deeper red for attention and rounder
    corners. It keeps the kit's grounds and font, so it bundles nothing. The
-   demo's themed page (demo/themed.html) shows the kit with it. */
+   component gallery (frontend/gallery) shows the kit with it: pick it with
+   its Theme switch. */
 :root {
   --wk-color-accent: #1f6b55;
   --wk-color-on-accent: #ffffff;

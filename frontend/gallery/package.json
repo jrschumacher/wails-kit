@@ -7,7 +7,7 @@
   "scripts": {
     "gallery": "node serve.mjs",
     "test": "node --test test/*.test.mjs",
-    "test:browser": "node test/browser.mjs && node test/components.mjs"
+    "test:browser": "node test/run.mjs"
   },
   "devDependencies": {
     "playwright-core": "1.63.0"

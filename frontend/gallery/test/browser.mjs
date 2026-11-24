@@ -37,7 +37,7 @@ const watch = () => {
   }).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
 };
 
-const open = (path = '/gallery/', options = {}) => openPage(path, { ...options, init: [watch] });
+const open = (path = '/gallery/', options = {}) => openPage(path, { ...options, init: [watch], blob: true });
 const until = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 5000 });
 const active = page => page.evaluate(() => {
   const a = document.activeElement;
@@ -174,9 +174,11 @@ try {
         await button.click();
         await settled(page);
         // A try that opened a modal (the task list) is closed again.
-        if (await page.evaluate(() => Boolean(document.querySelector('dialog[open]')))) {
+        // (or one in a shadow root, as the Announcer page opens).
+        const openDialog = () => Boolean(document.querySelector('dialog[open]') || [...document.querySelectorAll('*')].some(e => e.shadowRoot?.querySelector('dialog[open]')));
+        if (await page.evaluate(openDialog)) {
           await page.keyboard.press('Escape');
-          await until(page, () => !document.querySelector('dialog[open]'));
+          await until(page, () => !(document.querySelector('dialog[open]') || [...document.querySelectorAll('*')].some(e => e.shadowRoot?.querySelector('dialog[open]'))));
         }
       }
       // The chart's readout shows on the arrow keys; the diff's comment box on c.
@@ -582,18 +584,29 @@ try {
     await page.close();
   });
 
-  await check('Announcer page: words go to the regions; while a modal is open they sit inside it, and go back when it closes', async () => {
+  await check('Announcer page: words go to the regions; a dialog takes them by itself, a modal the kit can\'t see by placeAnnouncer; they go back when it closes', async () => {
     const { page, problems } = await open('/gallery/#/announcer');
-    const where = () => page.evaluate(() => (document.wkAnnouncer.parentNode === document.getElementById('g-plain-modal') ? 'modal' : document.wkAnnouncer.parentNode.tagName));
-    assert.equal(await where(), 'BODY');
+    const where = () => page.evaluate(() => {
+      const p = document.wkAnnouncer.parentNode;
+      return p === document.body ? 'body' : p === document.getElementById('g-plain-modal') ? 'dialog' : p === document.getElementById('g-shadow-host').shadowRoot.querySelector('dialog') ? 'shadow modal' : String(p?.nodeName);
+    });
+    assert.equal(await where(), 'body');
     await page.click('#g-say');
     await until(page, () => document.getElementById('g-said').textContent.startsWith('polite: Saved'));
-    await page.click('#g-say-modal');
-    assert.equal(await page.evaluate(() => document.getElementById('g-plain-modal').matches(':modal')), true);
-    assert.equal(await where(), 'modal');
-    assert.equal(await page.textContent('#g-announcer-home'), 'the modal');
-    await until(page, () => document.getElementById('g-said').textContent.startsWith('polite: Said from inside the modal'));
+    // A plain <dialog>: the kit moves the regions by itself.
+    await page.click('#g-say-dialog');
+    assert.equal(await where(), 'dialog');
+    assert.equal(await page.textContent('#g-announcer-home'), 'the dialog');
+    await until(page, () => document.getElementById('g-said').textContent.startsWith('polite: Said from inside the dialog'));
     await page.click('#g-plain-close');
+    await until(page, () => document.wkAnnouncer.parentNode === document.body);
+    // A modal in a shadow root, which the kit can't see: placeAnnouncer moves them.
+    await page.click('#g-say-modal');
+    assert.equal(await page.evaluate(() => document.getElementById('g-shadow-host').shadowRoot.querySelector('dialog').matches(':modal')), true);
+    assert.equal(await where(), 'shadow modal', 'the regions are inside the modal, so they are not inert');
+    assert.equal(await page.textContent('#g-announcer-home'), 'the modal in the shadow root');
+    await until(page, () => document.getElementById('g-said').textContent.startsWith('polite: Said from inside the modal'));
+    await page.click('#g-shadow-host >> css=dialog button');
     await until(page, () => document.wkAnnouncer.parentNode === document.body);
     assert.equal(await page.textContent('#g-announcer-home'), 'the page');
     assert.deepEqual(problems, []);

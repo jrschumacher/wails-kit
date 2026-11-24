@@ -235,7 +235,7 @@ try {
     // The open menu stays inside the window.
     await page.setViewportSize({ width: 1100, height: 400 });
     await menuButton.scrollIntoViewIfNeeded();
-    await page.evaluate(() => { const b = document.querySelector('#g-menu > button'); scrollBy(0, b.getBoundingClientRect().bottom - innerHeight + 20); });
+    await page.evaluate(() => { const b = document.querySelector('#g-menu > button'); document.getElementById('gallery-main').scrollBy(0, b.getBoundingClientRect().bottom - innerHeight + 20); });
     await menuButton.click();
     const box = await menu.boundingBox();
     assert.ok(box && box.y >= 0 && box.y + box.height <= 400, `menu at ${JSON.stringify(box)} leaves the window`);
@@ -292,6 +292,61 @@ try {
     await page.close();
   });
 
+
+  await check('menu: in a page whose document scrolls, a scroll that started before it opened does not close it; a real window scroll does, and focus returns to the button', async () => {
+    const { page, problems } = await open(PAGE('menu'));
+    // The gallery's window doesn't scroll: a tall block after its shell makes
+    // the document scroll, with a menu and a context menu in it.
+    await page.evaluate(() => {
+      const tall = document.createElement('div');
+      tall.id = 'doc-scroll';
+      tall.style.setProperty('padding', '600px 16px 3000px');
+      tall.innerHTML = '<wk-menu id="doc-menu"><button class="wk-button" type="button">Document actions</button><div role="menu" class="wk-menu" hidden><button role="menuitem" type="button" data-value="one">One</button><button role="menuitem" type="button" data-value="two">Two</button></div></wk-menu>'
+        + '<div class="g-target" id="doc-target" tabindex="0">Document target</div><wk-context-menu for="doc-target" id="doc-context"><div role="menu" class="wk-menu" aria-label="Document target actions" hidden><button role="menuitem" type="button" data-value="rename">Rename</button></div></wk-context-menu>';
+      document.body.append(tall);
+    });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollHeight > innerHeight + 1000), 'the document scrolls');
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.evaluate(() => new Promise(resolve => { addEventListener('scroll', resolve, { once: true }); document.getElementById('doc-menu').scrollIntoView({ block: 'center' }); }));
+    // A scroll whose event is still on its way when the menu opens.
+    const late = await page.evaluate(() => new Promise(resolve => {
+      scrollBy(0, 30);
+      const m = document.getElementById('doc-menu');
+      m.querySelector('button').focus({ preventScroll: true });
+      m.show();
+      document.addEventListener('scroll', () => resolve({ open: m.open, active: document.activeElement.textContent.trim() }), { once: true, capture: true });
+    }));
+    assert.deepEqual(late, { open: true, active: 'One' }, 'the late scroll event closed the menu');
+    await page.keyboard.press('Escape');
+    const lateContext = await page.evaluate(() => new Promise(resolve => {
+      scrollBy(0, -30);
+      const t = document.getElementById('doc-target');
+      t.focus({ preventScroll: true });
+      t.dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true, cancelable: true }));
+      const c = document.getElementById('doc-context');
+      document.addEventListener('scroll', () => resolve({ open: c.open, active: document.activeElement.textContent.trim() }), { once: true, capture: true });
+    }));
+    assert.deepEqual(lateContext, { open: true, active: 'Rename' }, 'the late scroll event closed the context menu');
+    await page.keyboard.press('Escape');
+    assert.equal(await active(page), 'doc-target');
+    // A real scroll of the document closes it, and focus goes back to the button.
+    await page.locator('#doc-menu > button').focus();
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await isOpen(page, 'doc-menu'), true);
+    const block = await page.locator('#doc-scroll').boundingBox();
+    await page.mouse.move(block.x + 5, Math.max(block.y, 0) + 5);
+    await page.mouse.wheel(0, 120);
+    await until(page, () => !document.getElementById('doc-menu').open);
+    assert.equal(await active(page), 'Document actions');
+    // So does a scroll from script.
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await isOpen(page, 'doc-menu'), true);
+    await page.evaluate(() => scrollBy(0, 40));
+    await until(page, () => !document.getElementById('doc-menu').open);
+    assert.equal(await active(page), 'Document actions');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
   await check('context menu: right-click, Shift+F10, focus back where it was', async () => {
     const { page, problems } = await open(PAGE('menu'));
     const menuButton = page.locator('#g-menu > button');
@@ -987,7 +1042,7 @@ try {
       const P = ResizeObserver.prototype, { observe, unobserve } = P, seen = new Set();
       P.observe = function (el, o) { if (el.classList?.contains('wk-chart-plot')) seen.add(el); return observe.call(this, el, o); };
       P.unobserve = function (el) { seen.delete(el); return unobserve.call(this, el); };
-      const { wkChart } = await import(document.body.dataset.module || '/ui/src/index.js');
+      const { wkChart } = await import('/ui/src/index.js');
       const host = document.createElement('div');
       document.body.append(host);
       const spec = { id: 'leak', kind: 'bars', label: 'Leak', categories: [{ label: 'a' }, { label: 'b' }], series: [{ key: 's', label: 'S', tone: 1, values: [1, 2] }] };
@@ -2907,8 +2962,8 @@ try {
       const sw = document.querySelector('.wk-switch');
       return {
         spinners: running.filter(a => a.animationName === 'wk-spin').length,
-        // Every spinner drawn: @wails-kit/diagram keeps one, not drawn, inside each loaded diagram.
-        spinnersInPage: [...document.querySelectorAll('.wk-spinner')].filter(sp => sp.getClientRects().length).length,
+        // Every spinner but the one @wails-kit/diagram parks, hidden, in each loaded diagram's status.
+        spinnersInPage: [...document.querySelectorAll('.wk-spinner')].filter(sp => !sp.closest('.wk-diagram-status[hidden]')).length,
         fade: names.includes('wk-progress-fade'), sweep: names.includes('wk-progress-sweep'),
         width: sweep.width === getComputedStyle(document.getElementById('g-progress-sweep')).width,
         moving, bar: getComputedStyle(document.getElementById('g-progress')).transitionDuration,
@@ -3243,6 +3298,27 @@ try {
     await page.clock.runFor(1000);
     assert.equal(await pendingText(page, 'general.folder'), '', 'the indicator never appears after the result');
     assert.deepEqual(await said(page), ['Projects folder checked']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('settings window: a back-end check has no timeout: after 3 min it is still checking, and its answer still applies', async () => {
+    const { page, problems } = await openSettings({ clock: true });
+    await manualChecks(page);
+    const folder = row(page, 'general.folder').locator('input');
+    await folder.fill('/slow');
+    await folder.press('Tab');
+    await page.clock.runFor(400);
+    assert.equal(await pendingText(page, 'general.folder'), 'Checking folder…');
+    // Well past wkTask's 2-minute timeout: the window waits for CheckValue.
+    await page.clock.runFor(180_000);
+    assert.equal(await pendingText(page, 'general.folder'), 'Checking folder…', 'the check timed out');
+    assert.equal(await row(page, 'general.folder').locator('.wk-error').evaluateAll(els => els.map(e => e.textContent).join('')), '', 'no error beside the field');
+    assert.deepEqual((await said(page)).filter(w => /timed out/i.test(w)), []);
+    await answer(page, 0, null);
+    await until(page, () => window.settingsEvents.at(-1)?.key === 'general.folder' && window.settingsEvents.at(-1)?.value === '/slow');
+    await page.clock.runFor(600);
+    assert.equal(await pendingText(page, 'general.folder'), '');
     assert.deepEqual(problems, []);
     await page.close();
   });

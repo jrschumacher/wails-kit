@@ -97,7 +97,8 @@ CHROME_PATH=/usr/bin/google-chrome npm run test:browser
 CHECK='^menu' npm run test:browser                  # only the checks whose names match
 ```
 
-`npm run test:browser` runs two files, which share `test/helpers.mjs` (the
+`npm run test:browser` runs two files (`test/run.mjs` runs both, and fails if
+either failed), which share `test/helpers.mjs` (the
 server, Chrome, a page that records every problem, and the fake clock:
 `open(path, { clock: true })` starts the page's timers at a fixed
 `CLOCK_T0`, `pauseClock(page)` stops them a minute on, and the check moves
@@ -112,9 +113,9 @@ them with `page.clock.runFor`):
   `.wk-*` class in `ui/src/components.css` and `ui/src/base.css` appears on
   some page once its "Try it" buttons have run; the appearance, theme,
   text-size and source switches; the gallery's keyboard navigation; and the
-  "Try it" runs' timings, on the fake clock: the busy button, Stop at 10 s,
-  Stop… and its Alert, Esc, the timeout, the loading line, app undo and the
-  announcer.
+  "Try it" runs: on the fake clock, Stop at 10 s, Stop… and its Alert, Esc,
+  the timeout and the loading line; on the real clock (waiting for
+  conditions), the busy button, app undo and the announcer.
 - **`test/components.mjs`, the kit's components**, on the gallery's pages:
   the checks that were `@wails-kit/ui`'s own browser tests on its demo pages.
   The WAI-ARIA keyboard patterns of every custom element, focus return,
