@@ -8,7 +8,7 @@ export type FieldType = 'text' | 'password' | 'select' | 'toggle' | 'computed' |
 export interface Field {
   key: string; type: FieldType; label: string; description?: string; placeholder?: string; default?: unknown;
   options?: SelectOption[]; dynamicOptions?: { dependsOn: string; options: Record<string, SelectOption[]> };
-  condition?: Condition; validation?: Validation; advanced?: boolean;
+  condition?: Condition; validation?: Validation; check?: { pending?: string }; advanced?: boolean;
 }
 export interface Group { key: string; label: string; fields: Field[] }
 export interface Schema { groups: Group[] }
@@ -104,14 +104,20 @@ export interface SettingsRow {
 }
 export function settingsModel(schema: Schema, values?: Values, errors?: ValidationError[] | null): {
   groups: { key: string; label: string; attention: boolean; rows: SettingsRow[]; advanced: SettingsRow[] }[];
+  /** The number of visible fields with an error. */
+  attention: number;
 };
-export interface SettingsChangeDetail { key: string; value: unknown; values: Values; errors: ValidationError[] }
+export interface SettingsChangeDetail { key: string; value: unknown; values: Values; errors: ValidationError[]; checked: boolean }
 export class WkSettings extends HTMLElement {
   schema: Schema | null;
   values: Values;
   errors: ValidationError[];
   icons: Record<string, string | Node>;
   validate: ((schema: Schema, values: Values) => ValidationError[]) | null;
+  /** A back-end check, such as settings.Service.CheckValue: the field's errors, or none when it passes (and has saved). */
+  check: ((key: string, values: Values) => Promise<ValidationError[] | null>) | null;
+  /** Selects the field's tab, opens Advanced if needed and focuses its control; false when the field isn't shown. */
+  reveal(key: string): boolean;
 }
 
 declare global {

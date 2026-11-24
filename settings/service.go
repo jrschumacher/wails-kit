@@ -1,8 +1,11 @@
 package settings
 
 import (
+	"reflect"
 	"sync"
+	"time"
 
+	"github.com/jrschumacher/wails-kit/events"
 	"github.com/jrschumacher/wails-kit/keyring"
 )
 
@@ -16,6 +19,20 @@ type Service struct {
 	secrets  keyring.Store
 	onChange []func(values map[string]any)
 	mu       sync.Mutex
+
+	emitter      *events.Emitter
+	checkTimeout time.Duration
+	// gen counts the changes to each key (guarded by mu): CheckValue bumps it
+	// when it starts, SetValues when it changes the key. A check saves only if
+	// its key's generation is still the one it started with.
+	gen      map[string]uint64
+	failures map[string]ValidationError // guarded by mu
+
+	// The onChange notifications waiting to be delivered, queued under mu in
+	// save order and delivered by deliver() without it (guarded by notifyMu).
+	notifyMu    sync.Mutex
+	notifyQueue []map[string]any
+	delivering  bool
 }
 
 type ServiceOption func(*Service)
@@ -77,7 +94,11 @@ func WithOnChange(fn func(values map[string]any)) ServiceOption {
 
 // NewService creates a new settings service.
 func NewService(opts ...ServiceOption) *Service {
-	s := &Service{}
+	s := &Service{
+		checkTimeout: DefaultCheckTimeout,
+		gen:          make(map[string]uint64),
+		failures:     make(map[string]ValidationError),
+	}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -145,13 +166,37 @@ func (s *Service) GetSecret(key string) (string, error) {
 
 // SetValues validates and saves settings. Password fields with the mask
 // sentinel are skipped (no change). Empty string clears a secret.
+// A key whose value it changes has its running check made out of date and
+// its recorded check failure dropped (see CheckValue). A key it is given
+// with the value already saved (the mask, for a password) is not a change:
+// it doesn't overtake a check running for that key, so the window's saves
+// of other fields, which carry every value, leave its checks alone.
+// The onChange callbacks run after the service's lock is released, in save
+// order, so they may call back into the service.
 // This method is safe for concurrent use.
 func (s *Service) SetValues(values map[string]any) ([]ValidationError, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	errs, err := s.setValuesLocked(values)
+	s.mu.Unlock()
+	// The onChange callbacks run after the lock is released, so they may call
+	// back into the service, and in the order the saves happened.
+	s.deliver()
+	return errs, err
+}
 
+func (s *Service) setValuesLocked(values map[string]any) ([]ValidationError, error) {
 	if errs := Validate(s.schema, values); errs != nil {
 		return errs, nil
+	}
+
+	// The keys this call changes: their running checks are out of date and
+	// their recorded check failures no longer apply.
+	current, _ := s.store.Load()
+	for k, v := range values {
+		if s.changes(k, v, current) {
+			s.gen[k]++
+			delete(s.failures, k)
+		}
 	}
 
 	// Separate secrets from regular values
@@ -194,11 +239,79 @@ func (s *Service) SetValues(values map[string]any) ([]ValidationError, error) {
 			notifyValues[k] = SecretMask
 		}
 	}
-	for _, fn := range s.onChange {
-		fn(notifyValues)
-	}
+	s.queueNotify(notifyValues)
 
 	return nil, nil
+}
+
+// queueNotify queues one onChange notification. The caller holds s.mu, so
+// notifications queue in the order the saves happened.
+func (s *Service) queueNotify(values map[string]any) {
+	if len(s.onChange) == 0 {
+		return
+	}
+	s.notifyMu.Lock()
+	s.notifyQueue = append(s.notifyQueue, values)
+	s.notifyMu.Unlock()
+}
+
+// deliver runs the queued onChange notifications, one at a time and in
+// order, without holding s.mu. If another call is already delivering (on
+// another goroutine, or further up this one's stack when a callback saved
+// again), it leaves the queue to that call, which delivers it next.
+func (s *Service) deliver() {
+	s.notifyMu.Lock()
+	if s.delivering {
+		s.notifyMu.Unlock()
+		return
+	}
+	s.delivering = true
+	// A callback that panics stops this delivery: the next save delivers
+	// what is still queued.
+	defer func() {
+		if r := recover(); r != nil {
+			s.notifyMu.Lock()
+			s.delivering = false
+			s.notifyMu.Unlock()
+			panic(r)
+		}
+	}()
+	for {
+		if len(s.notifyQueue) == 0 {
+			// Stop delivering in the same critical section that finds the
+			// queue empty: a save queued after this delivers itself.
+			s.delivering = false
+			s.notifyMu.Unlock()
+			return
+		}
+		values := s.notifyQueue[0]
+		s.notifyQueue = s.notifyQueue[1:]
+		s.notifyMu.Unlock()
+		for _, fn := range s.onChange {
+			fn(values)
+		}
+		s.notifyMu.Lock()
+	}
+}
+
+// changes reports whether SetValues writing v to key changes it: a new secret
+// (not the mask), or a value other than the one saved.
+func (s *Service) changes(key string, v any, current map[string]any) bool {
+	if s.passwordKeys()[key] {
+		str, _ := v.(string)
+		if str == SecretMask {
+			return false
+		}
+		if str == "" {
+			return s.secrets.Has(key)
+		}
+		old, err := s.secrets.Get(key)
+		return err != nil || old != str
+	}
+	if s.computedKeys()[key] {
+		return false
+	}
+	return !reflect.DeepEqual(current[key], v)
 }
 
 func (s *Service) computedKeys() map[string]bool {
