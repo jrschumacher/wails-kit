@@ -22,7 +22,7 @@ import { parseMarkdown, serializeMarkdown, sourceText } from './markdown.js';
 import { serializeHtml, parseHtml, cleanHtml } from './html.js';
 import { nesting } from './limits.js';
 import { richtextStyles } from './style-spec.js';
-import { kitAnnounce, busySubmit } from '../shared/kit.js';
+import { kitAnnounce, busySubmit, retryRefusal } from '../shared/kit.js';
 
 export { FEATURES };
 
@@ -707,7 +707,7 @@ export function wkRichTextEditor(spec = {}) {
   // be sent, say why rather than drop it silently.
   function retry(value) {
     if (destroyed) return;
-    const why = disabled ? `Couldn\u2019t send: ${label} is turned off` : busy ? `Couldn\u2019t send: ${label} is still sending` : null;
+    const why = retryRefusal(label, { disabled, busy });
     if (why) { kitAnnounce(root, spec.kit)?.(why); return; }
     send(value);
   }

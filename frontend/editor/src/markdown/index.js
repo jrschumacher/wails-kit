@@ -18,7 +18,7 @@ import {
 import { resolve } from '../shared/languages.js';
 import { overflowDispatch, isStackOverflow, isPlain } from './overflow.js';
 import { editorStyles } from './style-spec.js';
-import { kitAnnounce, busySubmit } from '../shared/kit.js';
+import { kitAnnounce, busySubmit, retryRefusal } from '../shared/kit.js';
 
 export { renderMarkdown, renderMarkdownElement, MAX_MARKDOWN_LENGTH, MAX_MARKDOWN_DEPTH, MAX_MARKDOWN_DELIMITERS, MAX_MARKDOWN_BLOCK_DELIMITERS };
 
@@ -467,7 +467,7 @@ export function wkMarkdownEditor(spec = {}) {
   // be sent, say why rather than drop it silently.
   function retry(value) {
     if (destroyed) return;
-    const why = disabled ? `Couldn\u2019t send: ${label} is turned off` : busy ? `Couldn\u2019t send: ${label} is still sending` : null;
+    const why = retryRefusal(label, { disabled, busy });
     if (why) { kitAnnounce(root, spec.kit)?.(why); return; }
     send(value);
   }

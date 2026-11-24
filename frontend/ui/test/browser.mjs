@@ -3552,9 +3552,10 @@ try {
     await folder.fill('/abc');
     await folder.press('Tab');
     await page.clock.runFor(600);
-    // Not in the task list: its summary has nothing to show. (Read without opening the
+    // Not in the task list: its summary has no words. (Read without opening the
     // list, whose close would hand focus back a task later, under the next fill.)
-    assert.equal(await page.evaluate(() => { const b = document.wkTask.summary(); const empty = b.hidden; b.dispose(); return empty; }), true, 'not in the task list');
+    // (Its words, not hidden: the summary hides itself with fewer than two tasks.)
+    assert.equal(await page.evaluate(() => { const b = document.wkTask.summary(); const words = b.textContent; b.dispose(); return words; }), '', 'not in the task list');
     await said(page);
     await folder.fill('/abcdefghij');
     await folder.press('Tab');

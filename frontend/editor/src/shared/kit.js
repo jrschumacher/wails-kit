@@ -14,6 +14,16 @@ export function kitAnnounce(node, kit) {
   return typeof doc?.wkAnnounce === 'function' ? doc.wkAnnounce : null;
 }
 
+/**
+ * Why Retry (from the task list) can't send now, or null when it can:
+ * "Couldn’t send: Comment is turned off", or "it’s" without a label.
+ */
+export function retryRefusal(label, { disabled = false, busy = false } = {}) {
+  if (!disabled && !busy) return null;
+  const who = label ? `${label} is` : 'it\u2019s';
+  return `Couldn\u2019t send: ${who} ${disabled ? 'turned off' : 'still sending'}`;
+}
+
 /** The window's wkTask(spec), or null without the kit. */
 export function kitTask(node, kit) {
   if (typeof kit?.wkTask === 'function') return kit.wkTask;
