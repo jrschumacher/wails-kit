@@ -12,6 +12,8 @@
 :where(.wk-root) .demo-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wk-space-3); margin-bottom: var(--wk-space-3); }
 :where(.wk-root) .demo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--wk-space-4); }
 :where(.wk-root) .demo-span { grid-column: 1 / -1; }
+/* Bars need a width; the demo gives each 260 px. */
+:where(.wk-root) .demo-progress { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: var(--wk-space-4); max-width: 560px; }
 :where(.wk-root) .demo-wide { width: 100%; }
 :where(.wk-root) .demo-narrow { width: 72px; }
 :where(.wk-root) .demo-search { width: 160px; }

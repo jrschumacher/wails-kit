@@ -302,6 +302,10 @@ err = mgr.Shutdown()     // stops in reverse order; collects all errors
 
 Lightweight typed state persistence to disk. Save/load any struct as JSON with atomic writes, without schema, validation, or keyring integration. See [`state/README.md`](state/README.md).
 
+### [`tasks`](tasks/README.md) — Task List and `tasks:changed`
+
+The app's tasks kept on the Go side, so they survive a reloaded window: lifecycle states, coalesced progress, a timeout on silence, retries with backoff, and sleep and wake. Emits one event, `tasks:changed`, with a snapshot of the whole list. See [`tasks/README.md`](tasks/README.md).
+
 ### [`errors`](errors/README.md) — User-Facing Error Types
 
 Generic error types for Wails apps. Apps add their own domain-specific codes and messages.
@@ -318,13 +322,13 @@ err = errors.Wrap(errors.ErrProviderError, "anthropic failed", originalErr)
 err = err.WithField("provider", "anthropic").WithField("status", 429)
 
 // Extract user-facing info from any error
-msg := errors.GetUserMessage(err)  // "Your session has expired. Please sign in again."
+msg := errors.GetUserMessage(err)  // "Sign-in expired"
 code := errors.GetCode(err)        // errors.ErrAuthExpired
 errors.IsCode(err, errors.ErrRateLimited)  // false
 
 // Register app-specific messages
 errors.RegisterMessages(map[errors.Code]string{
-    "jira_unreachable": "Cannot reach Jira. Check your network connection.",
+    "jira_unreachable": "Couldn't reach Jira",
 })
 ```
 

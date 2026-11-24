@@ -155,21 +155,21 @@ var (
 )
 
 var defaultMessages = map[Code]string{
-	ErrAuthInvalid:   "Authentication failed. Please check your credentials.",
-	ErrAuthExpired:   "Your session has expired. Please reconnect.",
-	ErrAuthMissing:   "Authentication is required. Please configure your credentials.",
-	ErrNotFound:      "The requested item was not found.",
-	ErrPermission:    "You don't have permission to perform this action.",
-	ErrValidation:    "The input is invalid. Please check and try again.",
-	ErrRateLimited:   "Too many requests. Please wait and try again.",
-	ErrTimeout:       "The operation timed out. Please try again.",
-	ErrCancelled:     "The operation was cancelled.",
-	ErrInternal:      "An unexpected error occurred. Please try again.",
-	ErrStorageRead:   "Failed to read data. Please try again.",
-	ErrStorageWrite:  "Failed to save data. Please try again.",
-	ErrConfigInvalid: "Configuration is invalid. Please check your settings.",
-	ErrConfigMissing: "Required configuration is missing. Please check your settings.",
-	ErrProvider:      "The service provider returned an error. Please try again.",
+	ErrAuthInvalid:   "Couldn't sign in with these credentials",
+	ErrAuthExpired:   "Sign-in expired",
+	ErrAuthMissing:   "Sign-in needed",
+	ErrNotFound:      "Couldn't find it",
+	ErrPermission:    "You don't have permission for this",
+	ErrValidation:    "Some values aren't valid",
+	ErrRateLimited:   "Too many requests right now",
+	ErrTimeout:       "Timed out",
+	ErrCancelled:     "Cancelled",
+	ErrInternal:      "Couldn't finish this",
+	ErrStorageRead:   "Couldn't read the data",
+	ErrStorageWrite:  "Couldn't save the data",
+	ErrConfigInvalid: "A setting isn't valid",
+	ErrConfigMissing: "A required setting is missing",
+	ErrProvider:      "The service returned an error",
 }
 
 // RegisterMessages adds or overrides user-facing messages for error codes.

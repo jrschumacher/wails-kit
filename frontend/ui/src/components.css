@@ -35,6 +35,77 @@
 .wk-button.wk-button--locked { cursor: not-allowed; gap: var(--wk-space-1); }
 .wk-button--locked > svg { width: var(--wk-font-size-sm); height: var(--wk-font-size-sm); }
 
+/* ---- Busy: a control whose action is running (BEHAVIOUR.md) ------------
+   aria-disabled="true" plus data-busy, never disabled (which drops focus).
+   It keeps its focus, its accessible name and its pressed face, with the
+   progress cursor; data-busy overrides the 45% aria-disabled look. The face
+   is the pressed one (.wk-button:active), two fill-strong layers. kit.js
+   drops the presses a busy control gets. */
+.wk-button[data-busy] { opacity: 1; cursor: progress; box-shadow: var(--wk-shadow-control); background-image: linear-gradient(var(--wk-color-fill-strong), var(--wk-color-fill-strong)), linear-gradient(var(--wk-color-fill-strong), var(--wk-color-fill-strong)); }
+.wk-button--quiet[data-busy] { box-shadow: none; }
+.wk-filter[data-busy], button.wk-chip[data-busy], .wk-copy[data-busy] { cursor: progress; background-image: linear-gradient(var(--wk-color-fill-strong), var(--wk-color-fill-strong)); }
+button.wk-link[data-busy] { cursor: progress; }
+
+/* ---- Spinner: <span class="wk-spinner"> ---------------------------------
+   Drawn with a border in currentColor, so it reads in forced colours too.
+   It keeps turning under reduced motion: a still indicator reads as frozen.
+   In a button (aria-hidden="true") it sits over the label, which keeps its
+   place, so the width holds, and stays in the accessible name: its text is
+   painted transparent rather than hidden, because visibility: hidden would
+   drop it from the name. On its own it is role="progressbar" with a name. */
+.wk-spinner {
+  display: inline-block; flex: none; box-sizing: border-box;
+  width: 14px; height: 14px;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  vertical-align: -2px;
+  animation: wk-spin .8s linear infinite;
+}
+.wk-button--small > .wk-spinner { width: 12px; height: 12px; border-width: 1.5px; }
+.wk-button:has(> .wk-spinner) { position: relative; -webkit-text-fill-color: transparent; }
+.wk-button:has(> .wk-spinner) > svg { visibility: hidden; }
+.wk-button > .wk-spinner { position: absolute; inset: 0; margin: auto; }
+@keyframes wk-spin { to { transform: rotate(1turn); } }
+
+/* ---- Progress bar: <div class="wk-progress" role="progressbar"> ---------
+   Determinate with aria-valuenow (and min, max, valuetext): the app or
+   setProgress() sets --wk-progress-value to the filled share. Indeterminate
+   with no value attributes: a sweep, which under reduced motion becomes a
+   slow fade in place. For panels, sheets and standalone regions; in a table
+   or list row, progress is words, not a bar. */
+.wk-progress {
+  position: relative; display: block; height: 4px; overflow: hidden;
+  border-radius: var(--wk-radius-pill);
+  background: linear-gradient(var(--wk-color-working), var(--wk-color-working)) 0 / var(--wk-progress-value, 0%) 100% no-repeat, var(--wk-color-fill-strong);
+  transition: background-size var(--wk-duration-base) var(--wk-ease-out);
+}
+.wk-progress:not([aria-valuenow]) { background: var(--wk-color-fill-strong); }
+.wk-progress:not([aria-valuenow])::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%;
+  border-radius: inherit; background: var(--wk-color-working);
+  animation: wk-progress-sweep 1.6s ease-in-out infinite;
+}
+@keyframes wk-progress-sweep { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@keyframes wk-progress-fade { from { opacity: .3; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .wk-progress { transition: none; }
+  .wk-progress:not([aria-valuenow])::before { width: 100%; animation: wk-progress-fade 1.6s ease-in-out infinite alternate; }
+}
+/* Forced colours: the fill is Highlight inside a CanvasText outline; the
+   spinner keeps its border in the control's text colour. */
+@media (forced-colors: active) {
+  .wk-progress { forced-color-adjust: none; outline: var(--wk-hairline-width) solid CanvasText; outline-offset: 1px; background: linear-gradient(Highlight, Highlight) 0 / var(--wk-progress-value, 0%) 100% no-repeat, Canvas; }
+  .wk-progress:not([aria-valuenow]) { background: Canvas; }
+  .wk-progress:not([aria-valuenow])::before { background: Highlight; }
+  .wk-spinner { forced-color-adjust: none; border-color: currentColor; border-right-color: transparent; }
+  /* The system repaints a transparent text fill: draw the button with
+     system colours itself, so its label stays hidden under the spinner. */
+  .wk-button:has(> .wk-spinner) { forced-color-adjust: none; border-color: ButtonText; background: ButtonFace; color: ButtonText; }
+  .wk-button:has(> .wk-spinner):focus-visible { outline-color: Highlight; }
+  /* The pressed face is a background the system drops: mark busy with a
+     Highlight border instead, with or without a spinner. */
+  .wk-button[data-busy] { border-color: Highlight; }
+}
+
 /* ---- Link -------------------------------------------------------------- */
 .wk-link { color: var(--wk-color-accent); text-decoration: none; text-underline-offset: 2px; cursor: pointer; }
 .wk-link:hover { text-decoration: underline; }
@@ -123,14 +194,14 @@ textarea.wk-field { min-height: 64px; padding: 6px 8px; resize: vertical; }
   border-radius: var(--wk-radius-pill);
   background: var(--wk-color-fill-strong);
   vertical-align: middle; cursor: pointer;
-  transition: background-color .12s, border-color .12s;
+  transition: background-color var(--wk-duration-fast), border-color var(--wk-duration-fast);
 }
 .wk-switch::before {
   content: ""; position: absolute; top: 1px; left: 1px;
   width: 16px; height: 16px;
   border: var(--wk-hairline-width) solid transparent; border-radius: 50%;
   background: var(--wk-color-thumb); box-shadow: var(--wk-shadow-raised);
-  transition: transform .12s;
+  transition: transform var(--wk-duration-fast);
 }
 .wk-switch:checked { background: var(--wk-color-accent); border-color: var(--wk-color-accent); }
 .wk-switch:checked::before { transform: translateX(14px); }
