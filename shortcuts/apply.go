@@ -3,6 +3,7 @@
 package shortcuts
 
 import (
+	"context"
 	"runtime"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -27,9 +28,10 @@ func (m *Manager) Apply(app *application.App) {
 	}
 
 	// Build the edit menu manually when Settings needs to be injected on
-	// non-macOS platforms; otherwise use the standard role.
-	if m.settings && runtime.GOOS != "darwin" {
-		m.addEditMenuWithSettings(menu)
+	// non-macOS platforms, or the app's undo stack runs Undo and Redo;
+	// otherwise use the standard role.
+	if m.undo != nil || (m.settings && runtime.GOOS != "darwin") {
+		m.addEditMenu(menu, m.settings && runtime.GOOS != "darwin")
 	} else if m.editMenu {
 		menu.AddRole(application.EditMenu)
 	}
@@ -68,12 +70,29 @@ func (m *Manager) addDarwinAppMenuWithSettings(parent *application.Menu, appName
 	sub.AddRole(application.Quit)
 }
 
-// addEditMenuWithSettings builds an Edit menu with a Settings item appended,
-// used on non-macOS platforms where Settings goes in Edit > Preferences.
-func (m *Manager) addEditMenuWithSettings(parent *application.Menu) {
+// addEditMenu builds the Edit menu by hand: with the app's undo stack
+// behind Undo and Redo when WithUndo is set (else the native roles), and
+// with a Settings item appended on non-macOS platforms, where Settings goes
+// in Edit.
+func (m *Manager) addEditMenu(parent *application.Menu, settings bool) {
 	sub := parent.AddSubmenu("Edit")
-	sub.AddRole(application.Undo)
-	sub.AddRole(application.Redo)
+	if m.undo != nil {
+		stack := m.undo
+		first := stack.Menu()
+		undo := sub.Add(first.UndoLabel).
+			SetAccelerator("CmdOrCtrl+z").
+			OnClick(func(_ *application.Context) { go stack.MenuUndo(context.Background()) })
+		redo := sub.Add(first.RedoLabel).
+			SetAccelerator(RedoAccelerator(runtime.GOOS)).
+			OnClick(func(_ *application.Context) { go stack.MenuRedo(context.Background()) })
+		stack.OnMenu(func(s MenuState) {
+			undo.SetLabel(s.UndoLabel).SetEnabled(s.UndoEnabled)
+			redo.SetLabel(s.RedoLabel).SetEnabled(s.RedoEnabled)
+		})
+	} else {
+		sub.AddRole(application.Undo)
+		sub.AddRole(application.Redo)
+	}
 	sub.AddSeparator()
 	sub.AddRole(application.Cut)
 	sub.AddRole(application.Copy)
@@ -81,6 +100,9 @@ func (m *Manager) addEditMenuWithSettings(parent *application.Menu) {
 	sub.AddRole(application.Delete)
 	sub.AddSeparator()
 	sub.AddRole(application.SelectAll)
+	if !settings {
+		return
+	}
 	sub.AddSeparator()
 
 	sub.Add("Settings").

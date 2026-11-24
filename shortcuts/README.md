@@ -37,6 +37,7 @@ mgr.Apply(app)
 | `WithWindowMenu()` | Window menu (Minimize, Zoom) |
 | `WithSettings()` | Settings shortcut (⌘, / Ctrl+,) |
 | `WithEmitter(e)` | Event emitter for shortcut events |
+| `WithUndo(stack)` | Puts the app's undo stack behind Edit > Undo and Redo (implies `WithEditMenu`); see [App undo and redo](#app-undo-and-redo) |
 
 ## Platform behavior
 
@@ -57,6 +58,103 @@ mgr.Apply(app)
 | Event | Trigger | Payload |
 |---|---|---|
 | `settings:open` | Settings shortcut activated | `nil` |
+| `undo:changed` | The undo stack changed: a push, an undo or redo starting or ending, a clear, text focus changing | `UndoState` |
+| `undo:text` | Edit > Undo or Redo while a text field has focus | `UndoTextPayload` |
+| `undo:failed` | An undo or redo started from the menu failed | `UndoFailedPayload` |
+
+## App undo and redo
+
+[`frontend/ui/BEHAVIOUR.md`](../frontend/ui/BEHAVIOUR.md#undo-confirm-or-neither) is the
+spec: Undo is never only in a toast. `UndoStack` is a stack for the session, behind
+Edit > Undo and Redo, named for the action ("Undo Archive") and enabled to match.
+While a text field has focus, the menu undoes typing first. A toast's Undo
+(`wkUndo.action()` in `@wails-kit/ui`) uses the same stack.
+
+```go
+var app *application.App
+emitter := events.NewEmitter(events.BackendFunc(func(name string, data any) {
+    app.Event.Emit(name, data)
+}))
+undo := shortcuts.NewUndoStack(shortcuts.WithUndoEmitter(emitter))
+app = application.New(application.Options{
+    Name:     "MyApp",
+    Services: []application.Service{application.NewService(undo.Bindings())},
+})
+
+mgr := shortcuts.New(shortcuts.WithDefaults(), shortcuts.WithUndo(undo), shortcuts.WithEmitter(emitter))
+mgr.Apply(app)
+
+// In the app: do the action, then push how to undo it.
+func (a *App) Archive(id string) (string, error) {
+    if err := a.store.Archive(id); err != nil {
+        return "", err
+    }
+    return a.undo.Push(shortcuts.Action{
+        Name: "Archive",
+        Undo: func(ctx context.Context) error { return a.store.Unarchive(id) },
+        Redo: func(ctx context.Context) error { return a.store.Archive(id) },
+    })
+}
+```
+
+```js
+import { Events } from '@wailsio/runtime';
+import * as Undo from './bindings/…/shortcuts/undobindings.js'; // the generated bindings for UndoBindings
+import { wkUndo, wkToast } from '@wails-kit/ui';
+
+wkUndo.connect({ on: (name, fn) => Events.On(name, e => fn(e.data)), bindings: Undo });
+
+const id = await Archive(conversation.id);
+wkToast({ words: 'Conversation archived', action: wkUndo.action(id) });
+```
+
+- **`Push(Action)`** records an action the app has just done and returns its ID; it
+  clears the redo stack. `Name` and `Undo` are required (else `undo_invalid`). A nil
+  `Redo` means it can't be redone: undoing it clears the redo stack, so nothing is
+  redone out of order.
+- **`Undo(ctx)`, `Redo(ctx)`** run the top action's function outside the lock, one at a
+  time: `undo_busy` while one runs (both menu items are disabled then), `undo_empty`
+  with nothing to undo, and `undo_failed`, wrapping the app's error, when its function
+  fails. A failed action stays on its stack.
+- **`UndoID(ctx, id)`** undoes the action only while it is the most recent, else
+  `undo_stale`. A toast's Undo uses it, so it never undoes a later action.
+- **`Clear()`** empties both stacks, for when what they act on has gone.
+- **`SetTextFocus(bool)`** is reported by the frontend (`wkUndo.connect`). While a text
+  field has focus, the items read plain "Undo" and "Redo", stay enabled, and send
+  `undo:text` instead of touching the stack; the focused window's field undoes its
+  typing, and when it has none, the frontend calls `Undo` (or `Redo`) instead.
+- **`MenuUndo(ctx)`, `MenuRedo(ctx)`** are what the menu items do: `Apply` wires them.
+  A failure goes out as `undo:failed`, which the frontend says in words. An app with
+  its own menu calls them from its items and keeps them in step with `OnMenu`.
+- **`State()`**, **`Menu()`**, **`OnMenu(fn)`**: the state the frontend sees, the menu's
+  labels and enabled state, and a callback for every change.
+- **`Bindings()`** is what to register with Wails: `State`, `Undo`, `Redo`, `UndoID` and
+  `SetTextFocus` only (`Push` takes functions).
+
+Redo is on the platform's shortcut (`RedoAccelerator`): ⇧⌘Z on macOS, Ctrl+Y on Windows
+and Ctrl+Shift+Z on Linux; Undo is ⌘Z / Ctrl+Z. With `WithUndo`, the Edit menu is built
+by hand on every platform (Undo, Redo, Cut, Copy, Paste, Delete, Select All, and
+Settings on Windows and Linux), so its Undo and Redo are the app's items, not the
+native roles.
+
+| Option | Description |
+|---|---|
+| `WithUndoEmitter(e)` | Emitter for `undo:changed`, `undo:text` and `undo:failed` |
+| `WithUndoLimit(n)` | How many actions the stack keeps (default 100); the oldest go first |
+| `WithUndoLabels(undo, redo, plainUndo, plainRedo)` | The menu's words: `"Undo %s"`, `"Redo %s"`, `"Undo"`, `"Redo"` |
+
+### Error codes
+
+| Code | Meaning |
+|---|---|
+| `undo_empty` | Nothing to undo or redo |
+| `undo_busy` | An undo or redo is already running |
+| `undo_stale` | `UndoID` named an action that isn't the most recent |
+| `undo_invalid` | `Push` without a name or an Undo function |
+| `undo_failed` | The action's Undo or Redo failed; it wraps the app's error |
+
+The payloads are mirrored in `@wails-kit/types` (`UndoChangedPayload`,
+`UndoTextPayload`, `UndoFailedPayload`).
 
 ## Pairing with settings
 
