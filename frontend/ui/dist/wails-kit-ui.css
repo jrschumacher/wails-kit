@@ -263,6 +263,27 @@
     --wk-color-attention-fill: color-mix(in srgb, var(--wk-color-attention) 12%, transparent);
   }
 }
+/* Increased contrast (prefers-contrast: more, the system's setting), live
+   like the appearance. Lines, control outlines, secondary text and the
+   tints are mixed from the theme's own text and bg, so one block serves
+   light and dark and any theme. The selector is :root three times so it
+   outweighs a theme's dark blocks (two classes' worth), which a theme file
+   loaded after the kit would otherwise win with. Where color-mix() is
+   missing the kit's usual values stay. */
+@media (prefers-contrast: more) {
+  @supports (color: color-mix(in srgb, red, blue)) {
+    :root:root:root {
+      --wk-color-text-secondary: color-mix(in srgb, var(--wk-color-text) 82%, var(--wk-color-bg));
+      --wk-color-text-secondary-on-selected: color-mix(in srgb, var(--wk-color-text) 88%, var(--wk-color-bg));
+      --wk-color-hairline: color-mix(in srgb, var(--wk-color-text) 32%, var(--wk-color-bg));
+      --wk-color-hairline-strong: color-mix(in srgb, var(--wk-color-text) 45%, var(--wk-color-bg));
+      --wk-color-control-border: color-mix(in srgb, var(--wk-color-text) 55%, var(--wk-color-bg));
+      --wk-color-field-border: color-mix(in srgb, var(--wk-color-text) 70%, var(--wk-color-bg));
+      --wk-color-fill: color-mix(in srgb, var(--wk-color-text) 8%, transparent);
+      --wk-color-fill-strong: color-mix(in srgb, var(--wk-color-text) 14%, transparent);
+    }
+  }
+}
 
 /* ---- base.css ---- */
 /* Kit base: the page, focus, and the type scale. Colours come from tokens.
@@ -1216,3 +1237,20 @@ wk-settings .wk-settings-row:not([hidden]) ~ .wk-settings-row { border-top: var(
 wk-settings .wk-settings-row > .wk-error { flex: 1 0 100%; margin: 0; }
 .wk-settings-control { width: min(240px, 100%); }
 .wk-settings-value { color: var(--wk-color-text-secondary); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* A back-end check's words beside its field ("Checking token…"), with a
+   small spinner; empty (and gone) until the check has run for 400 ms. The
+   window's Notice ("2 settings need attention.") sits above the panes. */
+wk-settings .wk-settings-row > .wk-settings-pending { display: flex; flex: 1 0 100%; align-items: center; gap: var(--wk-space-2); margin: 0; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); }
+wk-settings .wk-settings-pending:empty, wk-settings .wk-settings-status:empty { display: none; }
+wk-settings .wk-settings-pending > .wk-spinner { width: 12px; height: 12px; border-width: 1.5px; }
+/* Once the check ends, the region holds its outcome in words for screen
+   readers ("Projects folder checked", or the error); the field shows it. */
+wk-settings .wk-settings-row { position: relative; }
+wk-settings .wk-settings-row > .wk-settings-pending[data-outcome] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+wk-settings > .wk-settings-window > .wk-settings-status { margin: var(--wk-space-4) var(--wk-space-5) 0; }
+/* Forced colours: the spinner keeps its own colours (forced-color-adjust:
+   none) and takes currentColor, which here is the secondary text token:
+   draw it in CanvasText, as the words around it are. */
+@media (forced-colors: active) {
+  wk-settings .wk-settings-pending > .wk-spinner { color: CanvasText; }
+}

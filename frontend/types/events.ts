@@ -1,4 +1,4 @@
-// Event constants and payload types — mirrors events/events.go, updates/service.go and tasks/tasks.go
+// Event constants and payload types — mirrors events/events.go, updates/service.go, tasks/tasks.go and desktop/desktop.go
 // Kept in sync via Go reflection test in frontend/types_test.go
 
 import type { ErrorCode } from "./errors";
@@ -9,6 +9,17 @@ export const SettingsChanged = "settings:changed" as const;
 
 export interface SettingsChangedPayload {
   keys: string[];
+}
+
+// Settings check events (settings/check.go)
+export const SettingsCheckFailed = "settings:check_failed" as const;
+
+export interface SettingsCheckFailedPayload {
+  key: string;
+  label: string;
+  message: string;
+  notice: string;
+  attention: boolean;
 }
 
 // Update events
@@ -47,12 +58,30 @@ export interface TasksChangedPayload {
   tasks: TaskSnapshot[];
 }
 
+// Desktop events
+export const DesktopShowTasks = "desktop:show-tasks" as const;
+export const DesktopQuitPending = "desktop:quit-pending" as const;
+
+/** The top-level tasks a clicked notification was about: select their results. */
+export interface DesktopShowTasksPayload {
+  tasks: string[];
+}
+
+/** Whether the app quits once the work finishes (the person chose Quit When Done). */
+export interface DesktopQuitPendingPayload {
+  pending: boolean;
+  running: number;
+}
+
 // Event map for type-safe event subscription
 export interface EventMap {
   [SettingsChanged]: SettingsChangedPayload;
+  [SettingsCheckFailed]: SettingsCheckFailedPayload;
   [UpdateAvailable]: UpdateAvailablePayload;
   [UpdateDownloading]: UpdateDownloadingPayload;
   [UpdateReady]: UpdateReadyPayload;
   [UpdateError]: UpdateErrorPayload;
   [TasksChanged]: TasksChangedPayload;
+  [DesktopShowTasks]: DesktopShowTasksPayload;
+  [DesktopQuitPending]: DesktopQuitPendingPayload;
 }

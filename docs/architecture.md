@@ -6,7 +6,7 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 
 ```
 ┌──────────┐     ┌──────────┐     ┌──────────┐
-│ settings │────▶│ keyring  │     │ logging  │
+│ settings │────▶│ keyring  │     │ logging  │  settings also ──▶ errors, events (optional)
 └────┬─────┘     └──────────┘     └────┬─────┘
      │                                 │
      └──────────────┐  ┌───────────────┘
@@ -48,12 +48,16 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 ┌──────────┐────▶ errors, events (optional)
 │  tasks   │
 └──────────┘
+
+┌──────────┐────▶ tasks, events, errors
+│ desktop  │────▶ wails/v3 (build tag wails: notifications, dialogs, w32)
+└──────────┘
 ```
 
 - `errors`, `events`, and `appdirs` are leaf packages with no kit dependencies
 - `keyring` is a leaf package
 - `settings/cli` depends on `settings` (CLI adapter, no additional external deps)
-- `settings` depends on `keyring` for password field storage and `appdirs` for config paths
+- `settings` depends on `keyring` for password field storage, `appdirs` for config paths, `errors` for back-end check failures, and optionally `events` (`settings:check_failed`)
 - `updates` depends on `errors`, `events`, and `appdirs`; optionally depends on `settings`
 - `database` depends on `appdirs`, `errors`, and `events`
 - `lifecycle` depends on `errors` and `events`; manages startup/shutdown ordering of any services
@@ -62,6 +66,7 @@ wails-kit is a Go module providing reusable infrastructure for Wails v3 desktop 
 - `shortcuts` depends on `events` (optional) and `wails/v3` for native menu APIs
 - `state` depends on `appdirs` and `errors`; optionally depends on `events`
 - `tasks` depends on `errors`; optionally depends on `events` (it emits `tasks:changed`, a snapshot of the whole task list, whose shape `@wails-kit/types` mirrors in `TaskSnapshot`)
+- `desktop` depends on `tasks`, `events` and `errors`: it follows `tasks:changed` and draws the work on the desktop (notifications, Windows taskbar progress, the badge, the quit question, the window background). The OS is behind small interfaces; its Wails adapters (`wails` build tag) use `wails/v3`'s application, notifications service and `w32`
 - `settings/templates/anyllm` depends on `settings` and `any-llm-go` (external); provides LLM provider settings integration
 
 ### Frontend packages

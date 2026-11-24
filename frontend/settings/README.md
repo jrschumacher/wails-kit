@@ -46,6 +46,16 @@ const errors = validate(schema, values);
 // Returns ValidationError[] — empty array if valid
 ```
 
+Re-check one field as the person types, with their draft in the values (the
+settings window does this once a field shows an error):
+
+```ts
+import { validateKey } from "@wails-kit/settings";
+
+const errors = validateKey(schema, { ...values, [key]: draft }, key);
+// The errors validate() would return for that field; [] when it is hidden or unknown
+```
+
 Each `ValidationError` has:
 
 | Property  | Type             | Description               |
@@ -66,6 +76,7 @@ Each `ValidationError` has:
 | `max`            | Number above maximum                     |
 | `invalid_type`   | Wrong type (e.g. non-boolean toggle)     |
 | `invalid_option` | Select value not in allowed options      |
+| `check`          | The field's back-end check failed (`CodeCheck`; Go `Service.CheckValue`, never returned by `validate`) |
 
 ## Design
 
