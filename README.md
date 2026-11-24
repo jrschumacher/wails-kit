@@ -522,6 +522,7 @@ for each group in schema.groups:
 | [`@wails-kit/ui`](frontend/ui/README.md) | `frontend/ui` | Base UI kit: tokens, components, custom elements, charts, a theme file and a settings window drawn from the schema; as an npm package or one prebuilt CSS file and ES module |
 | [`@wails-kit/diagram`](frontend/diagram/README.md) | `frontend/diagram` | Opt-in diagrams from Mermaid text (flowchart, sequence, state, class, entity-relationship, Gantt) themed by the kit's tokens, with pan and zoom; Mermaid loads on first use |
 | [`@wails-kit/editor`](frontend/editor/README.md) | `frontend/editor` | Opt-in editors themed by the kit's tokens: a CodeMirror 6 code editor and syntax highlighter, a Markdown editor (Write/Preview) with a safe renderer, and a ProseMirror rich-text editor that reads and writes the same Markdown; one prebuilt ES module per editor, sharing code through chunks |
+| [Component gallery](frontend/gallery/README.md) | `frontend/gallery` | Every component of the three UI packages in each state, one page each, with its markup and "Try it" buttons; light, dark, themes and `src/` or `dist/` (not published) |
 
 ## Required Tools
 
