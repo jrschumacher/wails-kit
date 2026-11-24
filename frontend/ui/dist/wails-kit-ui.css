@@ -1349,6 +1349,7 @@ wk-dialog { display: contents; }
 }
 @starting-style { .wk-toast { opacity: 0; transform: translate(-50%, 8px); } }
 .wk-toast[data-leaving] { opacity: 0; transition: opacity calc(var(--wk-duration-base) * 2 / 3) var(--wk-ease-in); }
+.wk-toast[data-moved] { transition: none; }
 .wk-toast-words { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .wk-toast-action { flex: none; margin-right: -6px; }
 @media (prefers-reduced-motion: reduce) {

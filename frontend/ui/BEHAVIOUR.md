@@ -598,6 +598,9 @@ Where shipped code doesn't yet follow this page:
     only when clicked.
   - **Windows:** only the window that built the menu last shows the Edit menu's
     updated labels and enabled state.
+- On Windows and Linux, clicking the menu bar may take focus from the web view first,
+  so Edit > Undo clicked with the mouse may undo the app's action instead of the
+  typing. The shortcut isn't affected. This hasn't been checked on real hardware.
 - Skeleton rows are for tables (`<tbody>`); a list (`wk-list`) has none yet. Neither
   they nor the loading chart add the line saying what's loading after 3 s; the app
   adds it.

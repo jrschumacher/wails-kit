@@ -4598,6 +4598,11 @@ try {
     await page.focus('#t-name');
     await run(10);
     assert.deepEqual(await page.evaluate(() => go.calls.splice(0)), ['SetTextFocus true']);
+    // The window coming to the front reports again, even unchanged, so the
+    // menu follows the window in front.
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => go.calls.splice(0)), ['SetTextFocus true'], 'reported again on window focus');
     await page.keyboard.type('abc');
     await page.evaluate(() => go.menuUndo());
     await run(10);
@@ -4833,6 +4838,23 @@ try {
       assert.deepEqual(await page.evaluate(() => go.calls.filter(c => !c.startsWith('focus'))), [], `${name}: the app's stack is never touched`);
     }
     assert.equal(await page.evaluate(() => go.focus), true, 'focus in an editor is text focus');
+    // Focus in an editor that isn't on editable content (a read-only code
+    // editor, the rich-text toolbar) isn't text focus: Edit > Undo is the app's.
+    await page.evaluate(async () => {
+      const { wkCodeEditor } = await import('/editor/code.js');
+      const ro = wkCodeEditor({ label: 'Read-only', value: 'fixed', readOnly: true });
+      ro.id = 't-ro';
+      document.getElementById('ebox').append(ro);
+    });
+    for (const [name, sel] of [['read-only code editor', '#t-ro .cm-content'], ['rich-text toolbar button', '#ebox .wk-richtext-editor-toolbar button']]) {
+      await page.evaluate(s => { const el = document.querySelector(s); if (!el.matches('button') && !el.hasAttribute('tabindex')) el.tabIndex = -1; el.focus(); }, sel);
+      await page.waitForTimeout(50);
+      assert.equal(await page.evaluate(s => document.activeElement === document.querySelector(s), sel), true, `${name}: focused`);
+      assert.equal(await page.evaluate(() => go.focus), false, `${name}: no text focus reported`);
+      await page.evaluate(() => { go.calls.length = 0; menu('undo'); });
+      await page.waitForTimeout(50);
+      assert.deepEqual(await page.evaluate(() => go.calls.filter(c => !c.startsWith('focus'))), ['Undo'], `${name}: Edit > Undo goes to the app's stack`);
+    }
     assert.deepEqual(problems, []);
     await page.close();
   });
@@ -4845,9 +4867,11 @@ try {
     // Made inside a modal, which then closes: back in the body, reachable.
     await page.evaluate(() => { document.getElementById('t-dlg').showModal(); document.getElementById('t-in').focus(); kit.wkToast({ words: 'Saved', action: { label: 'Undo', run() {} } }); });
     assert.equal(await page.evaluate(() => document.querySelector('.wk-toast').parentElement.id), 't-dlg');
+    await page.evaluate(() => document.querySelector('.wk-toast').getAnimations().forEach(x => x.finish()));
     await page.evaluate(() => { document.getElementById('t-dlg').close(); document.getElementById('t-a').focus(); });
     await run(10);
     assert.equal(await page.evaluate(() => document.querySelector('.wk-toast').parentElement === document.body), true, 'back in the body when the modal closes');
+    assert.deepEqual(await page.evaluate(() => { const t = document.querySelector('.wk-toast'); return [t.getAnimations().length, getComputedStyle(t).opacity]; }), [0, '1'], 'moved without its entry animation again');
     await page.keyboard.press('F6');
     assert.equal(await active(page), 'Undo');
     await page.keyboard.press('F6');
@@ -4875,6 +4899,21 @@ try {
     assert.deepEqual(await taskEvents(), ['esc:running'], 'the task keeps running');
     assert.equal(await active(page), 't-a');
     await page.evaluate(() => window.t.done('Archived'));
+    // The document is watched for modals only while a toast is shown.
+    await page.evaluate(() => {
+      window.mo = { observe: 0, disconnect: 0 };
+      const o = MutationObserver.prototype.observe, d = MutationObserver.prototype.disconnect;
+      MutationObserver.prototype.observe = function (...a) { if (a[0] === document.documentElement && a[1]?.attributeFilter?.includes('open') && !a[1].attributeFilter.includes('class')) window.mo.observe++; return o.apply(this, a); };
+      MutationObserver.prototype.disconnect = function () { window.mo.disconnect++; return d.apply(this); };
+      window.moRestore = () => { MutationObserver.prototype.observe = o; MutationObserver.prototype.disconnect = d; };
+    });
+    await run(20_000);
+    const before = await page.evaluate(() => ({ ...window.mo }));
+    await page.evaluate(() => kit.wkToast({ words: 'Saved' }));
+    await run(6200);
+    const after = await page.evaluate(() => { window.moRestore(); return { ...window.mo }; });
+    assert.equal(after.observe - before.observe, 1, 'watched while shown');
+    assert.ok(after.disconnect - before.disconnect >= 1, 'not watched once it has gone');
     // F6 with nowhere to go (no action, or an action that can't take focus) is left to the page.
     const f6 = async () => {
       await page.evaluate(() => { window.f6 = null; window.addEventListener('keydown', e => { if (e.key === 'F6') window.f6 = e.defaultPrevented; }, { once: true }); });

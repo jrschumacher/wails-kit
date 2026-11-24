@@ -4691,6 +4691,15 @@ export { WkSettings };
 
 let toastShown = null;   // the toast on screen
 let toastSeq = 0;
+// Watches the document for modals opening and closing, only while a toast
+// is shown.
+let toastObserver = null;
+function toastSetShown(t) {
+  toastShown = t;
+  if (!toastObserver) return;
+  if (t) toastObserver.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['open'] });
+  else toastObserver.disconnect();
+}
 // Whether the window has focus: from the document at load, then window
 // focus and blur (document.hasFocus() can't be watched).
 let toastWindowFocused = typeof document !== 'undefined' && typeof document.hasFocus === 'function' ? document.hasFocus() : true;
@@ -4740,7 +4749,7 @@ function toastListen() {
   const onDialog = () => { if (toastShown) toastRehome(toastShown); };
   document.addEventListener('toggle', onDialog, true);
   document.addEventListener('close', onDialog, true);
-  new MutationObserver(onDialog).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['open'] });
+  toastObserver = new MutationObserver(onDialog);
   document.addEventListener('wk-undo-change', e => {
     const t = toastShown;
     const id = t?.undoId;
@@ -4759,7 +4768,13 @@ function toastRehome(t) {
   if (t.el.parentNode === home && t.el.isConnected) return;
   const had = t.el.contains(document.activeElement) ? document.activeElement : null;
   t.home = home;
+  // Moved, not new: no entry animation again (@starting-style applies to an
+  // element put back in the page). Its style is settled with transitions
+  // off, then they're back for its exit.
+  t.el.dataset.moved = '';
   home.append(t.el);
+  void getComputedStyle(t.el).opacity;
+  delete t.el.dataset.moved;
   toastPlace(t);
   if (had && had.isConnected) had.focus({ preventScroll: true });
 }
@@ -4854,7 +4869,7 @@ function wkToast({ words, action } = {}) {
     if (t.gone) return;
     t.gone = true;
     clearTimeout(t.timer);
-    if (toastShown === t) toastShown = null;
+    if (toastShown === t) toastSetShown(null);
     el.remove();
   };
   // Dismissed: focus goes back first, then it leaves, in about two-thirds of
@@ -4864,7 +4879,7 @@ function wkToast({ words, action } = {}) {
     const inside = el.contains(document.activeElement);
     t.gone = true;
     clearTimeout(t.timer);
-    if (toastShown === t) toastShown = null;
+    if (toastShown === t) toastSetShown(null);
     if (inside) toastReturn(t);
     el.inert = true;
     el.dataset.leaving = '';
@@ -4874,7 +4889,7 @@ function wkToast({ words, action } = {}) {
 
   t.home.append(el);
   toastPlace(t);
-  toastShown = t;
+  toastSetShown(t);
   // Focus was in the toast it replaced: the new action takes it, or it goes
   // back where it was.
   if (hadFocus) {
@@ -4901,8 +4916,8 @@ export { wkToast };
 //   wkUndo.action(id?)                 a toast's Undo: { label, run, undoId }
 //   wkUndo.words                       the kit's words, for localising
 //
-// Connected, it reports text focus to Go (a field, a contenteditable, or
-// an editor host such as the kit's CodeMirror and ProseMirror editors), so
+// Connected, it reports text focus to Go (a field, editable content such as
+// the kit's CodeMirror and ProseMirror editors, or an app's [data-wk-undo]), so
 // Edit > Undo and Redo undo typing first: Go sends undo:text (as the DOM
 // event wk-undo-text to the window in front), the field or editor gets a
 // cancelable beforeinput historyUndo/historyRedo, and then execCommand. A
@@ -4921,22 +4936,22 @@ const undoEmpty = Object.freeze({ undo: null, redo: null, busy: false, textFocus
 let undoState = undoEmpty;
 let undoConn = null;
 
-// Editors that keep their own undo history: the kit's code, Markdown and
-// rich-text editors (CodeMirror and ProseMirror), and any element the app
-// marks with data-wk-undo.
-const UNDO_HOSTS = '.cm-editor, .ProseMirror, .wk-code-editor, .wk-markdown-editor, .wk-richtext-editor, [data-wk-undo]';
-
 // Where Edit > Undo goes first: a plain field (the browser's typing undo),
-// an editor host (its own history; never the app's stack), or nowhere.
+// editable content (a contenteditable, such as the kit's CodeMirror and
+// ProseMirror editors, with their own history; never the app's stack), an
+// element the app marks with data-wk-undo, or nowhere. Focus elsewhere in an
+// editor (a read-only editor, its toolbar, the Markdown Write tab) isn't
+// text focus: Edit > Undo there is the app's.
 function undoTarget(el) {
   if (!el || el === document.body || el === document.documentElement) return null;
   if (el instanceof HTMLTextAreaElement) return !el.readOnly && !el.disabled ? { kind: 'field', el } : null;
   if (el instanceof HTMLInputElement) {
     return !el.readOnly && !el.disabled && /^(text|search|url|tel|email|password|number|)$/.test(el.type) ? { kind: 'field', el } : null;
   }
-  if (el.isContentEditable) return { kind: 'host', el };
-  const host = el.closest?.(UNDO_HOSTS);
-  if (host) return { kind: 'host', el: host.querySelector('[contenteditable="true"]') || host };
+  // CodeMirror keeps a read-only editor contenteditable, marked aria-readonly.
+  if (el.isContentEditable && !el.closest('[aria-readonly="true"]')) return { kind: 'host', el: el.closest('[contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]') || el };
+  const marked = el.closest?.('[data-wk-undo]');
+  if (marked) return { kind: 'host', el: marked.querySelector('[contenteditable="true"]') || marked };
   return null;
 }
 const undoTextField = el => Boolean(undoTarget(el));
@@ -4981,8 +4996,8 @@ async function undoCall(name, op, args = [], what = '', pressed = false) {
 // the field or editor gets a cancelable beforeinput (historyUndo or
 // historyRedo): an editor with its own history (CodeMirror, ProseMirror)
 // takes it there. Otherwise a plain field undoes its typing with
-// execCommand, and with none to undo, the app's stack goes. An editor host
-// never falls back to the app's stack: its undo stays in the editor.
+// execCommand, and with none to undo, the app's stack goes. Editable
+// content never falls back to the app's stack: its undo stays in the editor.
 function undoText(op) {
   if (!document.hasFocus()) return; // another window's field
   const target = undoTarget(document.activeElement);

@@ -620,7 +620,8 @@ toast.dismiss();
 One `<div class="wk-toast" role="group">` at a time, at the bottom centre of the window,
 16 px above a `wk-footer-bar` along the bottom. While a modal is open it sits in the
 top-most modal, and it moves when one opens or closes (as the announcer does), so it
-is never stranded or left behind an inert page. It shows for `timings.toast` (6 s), or `timings.toastWithAction` (10 s) with an
+is never stranded or left behind an inert page. A move doesn't replay its entry, and
+the document is watched for modals only while a toast is shown. It shows for `timings.toast` (6 s), or `timings.toastWithAction` (10 s) with an
 action, and its clock runs only while the window is focused and the pointer and focus
 are outside it; it runs on from where it stopped. A newer toast replaces it at once. It
 isn't a live region: its words go to the polite announcer once. It never takes focus
@@ -655,9 +656,11 @@ document.addEventListener('wk-undo-change', e => showWhatCameBack(e.detail));
   `Bindings()` (`State`, `Undo`, `Redo`, `UndoID`, `SetTextFocus`). It returns a
   function that disconnects.
 - **Text focus.** Connected, `wkUndo` reports text focus to Go, and again whenever the
-  window comes to the front. Text focus means an editable `input` or `textarea`, a
-  `contenteditable`, or an editor host: the kit's code, Markdown and rich-text editors
-  (CodeMirror, ProseMirror) or any element marked `data-wk-undo`.
+  window comes to the front. Text focus means an editable `input` or `textarea`,
+  editable content (a `contenteditable`, which is where the kit's code, Markdown and
+  rich-text editors take typing), or an element the app marks `data-wk-undo`. Focus
+  elsewhere in an editor (a read-only editor, marked `aria-readonly`; the rich-text
+  toolbar; the Markdown Write tab) isn't text focus: Edit > Undo there is the app's, with its "Undo Archive" label.
 - **Edit > Undo and Redo with text focus.** Go sends `undo:text`, which arrives in the
   window in front as the DOM event `wk-undo-text`. In the focused window only:
   - The field or editor first gets a cancelable `beforeinput` with `inputType`
@@ -665,8 +668,12 @@ document.addEventListener('wk-undo-change', e => showWhatCameBack(e.detail));
     ProseMirror) takes it there.
   - Otherwise a plain field undoes its typing with `execCommand`; when that changes
     nothing, the app's stack goes instead.
-  - An editor host never falls back to the app's stack: undo in an editor stays in the
-    editor.
+  - Editable content (and `data-wk-undo`) never falls back to the app's stack: undo in
+    an editor stays in the editor.
+- **Clicking the menu with the mouse.** On Windows and Linux, clicking the menu bar may
+  take focus from the web view first. The page then reports no text focus, so Edit >
+  Undo clicked with the mouse may undo the app's action rather than the typing. The
+  shortcut isn't affected. This hasn't been checked on real hardware.
 - `action(id?)`: a toast's Undo for the action with this ID (else the most recent). It
   undoes only that action (`UndoID`), so the toast's Undo and Edit > Undo agree; once
   the stack moves past it (Edit > Undo undid it, or another action came), its toast

@@ -10,8 +10,8 @@
 //   wkUndo.action(id?)                 a toast's Undo: { label, run, undoId }
 //   wkUndo.words                       the kit's words, for localising
 //
-// Connected, it reports text focus to Go (a field, a contenteditable, or
-// an editor host such as the kit's CodeMirror and ProseMirror editors), so
+// Connected, it reports text focus to Go (a field, editable content such as
+// the kit's CodeMirror and ProseMirror editors, or an app's [data-wk-undo]), so
 // Edit > Undo and Redo undo typing first: Go sends undo:text (as the DOM
 // event wk-undo-text to the window in front), the field or editor gets a
 // cancelable beforeinput historyUndo/historyRedo, and then execCommand. A
@@ -32,22 +32,22 @@ const undoEmpty = Object.freeze({ undo: null, redo: null, busy: false, textFocus
 let undoState = undoEmpty;
 let undoConn = null;
 
-// Editors that keep their own undo history: the kit's code, Markdown and
-// rich-text editors (CodeMirror and ProseMirror), and any element the app
-// marks with data-wk-undo.
-const UNDO_HOSTS = '.cm-editor, .ProseMirror, .wk-code-editor, .wk-markdown-editor, .wk-richtext-editor, [data-wk-undo]';
-
 // Where Edit > Undo goes first: a plain field (the browser's typing undo),
-// an editor host (its own history; never the app's stack), or nowhere.
+// editable content (a contenteditable, such as the kit's CodeMirror and
+// ProseMirror editors, with their own history; never the app's stack), an
+// element the app marks with data-wk-undo, or nowhere. Focus elsewhere in an
+// editor (a read-only editor, its toolbar, the Markdown Write tab) isn't
+// text focus: Edit > Undo there is the app's.
 function undoTarget(el) {
   if (!el || el === document.body || el === document.documentElement) return null;
   if (el instanceof HTMLTextAreaElement) return !el.readOnly && !el.disabled ? { kind: 'field', el } : null;
   if (el instanceof HTMLInputElement) {
     return !el.readOnly && !el.disabled && /^(text|search|url|tel|email|password|number|)$/.test(el.type) ? { kind: 'field', el } : null;
   }
-  if (el.isContentEditable) return { kind: 'host', el };
-  const host = el.closest?.(UNDO_HOSTS);
-  if (host) return { kind: 'host', el: host.querySelector('[contenteditable="true"]') || host };
+  // CodeMirror keeps a read-only editor contenteditable, marked aria-readonly.
+  if (el.isContentEditable && !el.closest('[aria-readonly="true"]')) return { kind: 'host', el: el.closest('[contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]') || el };
+  const marked = el.closest?.('[data-wk-undo]');
+  if (marked) return { kind: 'host', el: marked.querySelector('[contenteditable="true"]') || marked };
   return null;
 }
 const undoTextField = el => Boolean(undoTarget(el));
@@ -92,8 +92,8 @@ async function undoCall(name, op, args = [], what = '', pressed = false) {
 // the field or editor gets a cancelable beforeinput (historyUndo or
 // historyRedo): an editor with its own history (CodeMirror, ProseMirror)
 // takes it there. Otherwise a plain field undoes its typing with
-// execCommand, and with none to undo, the app's stack goes. An editor host
-// never falls back to the app's stack: its undo stays in the editor.
+// execCommand, and with none to undo, the app's stack goes. Editable
+// content never falls back to the app's stack: its undo stays in the editor.
 function undoText(op) {
   if (!document.hasFocus()) return; // another window's field
   const target = undoTarget(document.activeElement);

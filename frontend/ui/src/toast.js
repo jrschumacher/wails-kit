@@ -22,6 +22,15 @@ import { announce } from './announce.js';
 
 let toastShown = null;   // the toast on screen
 let toastSeq = 0;
+// Watches the document for modals opening and closing, only while a toast
+// is shown.
+let toastObserver = null;
+function toastSetShown(t) {
+  toastShown = t;
+  if (!toastObserver) return;
+  if (t) toastObserver.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['open'] });
+  else toastObserver.disconnect();
+}
 // Whether the window has focus: from the document at load, then window
 // focus and blur (document.hasFocus() can't be watched).
 let toastWindowFocused = typeof document !== 'undefined' && typeof document.hasFocus === 'function' ? document.hasFocus() : true;
@@ -71,7 +80,7 @@ function toastListen() {
   const onDialog = () => { if (toastShown) toastRehome(toastShown); };
   document.addEventListener('toggle', onDialog, true);
   document.addEventListener('close', onDialog, true);
-  new MutationObserver(onDialog).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['open'] });
+  toastObserver = new MutationObserver(onDialog);
   document.addEventListener('wk-undo-change', e => {
     const t = toastShown;
     const id = t?.undoId;
@@ -90,7 +99,13 @@ function toastRehome(t) {
   if (t.el.parentNode === home && t.el.isConnected) return;
   const had = t.el.contains(document.activeElement) ? document.activeElement : null;
   t.home = home;
+  // Moved, not new: no entry animation again (@starting-style applies to an
+  // element put back in the page). Its style is settled with transitions
+  // off, then they're back for its exit.
+  t.el.dataset.moved = '';
   home.append(t.el);
+  void getComputedStyle(t.el).opacity;
+  delete t.el.dataset.moved;
   toastPlace(t);
   if (had && had.isConnected) had.focus({ preventScroll: true });
 }
@@ -185,7 +200,7 @@ function wkToast({ words, action } = {}) {
     if (t.gone) return;
     t.gone = true;
     clearTimeout(t.timer);
-    if (toastShown === t) toastShown = null;
+    if (toastShown === t) toastSetShown(null);
     el.remove();
   };
   // Dismissed: focus goes back first, then it leaves, in about two-thirds of
@@ -195,7 +210,7 @@ function wkToast({ words, action } = {}) {
     const inside = el.contains(document.activeElement);
     t.gone = true;
     clearTimeout(t.timer);
-    if (toastShown === t) toastShown = null;
+    if (toastShown === t) toastSetShown(null);
     if (inside) toastReturn(t);
     el.inert = true;
     el.dataset.leaving = '';
@@ -205,7 +220,7 @@ function wkToast({ words, action } = {}) {
 
   t.home.append(el);
   toastPlace(t);
-  toastShown = t;
+  toastSetShown(t);
   // Focus was in the toast it replaced: the new action takes it, or it goes
   // back where it was.
   if (hadFocus) {
