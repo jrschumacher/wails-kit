@@ -53,14 +53,27 @@ test('each dist module parses, imports only dist/ chunks by relative path, and l
   }
 });
 
-test('the entries share one copy of CodeMirror in a chunk; no entry bundles another entry\'s source', () => {
+test('the entries share one copy of CodeMirror, marked and style-mod in chunks; no entry bundles another entry\'s source', () => {
   const owner = input => Object.keys(built.inputs).filter(f => built.inputs[f].includes(input));
-  for (const shared of ['node_modules/@codemirror/state/dist/index.js', 'node_modules/@codemirror/view/dist/index.js', 'node_modules/style-mod/src/style-mod.js']) {
+  const loaders = file => ENTRIES.filter(name => built.loads[name].includes(file));
+  for (const [shared, entries] of [
+    ['node_modules/@codemirror/state/dist/index.js', ['code', 'markdown']],
+    ['node_modules/@codemirror/view/dist/index.js', ['code', 'markdown']],
+    ['node_modules/marked/lib/marked.esm.js', ['markdown', 'richtext']],
+    ['src/shared/url.js', ['markdown', 'richtext']],
+    ['src/shared/markdown-limits.js', ['markdown', 'richtext']],
+    ['node_modules/style-mod/src/style-mod.js', ENTRIES],
+  ]) {
     const files = owner(shared);
     assert.equal(files.length, 1, `${shared} is in ${files.join(', ')}`);
     assert.match(files[0], CHUNK, `${shared} is in an entry, not a shared chunk`);
-    for (const name of ENTRIES) assert.ok(built.loads[name].includes(files[0]), `${name}.js does not load ${shared}`);
+    assert.deepEqual(loaders(files[0]), entries, `${shared} is loaded by ${loaders(files[0]).join(', ')}`);
   }
+  // The rich-text editor loads no CodeMirror, and ProseMirror is its own.
+  const inputsOf = name => built.loads[name].flatMap(f => built.inputs[f]);
+  assert.ok(!inputsOf('richtext').some(i => i.includes('node_modules/@codemirror/') || i.includes('node_modules/@lezer/')), 'richtext.js loads CodeMirror');
+  for (const name of ['code', 'markdown']) assert.ok(!inputsOf(name).some(i => i.includes('node_modules/prosemirror-')), `${name}.js loads ProseMirror`);
+  assert.ok(inputsOf('richtext').some(i => i.includes('node_modules/prosemirror-view/')));
   for (const name of ENTRIES) {
     const own = built.loads[name].flatMap(f => built.inputs[f]).filter(f => f.startsWith('src/'));
     assert.ok(own.includes(`src/${name}/index.js`));
@@ -96,7 +109,8 @@ test('THIRD-PARTY-LICENSES.txt names every bundled package with its version, lic
     const loaders = ENTRIES.filter(e => built.loads[e].some(f => built.inputs[f].some(i => i.includes(`node_modules/${name}/`))));
     assert.ok(text.includes(`\nLoaded by: ${loaders.map(e => `${e}.js`).join(', ')}\n`), `${name}: wrong "Loaded by"`);
   }
-  assert.match(text, /\nmarked [\d.]+ \(MIT\)\nLoaded by: markdown\.js\n/);
+  assert.match(text, /\nmarked [\d.]+ \(MIT\)\nLoaded by: markdown\.js, richtext\.js\n/);
+  assert.match(text, /\nprosemirror-view [\d.]+ \(MIT\)\nLoaded by: richtext\.js\n/);
   const sections = text.split(/^-{72}\n/m).length;
   assert.equal(sections, built.packages.length * 2 + 1);
   assert.match(text, /Permission is hereby granted, free of charge/);

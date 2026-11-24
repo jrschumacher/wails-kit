@@ -5,11 +5,9 @@
 // throws. Plain CodeMirror state, no DOM, so node tests it
 // (test/overflow.test.mjs).
 import { Transaction } from '@codemirror/state';
+import { isStackOverflow } from '../shared/stack.js';
 
-/** Whether an error is a stack overflow (V8 and WebKit: "Maximum call stack size exceeded"). */
-export function isStackOverflow(e) {
-  return e instanceof RangeError && /call stack/i.test(String(e.message));
-}
+export { isStackOverflow };
 
 /** Whether the compartment holds no extension (highlighting off) in a state. */
 export function isPlain(compartment, state) {
