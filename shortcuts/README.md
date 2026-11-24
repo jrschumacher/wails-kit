@@ -169,6 +169,10 @@ after the one that caused it.
 - **Windows:** a menu item's native handle belongs to the window that built the menu
   last. With several windows, only that window's Edit menu shows the updated labels
   and enabled state; clicking the item works in each.
+- **Windows and Linux, mouse:** clicking the menu bar may take focus from the web view
+  first, so the page reports no text focus and Edit > Undo clicked with the mouse may
+  undo the app's action instead of the typing. The shortcut isn't affected. This
+  hasn't been checked on real hardware.
 
 | Option | Description |
 |---|---|

@@ -635,3 +635,66 @@ func TestChangedNeverDeliversAStaleStateLast(t *testing.T) {
 		t.Fatalf("last state delivered: %+v", last.Undo)
 	}
 }
+
+// A panicking menu callback or event handler doesn't stop delivery: later
+// changes still reach the other callbacks and the frontend, and the stack
+// isn't left busy.
+func TestChangedSurvivesAPanickingCallback(t *testing.T) {
+	s, mem, _ := newUndoHarness()
+	var got []MenuState
+	s.OnMenu(func(MenuState) { panic("broken menu") })
+	s.OnMenu(func(m MenuState) { got = append(got, m) })
+	ctx := context.Background()
+	if _, err := s.Push(Action{Name: "Archive", Undo: func(context.Context) error { return nil }}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Undo(ctx); err != nil {
+		t.Fatalf("undo after a panicking callback: %v", err)
+	}
+	if _, err := s.Push(Action{Name: "Rename", Undo: func(context.Context) error { return nil }}); err != nil {
+		t.Fatal(err)
+	}
+	if last := got[len(got)-1]; last.UndoLabel != "Undo Rename" {
+		t.Fatalf("menu after a panicking callback: %+v", last)
+	}
+	if st := lastState(t, mem); st.Undo == nil || st.Undo.Name != "Rename" || st.Busy {
+		t.Fatalf("event after a panicking callback: %+v", st)
+	}
+}
+
+// OnMenu's first state goes through the delivery, so a change delivered
+// while the new callback is still taking its first state isn't overtaken by
+// that older first state.
+func TestOnMenuFirstStateIsNeverLast(t *testing.T) {
+	s, _, _ := newUndoHarness()
+	var mu sync.Mutex
+	var got []MenuState
+	entered, release := make(chan struct{}), make(chan struct{})
+	first := true
+	done := make(chan struct{})
+	go func() {
+		s.OnMenu(func(m MenuState) {
+			mu.Lock()
+			block := first
+			first = false
+			mu.Unlock()
+			if block {
+				close(entered)
+				<-release
+			}
+			mu.Lock()
+			got = append(got, m)
+			mu.Unlock()
+		})
+		close(done)
+	}()
+	<-entered
+	_, _ = s.Push(Action{Name: "Archive", Undo: func(context.Context) error { return nil }})
+	close(release)
+	<-done
+	mu.Lock()
+	defer mu.Unlock()
+	if last := got[len(got)-1]; last.UndoLabel != "Undo Archive" {
+		t.Fatalf("last menu state: %+v (all %+v)", last, got)
+	}
+}

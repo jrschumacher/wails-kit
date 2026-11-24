@@ -492,16 +492,15 @@ func undoErrorInfo(err error) UndoError {
 }
 
 // OnMenu calls fn with the menu's state now and after every change. Apply
-// uses it to keep Edit > Undo and Redo in step. It returns a function that
-// stops it.
+// uses it to keep Edit > Undo and Redo in step. Its first state goes
+// through the same delivery as every other, so fn never ends on an older
+// state. It returns a function that stops it.
 func (s *UndoStack) OnMenu(fn func(MenuState)) func() {
-	win := s.front()
 	s.mu.Lock()
 	s.menus = append(s.menus, fn)
 	idx := len(s.menus) - 1
-	m := s.menuLocked(win)
 	s.mu.Unlock()
-	fn(m)
+	s.changed()
 	return func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -535,10 +534,10 @@ func (s *UndoStack) changed() {
 		s.mu.Unlock()
 		for _, fn := range menus {
 			if fn != nil {
-				fn(m)
+				safely(func() { fn(m) })
 			}
 		}
-		s.emit(EventUndoChanged, st)
+		safely(func() { s.emit(EventUndoChanged, st) })
 		s.mu.Lock()
 		if s.gen == gen {
 			s.delivering = false
@@ -546,6 +545,14 @@ func (s *UndoStack) changed() {
 			return
 		}
 	}
+}
+
+// safely runs fn and recovers a panic in it, so one failing menu callback or
+// event handler can't stop the stack delivering its states (or leave it
+// busy) for the rest of the session.
+func safely(fn func()) {
+	defer func() { _ = recover() }()
+	fn()
 }
 
 func (s *UndoStack) emit(name string, data any) {
