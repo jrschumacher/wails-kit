@@ -1,0 +1,34 @@
+{
+  "name": "@wails-kit/diagram",
+  "version": "0.1.0",
+  "description": "Opt-in diagrams from text for Wails desktop apps: Mermaid flowchart, sequence, state, class, entity-relationship and Gantt diagrams, themed by @wails-kit/ui tokens, with pan and zoom. Prebuilt ES modules; Mermaid loads on first use.",
+  "private": true,
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jrschumacher/wails-kit.git",
+    "directory": "frontend/diagram"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/diagram.d.ts",
+      "default": "./dist/diagram.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:browser": "node test/browser.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "mermaid": "12.3.0",
+    "playwright-core": "1.63.0"
+  }
+}
