@@ -15,6 +15,7 @@ const forced = all.filter(r => r.forced);
 
 // Selectors from the design system, each a rule of its own here.
 const DESIGN_SYSTEM = {
+  Button: ['.wk-button[data-locked]', '.wk-button[data-locked] > svg'],
   Utilities: ['.wk-visually-hidden', '.wk-pane-scroll', '.wk-pane-scroll:focus-visible'],
   Sidebar: ['.wk-sidebar-detail'],
   Chip: ['.wk-chip--muted', '.wk-chip > .wk-dot', 'button.wk-chip', 'button.wk-chip:hover:not(:disabled)', 'button.wk-chip:disabled'],

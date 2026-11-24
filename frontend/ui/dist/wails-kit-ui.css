@@ -387,11 +387,13 @@ body:where(.wk-root), :where(.wk-root) body { margin: 0; }
 .wk-button--small { min-height: var(--wk-control-height-small); padding: 0 8px; font-size: var(--wk-font-size-sm); }
 .wk-button--icon { padding: 0; width: var(--wk-control-height); }
 .wk-button > svg { width: 14px; height: 14px; flex: none; }
-/* Locked: a control the person may see but lacks the access to use. Pair it
-   with aria-disabled="true" (not disabled) so it stays focusable and its
-   tooltip ("Needs manage access") is reachable; the lock glyph goes first. */
-.wk-button.wk-button--locked { cursor: not-allowed; gap: var(--wk-space-1); }
-.wk-button--locked > svg { width: var(--wk-font-size-sm); height: var(--wk-font-size-sm); }
+/* Locked: a control the person may see but lacks the access to use. Mark it
+   data-locked with aria-disabled="true" (not disabled) so it stays focusable
+   and its tooltip ("Needs manage access") is reachable; the lock glyph goes
+   first. wkTask never touches data-locked, and gives back the aria-disabled
+   it found, so a locked control is locked again when a task ends. */
+.wk-button[data-locked] { cursor: not-allowed; gap: var(--wk-space-1); }
+.wk-button[data-locked] > svg { width: var(--wk-font-size-sm); height: var(--wk-font-size-sm); }
 
 /* ---- Busy: a control whose action is running (BEHAVIOUR.md) ------------
    aria-disabled="true" plus data-busy, never disabled (which drops focus).

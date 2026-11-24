@@ -2734,6 +2734,33 @@ try {
     await page.close();
   });
 
+  await check('locked button: [data-locked] with aria-disabled stays focusable and draws as the design system does (not-allowed cursor, 12 px glyph, 4 px gap)', async () => {
+    const { page, problems } = await open(PAGE('button'));
+    const looks = await page.evaluate(() => [...document.querySelectorAll('#page-button .wk-button[data-locked]')].map(b => {
+      const cs = getComputedStyle(b), svg = b.querySelector('svg');
+      return { aria: b.getAttribute('aria-disabled'), disabled: b.disabled, cursor: cs.cursor, gap: cs.columnGap, opacity: cs.opacity, glyph: svg && [svg.getBoundingClientRect().width, svg.getBoundingClientRect().height], first: b.firstElementChild === svg };
+    }));
+    assert.equal(looks.length, 2);
+    for (const l of looks) assert.deepEqual(l, { aria: 'true', disabled: false, cursor: 'not-allowed', gap: '4px', opacity: '0.45', glyph: [12, 12], first: true });
+    // Markup written to the design system gets the style; it is the
+    // attribute, not a class, that locks the look.
+    const plain = await page.evaluate(() => {
+      const b = document.createElement('button');
+      b.className = 'wk-button';
+      b.type = 'button';
+      b.setAttribute('aria-disabled', 'true');
+      document.getElementById('page-button').append(b);
+      const before = getComputedStyle(b).cursor;
+      b.setAttribute('data-locked', '');
+      return [before, getComputedStyle(b).cursor];
+    });
+    assert.deepEqual(plain, ['default', 'not-allowed']);
+    await page.focus('#page-button .wk-button[data-locked]');
+    assert.equal(await page.evaluate(() => document.activeElement.hasAttribute('data-locked')), true, 'a locked button takes focus');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
   // ---- Busy controls, the spinner and the progress bar (BEHAVIOUR.md) ----
   await check('busy button: keeps focus and its accessible name, ignores a second press (pointer and keys), and does not look disabled', async () => {
     const { page, problems } = await open(PAGE('all'));
@@ -2772,7 +2799,7 @@ try {
     assert.notEqual(busy.shadow, 'none');
     // A busy button looks nothing like a disabled or a merely aria-disabled one.
     assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#page-button button[disabled]')).opacity), '0.45');
-    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#page-button .wk-button--locked')).opacity), '0.45');
+    assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('#page-button .wk-button[data-locked]')).opacity), '0.45');
     // The spinner takes the label's place: the width holds, the label is
     // not painted, the spinner is centred, and the name stays.
     await b.evaluate(el => { const s = document.createElement('span'); s.className = 'wk-spinner'; s.setAttribute('aria-hidden', 'true'); el.prepend(s); });
@@ -3878,7 +3905,7 @@ try {
   await check('wkTask: no indicator for work under 400 ms; busy at once; a locked control stays locked; done always announces', async () => {
     const { page, problems, run, said, taskEvents } = await openTasks(PAGE('task'));
     await page.evaluate(() => {
-      document.getElementById('tbox').innerHTML = '<button class="wk-button" type="button" id="t-go">Export</button><button class="wk-button wk-button--locked" type="button" id="t-locked" aria-disabled="true">Invite</button>';
+      document.getElementById('tbox').innerHTML = '<button class="wk-button" type="button" id="t-go">Export</button><button class="wk-button" type="button" id="t-locked" aria-disabled="true" data-locked>Invite</button>';
       window.t = kit.wkTask({ id: 'q', control: [document.getElementById('t-go'), document.getElementById('t-locked')], words: 'Exporting' });
     });
     const look = () => page.evaluate(() => ['t-go', 't-locked'].map(id => { const b = document.getElementById(id); return [b.getAttribute('aria-disabled'), b.hasAttribute('data-busy'), Boolean(b.querySelector('.wk-spinner'))]; }));
@@ -3887,6 +3914,9 @@ try {
     assert.deepEqual((await look())[0], ['true', true, false], 'no spinner in the quiet wait');
     await page.evaluate(() => { t.done('Report exported'); });
     assert.deepEqual(await look(), [[null, false, false], ['true', false, false]], 'back to rest; the locked control keeps aria-disabled');
+    // And stays locked: wkTask leaves data-locked alone, so the locked look
+    // (not-allowed, dimmed) is back once the busy state goes.
+    assert.deepEqual(await page.evaluate(() => { const b = document.getElementById('t-locked'), cs = getComputedStyle(b); return [b.hasAttribute('data-locked'), cs.cursor, cs.opacity]; }), [true, 'not-allowed', '0.45'], 'the locked control is locked again');
     await run(1000);
     assert.deepEqual(await said(), [['polite', 'Report exported']], 'no start announcement, the outcome once');
     assert.deepEqual(await taskEvents(), ['q:running', 'q:done']);
