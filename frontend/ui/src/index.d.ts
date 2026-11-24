@@ -272,12 +272,12 @@ export const wkUndo: {
   redo(): Promise<boolean>;
   /** A toast's Undo for the action with this ID (else the most recent). */
   action(id?: string): Required<ToastAction>;
-  words: { undo: string; couldNot: (op: 'undo' | 'redo', name: string) => string };
+  words: { undo: string; busy: string; couldNot: (op: 'undo' | 'redo', name: string) => string };
 };
 
 export const wkCopy: {
   (button: HTMLElement, text: string): Promise<boolean>;
-  /** The clipboard writer; replace it with Wails's Clipboard.SetText, say. */
+  /** The clipboard writer; replace it with Wails's Clipboard.SetText, say. Rejecting, or resolving to false, is a failure. */
   write: (text: string) => Promise<unknown>;
   words: { copied: string; failed: string };
 };

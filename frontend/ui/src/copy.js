@@ -8,10 +8,13 @@
 //   data-wk-copy="text"          that text
 //   data-wk-copy-from="id"       the text (or a field's value) of the element with that id
 //   inside a wk-code             the <code> or <pre> beside it
-// Otherwise the app calls wkCopy(button, text) from its own click handler.
+// Otherwise the app calls wkCopy(button, text) from its own click handler;
+// on a button the kit would copy from (in a wk-code, say), it calls
+// preventDefault() on the click so the kit doesn't copy as well.
 //
 //   wkCopy(button, text) -> Promise<boolean>   copies, then shows and says the outcome
-//   wkCopy.write = async text => {}            replaces the clipboard writer (Wails's Clipboard.SetText, say)
+//   wkCopy.write = async text => {}            replaces the clipboard writer (Wails's Clipboard.SetText, say);
+//                                              resolving to false, or rejecting, is a failure
 //   wkCopy.words = { copied, failed }
 //
 // It fires wk-copy on the button: detail { ok }. The text isn't in the
@@ -62,8 +65,13 @@ function copyShow(button, text) {
   copyHome().append(tip);
   copyPlace(tip, button.getBoundingClientRect());
   const off = new AbortController();
+  // Esc hides it only while focus or the pointer is on the button; anywhere
+  // else Esc belongs to the page (a dialog, a task's Cancel).
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); copyHide(button); }
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (document.activeElement !== button && !button.matches(':hover')) return;
+    e.preventDefault();
+    copyHide(button);
   }, { signal: off.signal });
   copyTips.set(button, { tip, off, timer: setTimeout(() => copyHide(button), timings.copied) });
 }
@@ -71,8 +79,8 @@ function copyShow(button, text) {
 async function wkCopy(button, text) {
   let ok = false;
   try {
-    await wkCopy.write(String(text ?? ''));
-    ok = true;
+    // A writer that resolves to false (Wails's Clipboard.SetText) didn't copy.
+    ok = (await wkCopy.write(String(text ?? ''))) !== false;
   } catch { ok = false; }
   if (button?.isConnected) {
     copyShow(button, ok ? wkCopy.words.copied : wkCopy.words.failed);

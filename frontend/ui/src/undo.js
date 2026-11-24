@@ -10,10 +10,13 @@
 //   wkUndo.action(id?)                 a toast's Undo: { label, run, undoId }
 //   wkUndo.words                       the kit's words, for localising
 //
-// Connected, it reports text focus to Go, so Edit > Undo and Redo undo
-// typing first: Go sends undo:text, and the focused window's field undoes
-// its typing; when it has none, the app's stack goes instead. A failed undo
-// is said in words through the announcer. Every state from Go fires
+// Connected, it reports text focus to Go (a field, a contenteditable, or
+// an editor host such as the kit's CodeMirror and ProseMirror editors), so
+// Edit > Undo and Redo undo typing first: Go sends undo:text (as the DOM
+// event wk-undo-text to the window in front), the field or editor gets a
+// cancelable beforeinput historyUndo/historyRedo, and then execCommand. A
+// plain field with nothing to undo hands over to the app's stack; an editor
+// never does. A failed undo is said in words through the announcer. Every state from Go fires
 // wk-undo-change on the document (detail: the state), for the app to show
 // what came back.
 
@@ -21,6 +24,7 @@ import { announce } from './announce.js';
 
 const undoWords = {
   undo: 'Undo',
+  busy: 'An undo is already under way',
   couldNot: (op, name) => `Couldn’t ${op} ${name}`,
 };
 
@@ -28,16 +32,25 @@ const undoEmpty = Object.freeze({ undo: null, redo: null, busy: false, textFocus
 let undoState = undoEmpty;
 let undoConn = null;
 
-// A field whose typing the browser can undo.
-function undoTextField(el) {
-  if (!el || el === document.body) return false;
-  if (el.isContentEditable) return true;
-  if (el instanceof HTMLTextAreaElement) return !el.readOnly && !el.disabled;
+// Editors that keep their own undo history: the kit's code, Markdown and
+// rich-text editors (CodeMirror and ProseMirror), and any element the app
+// marks with data-wk-undo.
+const UNDO_HOSTS = '.cm-editor, .ProseMirror, .wk-code-editor, .wk-markdown-editor, .wk-richtext-editor, [data-wk-undo]';
+
+// Where Edit > Undo goes first: a plain field (the browser's typing undo),
+// an editor host (its own history; never the app's stack), or nowhere.
+function undoTarget(el) {
+  if (!el || el === document.body || el === document.documentElement) return null;
+  if (el instanceof HTMLTextAreaElement) return !el.readOnly && !el.disabled ? { kind: 'field', el } : null;
   if (el instanceof HTMLInputElement) {
-    return !el.readOnly && !el.disabled && /^(text|search|url|tel|email|password|number|)$/.test(el.type);
+    return !el.readOnly && !el.disabled && /^(text|search|url|tel|email|password|number|)$/.test(el.type) ? { kind: 'field', el } : null;
   }
-  return false;
+  if (el.isContentEditable) return { kind: 'host', el };
+  const host = el.closest?.(UNDO_HOSTS);
+  if (host) return { kind: 'host', el: host.querySelector('[contenteditable="true"]') || host };
+  return null;
 }
+const undoTextField = el => Boolean(undoTarget(el));
 
 // The error code of a rejected binding: Wails passes the Go error's JSON,
 // on the error itself, its cause, or as its message.
@@ -59,7 +72,7 @@ function undoTake(state) {
 // Calls a binding; a failure of the action is said assertively (the person
 // pressed it and waits on it). Nothing to undo, a stale toast and a busy
 // stack say nothing: there is no failure to report.
-async function undoCall(name, op, args = [], what = '') {
+async function undoCall(name, op, args = [], what = '', pressed = false) {
   const fn = undoConn?.bindings?.[name];
   if (typeof fn !== 'function') return false;
   const label = what || (op === 'redo' ? undoState.redo?.name : undoState.undo?.name) || '';
@@ -68,21 +81,30 @@ async function undoCall(name, op, args = [], what = '') {
     return true;
   } catch (err) {
     const code = undoCode(err);
-    if (!['undo_empty', 'undo_stale', 'undo_busy'].includes(code)) announce(undoWords.couldNot(op, label).trim(), { assertive: true });
+    // A toast's Undo pressed while another undo runs: say why nothing happened.
+    if (code === 'undo_busy' && pressed) announce(undoWords.busy);
+    else if (!['undo_empty', 'undo_stale', 'undo_busy'].includes(code)) announce(undoWords.couldNot(op, label).trim(), { assertive: true });
     return false;
   }
 }
 
-// Edit > Undo or Redo with text focus: the field undoes its typing; with
-// none to undo, the app's stack goes.
+// Edit > Undo or Redo with text focus, in the focused window only. First
+// the field or editor gets a cancelable beforeinput (historyUndo or
+// historyRedo): an editor with its own history (CodeMirror, ProseMirror)
+// takes it there. Otherwise a plain field undoes its typing with
+// execCommand, and with none to undo, the app's stack goes. An editor host
+// never falls back to the app's stack: its undo stays in the editor.
 function undoText(op) {
   if (!document.hasFocus()) return; // another window's field
-  const el = document.activeElement;
-  if (undoTextField(el)) {
-    const before = el.isContentEditable ? el.innerHTML : el.value;
+  const target = undoTarget(document.activeElement);
+  if (target) {
+    const ev = new InputEvent('beforeinput', { inputType: op === 'redo' ? 'historyRedo' : 'historyUndo', bubbles: true, cancelable: true });
+    target.el.dispatchEvent(ev);
+    if (ev.defaultPrevented) return;
+    if (target.kind === 'host') { document.execCommand(op); return; }
+    const before = target.el.value;
     document.execCommand(op);
-    const after = el.isContentEditable ? el.innerHTML : el.value;
-    if (after !== before) return;
+    if (target.el.value !== before) return;
   }
   undoCall(op === 'redo' ? 'Redo' : 'Undo', op);
 }
@@ -93,21 +115,27 @@ function undoConnect({ on, bindings = {} } = {}) {
   const conn = { bindings, seen: false, offs: [], focus: null };
   conn.offs.push(on('undo:changed', state => { conn.seen = true; undoTake(state); }));
   conn.offs.push(on('undo:text', p => undoText(p?.op === 'redo' ? 'redo' : 'undo')));
+  // The Go side's Apply sends undo:text to one window's page as a DOM event.
+  const onDomText = e => undoText(e.detail?.op === 'redo' ? 'redo' : 'undo');
+  document.addEventListener('wk-undo-text', onDomText);
   conn.offs.push(on('undo:failed', p => announce(undoWords.couldNot(p?.op === 'redo' ? 'redo' : 'undo', p?.name || '').trim(), { assertive: true })));
   // Text focus, reported when it changes.
-  const report = () => {
+  // A window coming to the front reports again, so the menu follows the
+  // window in front.
+  const report = force => {
     const now = document.hasFocus() && undoTextField(document.activeElement);
-    if (now === conn.focus) return;
+    if (now === conn.focus && force !== true) return;
     conn.focus = now;
     Promise.resolve().then(() => bindings.SetTextFocus?.(now)).catch(() => {});
   };
-  const later = () => queueMicrotask(report);
+  const later = e => queueMicrotask(() => report(e?.type === 'focus' && e.target === window));
   document.addEventListener('focusin', later, true);
   document.addEventListener('focusout', later, true);
   window.addEventListener('blur', later);
   window.addEventListener('focus', later);
   conn.disconnect = () => {
     for (const off of conn.offs) if (typeof off === 'function') off();
+    document.removeEventListener('wk-undo-text', onDomText);
     document.removeEventListener('focusin', later, true);
     document.removeEventListener('focusout', later, true);
     window.removeEventListener('blur', later);
@@ -134,7 +162,7 @@ function undoAction(id) {
     label: undoWords.undo,
     undoId,
     current: () => undoState.undo?.id ?? null,
-    run: () => (undoId ? undoCall('UndoID', 'undo', [undoId], name) : Promise.resolve(false)),
+    run: () => (undoId ? undoCall('UndoID', 'undo', [undoId], name, true) : Promise.resolve(false)),
   };
 }
 

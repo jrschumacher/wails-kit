@@ -30,8 +30,10 @@ let toastListening = false;
 // The open modal on top, where the toast must sit to be reachable; else
 // the body.
 function toastHome() {
-  const modals = [...document.querySelectorAll('dialog')].filter(d => d.matches(':modal'));
-  return modals.pop() || document.body;
+  // The announcer keeps the modals in the order they opened; else the last
+  // open one in the document.
+  const stack = (document.wkAnnouncer?.wkModals || []).filter(d => d.isConnected && d.matches(':modal'));
+  return stack.pop() || [...document.querySelectorAll('dialog')].filter(d => d.matches(':modal')).pop() || document.body;
 }
 
 // Bottom offset: above the footer bars that sit along the bottom of the
@@ -57,10 +59,19 @@ function toastListen() {
     if (e.key !== 'F6' || e.defaultPrevented || e.ctrlKey || e.altKey || e.metaKey) return;
     const t = toastShown;
     if (!t || !t.actionEl) return;
-    e.preventDefault();
-    if (t.el.contains(document.activeElement)) toastReturn(t);
-    else { t.back = document.activeElement; t.actionEl.focus(); }
+    toastRehome(t);
+    const was = document.activeElement;
+    if (t.el.contains(was)) toastReturn(t);
+    else { t.actionEl.focus(); if (document.activeElement === t.actionEl) t.back = was; }
+    // Only a key that moved focus is used; otherwise F6 goes on to the page.
+    if (document.activeElement !== was) e.preventDefault();
   });
+  // A modal opening or closing makes the toast's place inert or takes it
+  // away: it follows the top-most modal, as the announcer does.
+  const onDialog = () => { if (toastShown) toastRehome(toastShown); };
+  document.addEventListener('toggle', onDialog, true);
+  document.addEventListener('close', onDialog, true);
+  new MutationObserver(onDialog).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['open'] });
   document.addEventListener('wk-undo-change', e => {
     const t = toastShown;
     const id = t?.undoId;
@@ -69,6 +80,19 @@ function toastListen() {
     if (top === id) t.seen = true;
     else if (t.seen) t.dismiss();
   });
+}
+
+// Moves the toast into the top-most open modal, or back to the body, keeping
+// focus on its action if it had it.
+function toastRehome(t) {
+  if (t.gone) return;
+  const home = toastHome();
+  if (t.el.parentNode === home && t.el.isConnected) return;
+  const had = t.el.contains(document.activeElement) ? document.activeElement : null;
+  t.home = home;
+  home.append(t.el);
+  toastPlace(t);
+  if (had && had.isConnected) had.focus({ preventScroll: true });
 }
 
 // Puts focus back where it was before it came to the toast.

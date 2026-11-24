@@ -15,7 +15,8 @@
 // window below the body, up to 12 (or `rows`). done(draw) takes them out,
 // calls draw in the same step and resolves; if they haven't shown yet, at
 // once, with no indicator. cancel() takes them out and puts the old rows
-// back.
+// back. Focus in the rows that give way moves to the region (the table),
+// so it isn't lost to the page.
 
 import { timings } from './motion.js';
 
@@ -42,6 +43,16 @@ function skeletonRow(columns) {
   return tr;
 }
 
+// Focuses the region (focusable for the while with tabindex -1, dropped
+// once focus leaves it).
+function skeletonHoldFocus(region) {
+  if (!region.hasAttribute('tabindex')) {
+    region.setAttribute('tabindex', '-1');
+    region.addEventListener('blur', () => region.removeAttribute('tabindex'), { once: true });
+  }
+  region.focus({ preventScroll: true });
+}
+
 function wkSkeleton(body, { rows, columns, region } = {}) {
   if (body instanceof HTMLTableElement) body = body.tBodies[0] || body.createTBody();
   if (!(body instanceof HTMLTableSectionElement)) throw new TypeError('wkSkeleton: pass a <tbody> or a <table>');
@@ -53,7 +64,10 @@ function wkSkeleton(body, { rows, columns, region } = {}) {
     const cols = columns || skeletonColumns(body);
     const first = skeletonRow(cols);
     kept = [...body.childNodes];
+    // Focus in the rows that give way goes to the region, not the page.
+    const focused = body.contains(document.activeElement);
     body.replaceChildren(first);
+    if (focused) skeletonHoldFocus(busy);
     let n = rows || kept.filter(r => r.nodeName === 'TR').length || skeletonLast.get(body) || 0;
     if (!n) {
       const h = first.getBoundingClientRect().height || 1;

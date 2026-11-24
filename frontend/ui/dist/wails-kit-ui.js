@@ -4699,8 +4699,10 @@ let toastListening = false;
 // The open modal on top, where the toast must sit to be reachable; else
 // the body.
 function toastHome() {
-  const modals = [...document.querySelectorAll('dialog')].filter(d => d.matches(':modal'));
-  return modals.pop() || document.body;
+  // The announcer keeps the modals in the order they opened; else the last
+  // open one in the document.
+  const stack = (document.wkAnnouncer?.wkModals || []).filter(d => d.isConnected && d.matches(':modal'));
+  return stack.pop() || [...document.querySelectorAll('dialog')].filter(d => d.matches(':modal')).pop() || document.body;
 }
 
 // Bottom offset: above the footer bars that sit along the bottom of the
@@ -4726,10 +4728,19 @@ function toastListen() {
     if (e.key !== 'F6' || e.defaultPrevented || e.ctrlKey || e.altKey || e.metaKey) return;
     const t = toastShown;
     if (!t || !t.actionEl) return;
-    e.preventDefault();
-    if (t.el.contains(document.activeElement)) toastReturn(t);
-    else { t.back = document.activeElement; t.actionEl.focus(); }
+    toastRehome(t);
+    const was = document.activeElement;
+    if (t.el.contains(was)) toastReturn(t);
+    else { t.actionEl.focus(); if (document.activeElement === t.actionEl) t.back = was; }
+    // Only a key that moved focus is used; otherwise F6 goes on to the page.
+    if (document.activeElement !== was) e.preventDefault();
   });
+  // A modal opening or closing makes the toast's place inert or takes it
+  // away: it follows the top-most modal, as the announcer does.
+  const onDialog = () => { if (toastShown) toastRehome(toastShown); };
+  document.addEventListener('toggle', onDialog, true);
+  document.addEventListener('close', onDialog, true);
+  new MutationObserver(onDialog).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['open'] });
   document.addEventListener('wk-undo-change', e => {
     const t = toastShown;
     const id = t?.undoId;
@@ -4738,6 +4749,19 @@ function toastListen() {
     if (top === id) t.seen = true;
     else if (t.seen) t.dismiss();
   });
+}
+
+// Moves the toast into the top-most open modal, or back to the body, keeping
+// focus on its action if it had it.
+function toastRehome(t) {
+  if (t.gone) return;
+  const home = toastHome();
+  if (t.el.parentNode === home && t.el.isConnected) return;
+  const had = t.el.contains(document.activeElement) ? document.activeElement : null;
+  t.home = home;
+  home.append(t.el);
+  toastPlace(t);
+  if (had && had.isConnected) had.focus({ preventScroll: true });
 }
 
 // Puts focus back where it was before it came to the toast.
@@ -4877,15 +4901,19 @@ export { wkToast };
 //   wkUndo.action(id?)                 a toast's Undo: { label, run, undoId }
 //   wkUndo.words                       the kit's words, for localising
 //
-// Connected, it reports text focus to Go, so Edit > Undo and Redo undo
-// typing first: Go sends undo:text, and the focused window's field undoes
-// its typing; when it has none, the app's stack goes instead. A failed undo
-// is said in words through the announcer. Every state from Go fires
+// Connected, it reports text focus to Go (a field, a contenteditable, or
+// an editor host such as the kit's CodeMirror and ProseMirror editors), so
+// Edit > Undo and Redo undo typing first: Go sends undo:text (as the DOM
+// event wk-undo-text to the window in front), the field or editor gets a
+// cancelable beforeinput historyUndo/historyRedo, and then execCommand. A
+// plain field with nothing to undo hands over to the app's stack; an editor
+// never does. A failed undo is said in words through the announcer. Every state from Go fires
 // wk-undo-change on the document (detail: the state), for the app to show
 // what came back.
 
 const undoWords = {
   undo: 'Undo',
+  busy: 'An undo is already under way',
   couldNot: (op, name) => `Couldn’t ${op} ${name}`,
 };
 
@@ -4893,16 +4921,25 @@ const undoEmpty = Object.freeze({ undo: null, redo: null, busy: false, textFocus
 let undoState = undoEmpty;
 let undoConn = null;
 
-// A field whose typing the browser can undo.
-function undoTextField(el) {
-  if (!el || el === document.body) return false;
-  if (el.isContentEditable) return true;
-  if (el instanceof HTMLTextAreaElement) return !el.readOnly && !el.disabled;
+// Editors that keep their own undo history: the kit's code, Markdown and
+// rich-text editors (CodeMirror and ProseMirror), and any element the app
+// marks with data-wk-undo.
+const UNDO_HOSTS = '.cm-editor, .ProseMirror, .wk-code-editor, .wk-markdown-editor, .wk-richtext-editor, [data-wk-undo]';
+
+// Where Edit > Undo goes first: a plain field (the browser's typing undo),
+// an editor host (its own history; never the app's stack), or nowhere.
+function undoTarget(el) {
+  if (!el || el === document.body || el === document.documentElement) return null;
+  if (el instanceof HTMLTextAreaElement) return !el.readOnly && !el.disabled ? { kind: 'field', el } : null;
   if (el instanceof HTMLInputElement) {
-    return !el.readOnly && !el.disabled && /^(text|search|url|tel|email|password|number|)$/.test(el.type);
+    return !el.readOnly && !el.disabled && /^(text|search|url|tel|email|password|number|)$/.test(el.type) ? { kind: 'field', el } : null;
   }
-  return false;
+  if (el.isContentEditable) return { kind: 'host', el };
+  const host = el.closest?.(UNDO_HOSTS);
+  if (host) return { kind: 'host', el: host.querySelector('[contenteditable="true"]') || host };
+  return null;
 }
+const undoTextField = el => Boolean(undoTarget(el));
 
 // The error code of a rejected binding: Wails passes the Go error's JSON,
 // on the error itself, its cause, or as its message.
@@ -4924,7 +4961,7 @@ function undoTake(state) {
 // Calls a binding; a failure of the action is said assertively (the person
 // pressed it and waits on it). Nothing to undo, a stale toast and a busy
 // stack say nothing: there is no failure to report.
-async function undoCall(name, op, args = [], what = '') {
+async function undoCall(name, op, args = [], what = '', pressed = false) {
   const fn = undoConn?.bindings?.[name];
   if (typeof fn !== 'function') return false;
   const label = what || (op === 'redo' ? undoState.redo?.name : undoState.undo?.name) || '';
@@ -4933,21 +4970,30 @@ async function undoCall(name, op, args = [], what = '') {
     return true;
   } catch (err) {
     const code = undoCode(err);
-    if (!['undo_empty', 'undo_stale', 'undo_busy'].includes(code)) announce(undoWords.couldNot(op, label).trim(), { assertive: true });
+    // A toast's Undo pressed while another undo runs: say why nothing happened.
+    if (code === 'undo_busy' && pressed) announce(undoWords.busy);
+    else if (!['undo_empty', 'undo_stale', 'undo_busy'].includes(code)) announce(undoWords.couldNot(op, label).trim(), { assertive: true });
     return false;
   }
 }
 
-// Edit > Undo or Redo with text focus: the field undoes its typing; with
-// none to undo, the app's stack goes.
+// Edit > Undo or Redo with text focus, in the focused window only. First
+// the field or editor gets a cancelable beforeinput (historyUndo or
+// historyRedo): an editor with its own history (CodeMirror, ProseMirror)
+// takes it there. Otherwise a plain field undoes its typing with
+// execCommand, and with none to undo, the app's stack goes. An editor host
+// never falls back to the app's stack: its undo stays in the editor.
 function undoText(op) {
   if (!document.hasFocus()) return; // another window's field
-  const el = document.activeElement;
-  if (undoTextField(el)) {
-    const before = el.isContentEditable ? el.innerHTML : el.value;
+  const target = undoTarget(document.activeElement);
+  if (target) {
+    const ev = new InputEvent('beforeinput', { inputType: op === 'redo' ? 'historyRedo' : 'historyUndo', bubbles: true, cancelable: true });
+    target.el.dispatchEvent(ev);
+    if (ev.defaultPrevented) return;
+    if (target.kind === 'host') { document.execCommand(op); return; }
+    const before = target.el.value;
     document.execCommand(op);
-    const after = el.isContentEditable ? el.innerHTML : el.value;
-    if (after !== before) return;
+    if (target.el.value !== before) return;
   }
   undoCall(op === 'redo' ? 'Redo' : 'Undo', op);
 }
@@ -4958,21 +5004,27 @@ function undoConnect({ on, bindings = {} } = {}) {
   const conn = { bindings, seen: false, offs: [], focus: null };
   conn.offs.push(on('undo:changed', state => { conn.seen = true; undoTake(state); }));
   conn.offs.push(on('undo:text', p => undoText(p?.op === 'redo' ? 'redo' : 'undo')));
+  // The Go side's Apply sends undo:text to one window's page as a DOM event.
+  const onDomText = e => undoText(e.detail?.op === 'redo' ? 'redo' : 'undo');
+  document.addEventListener('wk-undo-text', onDomText);
   conn.offs.push(on('undo:failed', p => announce(undoWords.couldNot(p?.op === 'redo' ? 'redo' : 'undo', p?.name || '').trim(), { assertive: true })));
   // Text focus, reported when it changes.
-  const report = () => {
+  // A window coming to the front reports again, so the menu follows the
+  // window in front.
+  const report = force => {
     const now = document.hasFocus() && undoTextField(document.activeElement);
-    if (now === conn.focus) return;
+    if (now === conn.focus && force !== true) return;
     conn.focus = now;
     Promise.resolve().then(() => bindings.SetTextFocus?.(now)).catch(() => {});
   };
-  const later = () => queueMicrotask(report);
+  const later = e => queueMicrotask(() => report(e?.type === 'focus' && e.target === window));
   document.addEventListener('focusin', later, true);
   document.addEventListener('focusout', later, true);
   window.addEventListener('blur', later);
   window.addEventListener('focus', later);
   conn.disconnect = () => {
     for (const off of conn.offs) if (typeof off === 'function') off();
+    document.removeEventListener('wk-undo-text', onDomText);
     document.removeEventListener('focusin', later, true);
     document.removeEventListener('focusout', later, true);
     window.removeEventListener('blur', later);
@@ -4999,7 +5051,7 @@ function undoAction(id) {
     label: undoWords.undo,
     undoId,
     current: () => undoState.undo?.id ?? null,
-    run: () => (undoId ? undoCall('UndoID', 'undo', [undoId], name) : Promise.resolve(false)),
+    run: () => (undoId ? undoCall('UndoID', 'undo', [undoId], name, true) : Promise.resolve(false)),
   };
 }
 
@@ -5025,10 +5077,13 @@ export { wkUndo };
 //   data-wk-copy="text"          that text
 //   data-wk-copy-from="id"       the text (or a field's value) of the element with that id
 //   inside a wk-code             the <code> or <pre> beside it
-// Otherwise the app calls wkCopy(button, text) from its own click handler.
+// Otherwise the app calls wkCopy(button, text) from its own click handler;
+// on a button the kit would copy from (in a wk-code, say), it calls
+// preventDefault() on the click so the kit doesn't copy as well.
 //
 //   wkCopy(button, text) -> Promise<boolean>   copies, then shows and says the outcome
-//   wkCopy.write = async text => {}            replaces the clipboard writer (Wails's Clipboard.SetText, say)
+//   wkCopy.write = async text => {}            replaces the clipboard writer (Wails's Clipboard.SetText, say);
+//                                              resolving to false, or rejecting, is a failure
 //   wkCopy.words = { copied, failed }
 //
 // It fires wk-copy on the button: detail { ok }. The text isn't in the
@@ -5076,8 +5131,13 @@ function copyShow(button, text) {
   copyHome().append(tip);
   copyPlace(tip, button.getBoundingClientRect());
   const off = new AbortController();
+  // Esc hides it only while focus or the pointer is on the button; anywhere
+  // else Esc belongs to the page (a dialog, a task's Cancel).
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); copyHide(button); }
+    if (e.key !== 'Escape' || e.defaultPrevented) return;
+    if (document.activeElement !== button && !button.matches(':hover')) return;
+    e.preventDefault();
+    copyHide(button);
   }, { signal: off.signal });
   copyTips.set(button, { tip, off, timer: setTimeout(() => copyHide(button), timings.copied) });
 }
@@ -5085,8 +5145,8 @@ function copyShow(button, text) {
 async function wkCopy(button, text) {
   let ok = false;
   try {
-    await wkCopy.write(String(text ?? ''));
-    ok = true;
+    // A writer that resolves to false (Wails's Clipboard.SetText) didn't copy.
+    ok = (await wkCopy.write(String(text ?? ''))) !== false;
   } catch { ok = false; }
   if (button?.isConnected) {
     copyShow(button, ok ? wkCopy.words.copied : wkCopy.words.failed);
@@ -5145,7 +5205,8 @@ export { wkCopy };
 // window below the body, up to 12 (or `rows`). done(draw) takes them out,
 // calls draw in the same step and resolves; if they haven't shown yet, at
 // once, with no indicator. cancel() takes them out and puts the old rows
-// back.
+// back. Focus in the rows that give way moves to the region (the table),
+// so it isn't lost to the page.
 
 const SKELETON_MAX = 12;
 const skeletonLast = new WeakMap(); // body -> its row count after the last load
@@ -5170,6 +5231,16 @@ function skeletonRow(columns) {
   return tr;
 }
 
+// Focuses the region (focusable for the while with tabindex -1, dropped
+// once focus leaves it).
+function skeletonHoldFocus(region) {
+  if (!region.hasAttribute('tabindex')) {
+    region.setAttribute('tabindex', '-1');
+    region.addEventListener('blur', () => region.removeAttribute('tabindex'), { once: true });
+  }
+  region.focus({ preventScroll: true });
+}
+
 function wkSkeleton(body, { rows, columns, region } = {}) {
   if (body instanceof HTMLTableElement) body = body.tBodies[0] || body.createTBody();
   if (!(body instanceof HTMLTableSectionElement)) throw new TypeError('wkSkeleton: pass a <tbody> or a <table>');
@@ -5181,7 +5252,10 @@ function wkSkeleton(body, { rows, columns, region } = {}) {
     const cols = columns || skeletonColumns(body);
     const first = skeletonRow(cols);
     kept = [...body.childNodes];
+    // Focus in the rows that give way goes to the region, not the page.
+    const focused = body.contains(document.activeElement);
     body.replaceChildren(first);
+    if (focused) skeletonHoldFocus(busy);
     let n = rows || kept.filter(r => r.nodeName === 'TR').length || skeletonLast.get(body) || 0;
     if (!n) {
       const h = first.getBoundingClientRect().height || 1;

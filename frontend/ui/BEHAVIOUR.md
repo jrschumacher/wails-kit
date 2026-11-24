@@ -593,6 +593,11 @@ Where shipped code doesn't yet follow this page:
   its own `Asker` (a sheet in the window).
 - Without `shortcuts.WithUndo`, Edit > Undo is the native role, which undoes text
   editing only; an app that keeps its own undo uses `UndoStack`.
+- With Wails v3.0.0-alpha.64, app undo has two platform limits:
+  - **Linux:** menu accelerators don't reach the GTK menu, so Edit > Undo and Redo run
+    only when clicked.
+  - **Windows:** only the window that built the menu last shows the Edit menu's
+    updated labels and enabled state.
 - Skeleton rows are for tables (`<tbody>`); a list (`wk-list`) has none yet. Neither
   they nor the loading chart add the line saying what's loading after 3 s; the app
   adds it.

@@ -617,15 +617,17 @@ const toast = wkToast({ words: 'Conversation archived', action: wkUndo.action(id
 toast.dismiss();
 ```
 
-One `<div class="wk-toast" role="group">` at a time, at the bottom centre of the window
-(of the top-most modal while one is open), 16 px above a `wk-footer-bar` along the
-bottom. It shows for `timings.toast` (6 s), or `timings.toastWithAction` (10 s) with an
+One `<div class="wk-toast" role="group">` at a time, at the bottom centre of the window,
+16 px above a `wk-footer-bar` along the bottom. While a modal is open it sits in the
+top-most modal, and it moves when one opens or closes (as the announcer does), so it
+is never stranded or left behind an inert page. It shows for `timings.toast` (6 s), or `timings.toastWithAction` (10 s) with an
 action, and its clock runs only while the window is focused and the pointer and focus
 are outside it; it runs on from where it stopped. A newer toast replaces it at once. It
 isn't a live region: its words go to the polite announcer once. It never takes focus
 when it appears. **F6** (or Shift+F6) moves focus to its action and back to where focus
-was; Tab reaches it too. **Esc** dismisses it while focus is inside, and focus goes
-back; so does pressing the action, which then runs. If a newer toast replaces it while
+was; Tab reaches it too. F6 is only used when it moves focus; otherwise it reaches the
+page. **Esc** dismisses it while focus is inside (and only the toast: not
+a dialog around it or a task that started in the page), and focus goes back; so does pressing the action, which then runs. If a newer toast replaces it while
 focus is inside, the new action takes focus (or focus goes back, with no action). An
 action needs a `label` and `run()`, and must also exist elsewhere (Undo in Edit > Undo,
 Show in the list): the toast goes away by itself. It enters with a short rise and fade
@@ -651,15 +653,26 @@ document.addEventListener('wk-undo-change', e => showWhatCameBack(e.detail));
 - `connect({ on, bindings })`: `on(name, listener)` subscribes to `undo:changed`,
   `undo:text` and `undo:failed` and may return an unsubscribe; `bindings` is the stack's
   `Bindings()` (`State`, `Undo`, `Redo`, `UndoID`, `SetTextFocus`). It returns a
-  function that disconnects. Connected, it reports text focus to Go (an editable
-  `input`, `textarea` or `contenteditable`, in the focused window), so Edit > Undo and
-  Redo undo typing first: on `undo:text` the focused field undoes its typing
-  (`execCommand`), and when that changes nothing, the app's stack goes instead.
+  function that disconnects.
+- **Text focus.** Connected, `wkUndo` reports text focus to Go, and again whenever the
+  window comes to the front. Text focus means an editable `input` or `textarea`, a
+  `contenteditable`, or an editor host: the kit's code, Markdown and rich-text editors
+  (CodeMirror, ProseMirror) or any element marked `data-wk-undo`.
+- **Edit > Undo and Redo with text focus.** Go sends `undo:text`, which arrives in the
+  window in front as the DOM event `wk-undo-text`. In the focused window only:
+  - The field or editor first gets a cancelable `beforeinput` with `inputType`
+    `historyUndo` or `historyRedo`. An editor with its own history (CodeMirror,
+    ProseMirror) takes it there.
+  - Otherwise a plain field undoes its typing with `execCommand`; when that changes
+    nothing, the app's stack goes instead.
+  - An editor host never falls back to the app's stack: undo in an editor stays in the
+    editor.
 - `action(id?)`: a toast's Undo for the action with this ID (else the most recent). It
   undoes only that action (`UndoID`), so the toast's Undo and Edit > Undo agree; once
   the stack moves past it (Edit > Undo undid it, or another action came), its toast
   closes. A toast replaced by a newer one doesn't take the Undo with it: Edit > Undo
-  still has it.
+  still has it. Pressed while another undo runs, it says "An undo is already under way"
+  (`wkUndo.words.busy`); pressed after the stack moved on, it says nothing.
 - `undo()`, `redo()`: the app's stack, for a button.
 - `state()`: `{ undo, redo, busy, textFocus }`, each of `undo` and `redo` an
   `{ id, name, label }` or null. Every state from Go also fires `wk-undo-change` on the
@@ -683,10 +696,15 @@ Otherwise the app calls `wkCopy(button, text)` (it resolves to whether it copied
 (below it when there's no room), hidden from assistive technology, and goes to the
 polite announcer once per press. The button's accessible name and glyph don't change.
 On failure it shows and says "Couldn’t copy", assertively while focus is still on the
-button. Esc hides the tip. A busy copy button (`data-busy` with `aria-disabled`) does
+button. Esc hides the tip while focus or the pointer is on the button; elsewhere Esc is
+left to the page (a dialog, a task's Cancel). A busy copy button (`data-busy` with `aria-disabled`) does
 nothing. `wkCopy.write` is the clipboard writer (`navigator.clipboard.writeText`);
 replace it with Wails's `Clipboard.SetText` where the web view's clipboard isn't
-allowed. `wkCopy.words` holds the words. Each press fires `wk-copy` on the button with
+allowed. A writer that rejects or resolves to `false` (as `Clipboard.SetText` does on
+failure) didn't copy. An app that copies a `wk-copy` itself, with `wkCopy(button, text)`
+from its own click handler, on a button the kit would copy from too (one inside a
+`wk-code`, say), calls `preventDefault()` on that click so the kit doesn't copy as
+well. `wkCopy.words` holds the words. Each press fires `wk-copy` on the button with
 `detail: { ok }` (never the text, which may be a secret).
 
 ### Skeleton rows
@@ -705,7 +723,9 @@ still `wk-skeleton-bar` in `--wk-color-fill`, at the real row height: as many ro
 the body had, else as many as the last load drew, else enough to fill the window below
 it, up to 12 (or `rows`). `done(draw)` takes them out, calls `draw` in the same step and
 resolves; once they have shown, it waits for the indicator minimum (500 ms). Done
-within 400 ms, no rows ever show. `cancel()` puts the old rows back. Keep headings,
+within 400 ms, no rows ever show. `cancel()` puts the old rows back. If focus was in the rows that give way, it
+moves to the table (made focusable with `tabindex="-1"` until focus leaves), not the
+page. Keep headings,
 toolbars and filters real and usable. In forced colours each bar is outlined in
 `GrayText`.
 

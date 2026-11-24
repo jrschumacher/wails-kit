@@ -28,7 +28,9 @@ const server = http.createServer(async (req, res) => {
   try {
     const pathname = new URL(req.url, 'http://localhost').pathname;
     if (pathname.includes('..')) { res.writeHead(404).end(); return; }
-    const data = await readFile(path.join(root, pathname));
+    // /editor/ serves @wails-kit/editor's built modules (../editor/dist), for checks with the kit's editors.
+    const file = pathname.startsWith('/editor/') ? path.join(root, '..', 'editor', 'dist', pathname.slice('/editor/'.length)) : path.join(root, pathname);
+    const data = await readFile(file);
     res.setHeader('Content-Type', types[path.extname(pathname)] || 'application/octet-stream');
     res.end(data);
   } catch { res.writeHead(404).end(); }
@@ -4514,6 +4516,7 @@ try {
           if (!top) throw { code: 'undo_empty' };
           if (id && top.id !== id) throw { code: 'undo_stale' };
           if (go.failNext) { const e = go.failNext; go.failNext = null; throw e; }
+          if (go.busyNext) { go.busyNext = false; throw { code: 'undo_busy' }; }
           go.undo.pop(); go.redo.push(top); go.changed();
         },
         // Edit > Undo, as UndoStack.MenuUndo does it.
@@ -4559,11 +4562,20 @@ try {
     await page.evaluate(() => { const id = go.push('Archive'); kit.wkToast({ words: 'Conversation archived', action: kit.wkUndo.action(id) }); kit.wkToast({ words: 'Link copied' }); });
     assert.equal(await page.evaluate(() => kit.wkUndo.state().undo.label), 'Undo Archive');
     // A stale toast Undo (the stack moved on) undoes nothing else and says nothing.
+    await run(600);
+    await said();
     await page.evaluate(() => { window.stale = kit.wkUndo.action(); go.push('Rename'); });
     await page.evaluate(() => window.stale.run());
     await run(600);
     assert.deepEqual(await page.evaluate(() => [go.undo.map(e => e.name), go.calls.splice(0).filter(c => c.startsWith('UndoID'))]), [['Move', 'Archive', 'Rename'], ['UndoID undo-4']]);
-    await said();
+    assert.deepEqual(await said(), [], 'a stale toast Undo says nothing');
+    // A toast's Undo pressed while an undo runs says why nothing happened.
+    await page.evaluate(() => { go.busyNext = true; kit.wkUndo.action().run(); });
+    await run(600);
+    assert.deepEqual(await said(), [['polite', 'An undo is already under way']]);
+    await page.evaluate(() => { go.busyNext = true; kit.wkUndo.undo(); });
+    await run(600);
+    assert.deepEqual(await said(), [], 'from a button, a busy stack says nothing');
     // A failure is said, assertively; the action stays.
     await page.evaluate(() => { go.failNext = { code: 'undo_failed' }; kit.wkUndo.undo(); });
     await run(600);
@@ -4590,6 +4602,10 @@ try {
     await page.evaluate(() => go.menuUndo());
     await run(10);
     assert.deepEqual(await page.evaluate(() => [document.getElementById('t-name').value, go.undo.length, go.calls.slice()]), ['', 1, []], 'the typing goes first');
+    // Another window has focus (this one's field still holds it): nothing here.
+    await page.evaluate(() => { document.hasFocus = () => false; go.menuUndo(); delete document.hasFocus; });
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => [go.undo.length, go.calls.slice()]), [1, []], 'an unfocused window does nothing');
     await page.evaluate(() => go.menuUndo());
     await run(10);
     assert.deepEqual(await page.evaluate(() => [go.undo.length, go.calls.splice(0)]), [0, ['Undo']], 'with no typing left, the app\'s action');
@@ -4753,6 +4769,187 @@ try {
     assert.equal(await page.evaluate(() => [fig2.querySelector('.wk-chart-legend'), kit.wkChart.ready(fig2) instanceof Promise][0]), null, 'no legend while the series are unknown');
     await run(1000);
     assert.equal(await page.evaluate(() => getComputedStyle(fig2.querySelector('.wk-spinner')).display), 'none', 'ready() before 400 ms: no spinner ever');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('app undo: Edit > Undo and Redo in the kit\'s code and rich-text editors use the editor\'s own history (typing, Enter, Backspace, bold then typing) and never the app\'s action', async () => {
+    const { page, problems } = await open('/demo/index.html');
+    await page.evaluate(async () => {
+      window.kit = await import('/src/index.js');
+      const { wkCodeEditor } = await import('/editor/code.js');
+      const { wkRichTextEditor } = await import('/editor/richtext.js');
+      const box = document.createElement('div');
+      box.id = 'ebox';
+      document.querySelector('main').prepend(box);
+      window.code = wkCodeEditor({ label: 'Code', value: '' });
+      window.rich = wkRichTextEditor({ label: 'Notes', value: '' });
+      box.append(window.code, window.rich);
+      window.go = { listeners: {}, calls: [] };
+      kit.wkUndo.connect({
+        on: (n, f) => { (go.listeners[n] ??= []).push(f); },
+        bindings: { Undo: async () => go.calls.push('Undo'), Redo: async () => go.calls.push('Redo'), SetTextFocus: async v => { go.focus = v; go.calls.push(`focus ${v}`); }, State: async () => null },
+      });
+      // Edit > Undo as Apply sends it: a DOM event in this window's page.
+      window.menu = op => document.dispatchEvent(new CustomEvent('wk-undo-text', { detail: { op } }));
+    });
+    const cases = [
+      ['code: typing', '#ebox .wk-code-editor .cm-content', 'code', '', page => page.keyboard.type('hello')],
+      ['code: Enter', '#ebox .wk-code-editor .cm-content', 'code', 'abc', async page => { await page.keyboard.press('ArrowLeft'); await page.keyboard.press('Enter'); }],
+      ['code: Backspace', '#ebox .wk-code-editor .cm-content', 'code', 'abc', page => page.keyboard.press('Backspace')],
+      ['rich: typing', '#ebox .wk-richtext-editor .ProseMirror', 'rich', '', page => page.keyboard.type('hello')],
+      ['rich: Enter', '#ebox .wk-richtext-editor .ProseMirror', 'rich', 'abc', async page => { await page.keyboard.press('ArrowLeft'); await page.keyboard.press('Enter'); }],
+      ['rich: Backspace', '#ebox .wk-richtext-editor .ProseMirror', 'rich', 'abc', page => page.keyboard.press('Backspace')],
+      ['rich: bold then typing', '#ebox .wk-richtext-editor .ProseMirror', 'rich', 'abc', async page => { await page.keyboard.press('Control+b'); await page.keyboard.type('x'); }],
+    ];
+    // A plain contenteditable, which has no history of its own: the browser's
+    // undo, and still never the app's stack.
+    await page.evaluate(() => {
+      const ce = document.createElement('div');
+      ce.id = 't-ce';
+      ce.contentEditable = 'true';
+      document.getElementById('ebox').append(ce);
+      Object.defineProperty(window, 'ce', { get: () => ({ get value() { return document.getElementById('t-ce').textContent; }, set value(v) { document.getElementById('t-ce').textContent = v; } }) });
+    });
+    cases.push(['contenteditable: typing', '#t-ce', 'ce', '', page => page.keyboard.type('hello')]);
+    for (const [name, sel, which, start, act] of cases) {
+      await page.evaluate(([w, v]) => { window[w].value = v; }, [which, start]);
+      await page.click(sel);
+      await page.keyboard.press('Control+End');
+      await page.waitForTimeout(600); // the editors' history groups by time
+      const before = await page.evaluate(w => window[w].value, which);
+      await act(page);
+      const edited = await page.evaluate(w => window[w].value, which);
+      assert.notEqual(edited, before, `${name}: the keys changed it`);
+      await page.evaluate(() => { go.calls.length = 0; menu('undo'); });
+      await page.waitForTimeout(50);
+      assert.equal(await page.evaluate(w => window[w].value, which), before, `${name}: Edit > Undo undoes it in the editor`);
+      await page.evaluate(() => menu('redo'));
+      await page.waitForTimeout(50);
+      assert.equal(await page.evaluate(w => window[w].value, which), edited, `${name}: Edit > Redo redoes it`);
+      // Nothing left in the editor to undo: still not the app's action.
+      await page.evaluate(() => { menu('undo'); menu('undo'); menu('undo'); });
+      await page.waitForTimeout(50);
+      assert.deepEqual(await page.evaluate(() => go.calls.filter(c => !c.startsWith('focus'))), [], `${name}: the app's stack is never touched`);
+    }
+    assert.equal(await page.evaluate(() => go.focus), true, 'focus in an editor is text focus');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('toast: it follows a modal that opens or closes, F6 reaches it there, and Esc in it inside a dialog or a task\'s scope dismisses only the toast; F6 with nowhere to go is left to the page', async () => {
+    const { page, problems, run, taskEvents } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<button class="wk-button" type="button" id="t-a">Archive</button><dialog id="t-dlg"><button type="button" id="t-in">Inside</button></dialog>';
+    });
+    // Made inside a modal, which then closes: back in the body, reachable.
+    await page.evaluate(() => { document.getElementById('t-dlg').showModal(); document.getElementById('t-in').focus(); kit.wkToast({ words: 'Saved', action: { label: 'Undo', run() {} } }); });
+    assert.equal(await page.evaluate(() => document.querySelector('.wk-toast').parentElement.id), 't-dlg');
+    await page.evaluate(() => { document.getElementById('t-dlg').close(); document.getElementById('t-a').focus(); });
+    await run(10);
+    assert.equal(await page.evaluate(() => document.querySelector('.wk-toast').parentElement === document.body), true, 'back in the body when the modal closes');
+    await page.keyboard.press('F6');
+    assert.equal(await active(page), 'Undo');
+    await page.keyboard.press('F6');
+    // Made in the body, then a modal opens: it moves into the modal.
+    await page.evaluate(() => { document.getElementById('t-dlg').showModal(); document.getElementById('t-in').focus(); });
+    await run(10);
+    assert.equal(await page.evaluate(() => document.querySelector('.wk-toast').parentElement.id), 't-dlg', 'in the modal that opened over it');
+    await page.keyboard.press('F6');
+    assert.equal(await active(page), 'Undo', 'F6 reaches it in the modal');
+    // Esc in it dismisses the toast, not the dialog.
+    await page.keyboard.press('Escape');
+    await run(10);
+    assert.deepEqual(await page.evaluate(() => [document.getElementById('t-dlg').open, document.activeElement.id]), [true, 't-in']);
+    await page.evaluate(() => document.getElementById('t-dlg').close());
+    await run(200);
+    // Esc in it doesn't cancel a task whose control had focus.
+    await page.evaluate(() => {
+      document.getElementById('t-a').focus();
+      window.t = kit.wkTask({ id: 'esc', control: document.getElementById('t-a'), words: 'Archiving', stop: 'cancel', onStop() { return true; } });
+      kit.wkToast({ words: 'Saved', action: { label: 'Undo', run() {} } });
+    });
+    await page.keyboard.press('F6');
+    await page.keyboard.press('Escape');
+    await run(10);
+    assert.deepEqual(await taskEvents(), ['esc:running'], 'the task keeps running');
+    assert.equal(await active(page), 't-a');
+    await page.evaluate(() => window.t.done('Archived'));
+    // F6 with nowhere to go (no action, or an action that can't take focus) is left to the page.
+    const f6 = async () => {
+      await page.evaluate(() => { window.f6 = null; window.addEventListener('keydown', e => { if (e.key === 'F6') window.f6 = e.defaultPrevented; }, { once: true }); });
+      await page.keyboard.press('F6');
+      return page.evaluate(() => window.f6);
+    };
+    await page.evaluate(() => kit.wkToast({ words: 'Link copied' }));
+    assert.equal(await f6(), false, 'no action');
+    await page.evaluate(() => { kit.wkToast({ words: 'Saved', action: { label: 'Undo', run() {} } }).element.inert = true; });
+    assert.equal(await f6(), false, 'an action that can\'t take focus');
+    assert.equal(await active(page), 't-a');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('copy: Esc hides the tip only from the button; elsewhere it reaches the page; failure is assertive only with focus on the button; a writer resolving false failed; forced colours outline the tip', async () => {
+    const { page, problems, run, said } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').style.setProperty('padding-top', '60px');
+      document.getElementById('tbox').innerHTML = '<button class="wk-copy" type="button" id="t-copy" aria-label="Copy join code" data-wk-copy="K7"></button><dialog id="t-dlg"><button type="button" id="t-in">Inside</button><button class="wk-copy" type="button" id="t-copy2" aria-label="Copy code" data-wk-copy="K8"></button></dialog>';
+      kit.wkCopy.write = async () => {};
+    });
+    const tips = () => page.evaluate(() => document.querySelectorAll('.wk-copy-tip').length);
+    // In a dialog, focus moved on: Esc closes the dialog, as it should.
+    await page.evaluate(() => { document.getElementById('t-dlg').showModal(); const b = document.getElementById('t-copy2'); b.focus(); b.click(); });
+    await run(10);
+    // Focus on the button: Esc hides the tip, and the dialog stays.
+    await page.keyboard.press('Escape');
+    await run(10);
+    assert.deepEqual([await tips(), await page.evaluate(() => document.getElementById('t-dlg').open)], [0, true], 'Esc on the button hides the tip only');
+    await page.evaluate(() => document.getElementById('t-copy2').click());
+    await run(10);
+    await page.evaluate(() => document.getElementById('t-in').focus());
+    await page.keyboard.press('Escape');
+    await run(10);
+    assert.equal(await page.evaluate(() => document.getElementById('t-dlg').open), false, 'Esc away from the button closes the dialog');
+    await run(2000);
+    // With focus on the button: Esc hides the tip and goes no further.
+    await page.$eval('#t-copy', b => { b.focus(); b.click(); });
+    await run(10);
+    assert.equal(await tips(), 1);
+    await page.keyboard.press('Escape');
+    assert.equal(await tips(), 0);
+    await run(600);
+    await said();
+    // Failure with focus elsewhere: polite. A writer resolving false failed.
+    await page.evaluate(() => { kit.wkCopy.write = async () => false; document.activeElement.blur(); kit.wkCopy(document.getElementById('t-copy'), 'K7'); });
+    await run(600);
+    assert.deepEqual(await said(), [['polite', 'Couldn’t copy']]);
+    assert.equal(await page.evaluate(() => document.querySelector('.wk-copy-tip').textContent), 'Couldn’t copy');
+    await run(2000);
+    // Forced colours: the tip has a CanvasText border.
+    await page.emulateMedia({ forcedColors: 'active' });
+    await page.evaluate(() => { kit.wkCopy.write = async () => {}; kit.wkCopy(document.getElementById('t-copy'), 'K7'); });
+    await run(10);
+    const fc = await page.evaluate(() => { const s = getComputedStyle(document.querySelector('.wk-copy-tip')); const p = document.createElement('i'); p.style.setProperty('color', 'CanvasText'); document.body.append(p); const c = getComputedStyle(p).color; p.remove(); return [s.borderTopStyle, s.borderTopColor === c]; });
+    assert.deepEqual(fc, ['solid', true]);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('skeleton rows: focus in the rows that give way moves to the table, not the page', async () => {
+    const { page, problems, run } = await openTasks();
+    await page.evaluate(() => {
+      document.getElementById('tbox').innerHTML = '<table class="wk-table" id="t-runs" aria-label="Runs"><thead><tr><th>Name</th></tr></thead><tbody><tr><td><button type="button" id="t-row">build</button></td></tr></tbody></table>';
+      document.getElementById('t-row').focus();
+      window.load = kit.wkSkeleton(document.querySelector('#t-runs tbody'));
+    });
+    await run(400);
+    assert.equal(await page.evaluate(() => document.activeElement.id), 't-runs');
+    await page.evaluate(() => { window.load.done(() => {}); });
+    await run(500);
+    await page.evaluate(() => document.getElementById('t-a')?.focus() ?? document.body.focus());
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => document.getElementById('t-runs').hasAttribute('tabindex')), false, 'tabindex dropped once focus leaves');
     assert.deepEqual(problems, []);
     await page.close();
   });
