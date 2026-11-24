@@ -470,7 +470,8 @@ export function wkDiff(spec) {
   const expanded = new Set();         // resolved threads shown open
   const resolving = new Map();        // thread id -> { shown, timer } while onresolve's promise runs
   const timers = new Set();
-  let localSequence = 0, threadSequence = 0, epoch = 0, clock = null, destroyed = false;
+  const kept = new Map();             // thread id -> a gone thread kept, outdated, for its reply box with text
+  let localSequence = 0, threadSequence = 0, clock = null, destroyed = false;
   const later = (fn, ms) => { const t = setTimeout(() => { timers.delete(t); if (!destroyed) fn(); }, ms); timers.add(t); return t; };
   const now = () => (spec.now ? +spec.now() : Date.now());
   const author = spec.author || {};
@@ -492,7 +493,7 @@ export function wkDiff(spec) {
   const byPath = new Map(), byOldPath = new Map();
   files.forEach((f, i) => { if (!byPath.has(f.path)) byPath.set(f.path, i); if (!byOldPath.has(f.oldPath)) byOldPath.set(f.oldPath, i); });
   const fileOf = thread => byPath.get(thread.path) ?? byOldPath.get(thread.path) ?? -1;
-  const threadsOf = state => [...comments, ...posting].filter(t => t && fileOf(t) === state.index);
+  const threadsOf = state => [...comments, ...posting, ...kept.values()].filter(t => t && fileOf(t) === state.index);
   const where = (side, line, endLine) => `${side === 'old' ? 'old ' : ''}${endLine !== line ? `lines ${line} to ${endLine}` : `line ${line}`}`;
   const sameId = (a, b) => String(a) === String(b);
 
@@ -770,7 +771,7 @@ export function wkDiff(spec) {
   function close(draft) {
     if (draft.closed) return false;
     draft.closed = true;
-    if (draft.thread) replies.delete(draft.thread.id); else drafts.delete(draft.key);
+    if (draft.thread) { replies.delete(draft.thread.id); kept.delete(String(draft.thread.id)); } else drafts.delete(draft.key);
     try { draft.box.destroy?.(); } catch { /* the box's own clean-up failed */ }
     draft.frame.remove();
     return true;
@@ -816,7 +817,9 @@ export function wkDiff(spec) {
     const { state } = draft;
     if (draft.thread) {
       refreshThread(state, draft.thread.id);
-      threadEl(state, draft.thread.id)?.querySelector('[data-action="reply"]')?.focus();
+      const reply = threadEl(state, draft.thread.id)?.querySelector('[data-action="reply"]');
+      // A kept thread goes with its box: focus moves to the file's toggle.
+      (reply || state.button).focus();
     } else {
       refreshAt(state, draft.side, draft.endLine);
       focusRow(rowFor(state, draft.side, draft.endLine), draft.side);
@@ -834,9 +837,10 @@ export function wkDiff(spec) {
 
   // Posts a new comment (thread null) or a reply. A promise from the app
   // shows the comment as pending until it settles. When it resolves, the
-  // copy stays (as posted) until the app's next setComments, unless the app
-  // already called setComments while it was pending, or for POSTED_KEEP at
-  // most. When it rejects, the copy shows the error with Retry and Edit. A
+  // copy stays (as posted) until the app's comments hold it (a thread, or
+  // for a reply an entry, with the id the promise resolved with; else an
+  // entry with the same text and author), checked then and on each
+  // setComments, or for POSTED_KEEP at most. When it rejects, the copy shows the error with Retry and Edit. A
   // shown working dot stays at least timings.indicatorMin. Anything else
   // from the callback: the app shows the comment.
   const POSTED_KEEP = 10_000;
@@ -849,7 +853,7 @@ export function wkDiff(spec) {
       return;
     }
     entry ||= { author: author.name || 'You', avatar: author.avatar, time: new Date(now()), body: info.body };
-    Object.assign(entry, { pending: true, posted: false, error: undefined, since: Date.now(), shownAt: 0, epoch });
+    Object.assign(entry, { pending: true, posted: false, error: undefined, since: Date.now(), shownAt: 0, landed: undefined });
     let own = null;
     if (!thread) {
       own = posting.find(t => t.entries[0] === entry);
@@ -863,12 +867,18 @@ export function wkDiff(spec) {
       else replying.set(thread.id, (replying.get(thread.id) || []).filter(x => x !== entry));
     };
     entry.drop = drop;
+    // Whether the app's comments hold this comment now.
+    const same = e => e && (entry.landed != null ? e.id != null && sameId(e.id, entry.landed) : e.body === entry.body && e.author === entry.author);
+    entry.covered = () => (own
+      ? comments.some(t => t && (entry.landed != null ? sameId(t.id, entry.landed) : t.path === info.path && (t.entries || []).some(same)))
+      : (comments.find(t => t && sameId(t.id, thread.id))?.entries || []).some(same));
     // Once the dot has shown, it stays its minimum before the outcome replaces it.
     const settle = fn => { const hold = entry.shownAt ? timings.indicatorMin - (Date.now() - entry.shownAt) : 0; if (hold > 0) later(fn, hold); else fn(); };
-    result.then(() => settle(() => {
-      Object.assign(entry, { pending: false, posted: true });
+    result.then(value => settle(() => {
+      const landed = value != null && typeof value === 'object' ? value.id : (typeof value === 'string' || typeof value === 'number' ? value : undefined);
+      Object.assign(entry, { pending: false, posted: true, landed });
       announce(thread ? 'Reply posted' : 'Comment posted');
-      if (epoch > entry.epoch) drop();
+      if (entry.covered()) drop();
       else later(() => { if (entry.posted) { drop(); redraw(); } }, POSTED_KEEP);
       redraw();
     }), err => settle(() => {
@@ -902,6 +912,7 @@ export function wkDiff(spec) {
     job.timer = later(() => { job.shown = Date.now(); refreshThread(state, tid); }, timings.indicatorDelay);
     const end = failed => {
       const finish = () => {
+        if (destroyed) return;
         clearTimeout(job.timer); timers.delete(job.timer);
         resolving.delete(tid);
         if (failed) announce(to ? 'Couldn’t resolve the comments' : 'Couldn’t reopen the comments');
@@ -1043,7 +1054,7 @@ export function wkDiff(spec) {
         b.type = 'button'; b.dataset.action = 'reply';
         b.addEventListener('click', () => openReply(state, thread));
       }
-      if (spec.onresolve) {
+      if (spec.onresolve && !thread.gone) {
         const b = el('button', 'wk-button wk-button--quiet wk-button--small', resolved ? 'Unresolve' : 'Resolve', acts);
         b.type = 'button'; b.dataset.action = 'resolve';
         const job = resolving.get(tid);
@@ -1141,12 +1152,18 @@ export function wkDiff(spec) {
   root.setComments = threads => {
     if (destroyed) return;
     comments = Array.isArray(threads) ? threads : [];
-    epoch++;
-    // Copies of comments that have landed go: the app has them now.
-    for (const t of [...posting]) if (t.entries[0]?.posted) t.entries[0].drop();
-    for (const list of replying.values()) for (const e of [...list]) if (e.posted) e.drop();
-    // A reply box for a thread that has gone goes with it.
-    for (const [tid, draft] of [...replies]) if (!comments.some(t => t && sameId(t.id, tid))) close(draft);
+    // Copies of comments that have landed go once the app's comments hold them.
+    for (const t of [...posting]) if (t.entries[0]?.posted && t.entries[0].covered()) t.entries[0].drop();
+    for (const list of replying.values()) for (const e of [...list]) if (e.posted && e.covered()) e.drop();
+    // A reply box for a thread that has gone goes with it, unless it has
+    // text: then the thread is kept, outdated, until the box is sent or
+    // cancelled (or the thread comes back).
+    for (const [tid, draft] of [...replies]) {
+      const key = String(tid);
+      if (comments.some(t => t && sameId(t.id, tid))) { kept.delete(key); continue; }
+      if (textOf(draft).trim()) { if (!kept.has(key)) kept.set(key, { ...draft.thread, outdated: true, gone: true }); }
+      else close(draft);
+    }
     countComments();
     for (const state of states) placeThreads(state);
   };

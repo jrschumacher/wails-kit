@@ -2193,6 +2193,100 @@ try {
     await page.close();
   });
 
+  await check('diff comments (final round): a posted copy the app never shows goes after 10 s on the fake clock', async () => {
+    const { page, problems } = await open('/demo/index.html', { clock: true });
+    await mountReview(page);
+    const rv = page.locator('#rv');
+    await rv.locator('.wk-diff-line[data-new="1"]').focus();
+    await page.keyboard.press('c');
+    await page.keyboard.type('never shown');
+    await page.keyboard.press('Control+Enter');
+    // The clock stands still from here, before the working dot shows; the test moves it.
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 10));
+    await page.evaluate(async () => { window.rv.pending.shift().resolve(); for (let i = 0; i < 5; i++) await null; });
+    const local = rv.locator('.wk-diff-thread[data-local]');
+    assert.equal(await local.locator('.wk-diff-comment').getAttribute('data-state'), null, 'posted, no longer pending');
+    await page.clock.runFor(9_999);
+    assert.equal(await local.count(), 1, 'still there at 9,999 ms');
+    await page.clock.runFor(1);
+    assert.equal(await local.count(), 0, 'gone at 10 s');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff comments (final round): a posted copy goes only when the app’s comments hold it, by the resolved id or by text and author', async () => {
+    const { page, problems } = await open();
+    await mountReview(page);
+    const rv = page.locator('#rv');
+    const local = rv.locator('.wk-diff-thread[data-local]');
+    const post = async (line, text) => { await rv.locator(`.wk-diff-line[data-new="${line}"]`).focus(); await page.keyboard.press('c'); await page.keyboard.type(text); await page.keyboard.press('Control+Enter'); };
+    // Unrelated threads arrive while it is pending: the copy stays after it resolves.
+    await post(1, 'mine');
+    await page.evaluate(() => window.rv.diff.setComments([{ id: 'other', path: 'x/f.go', side: 'new', line: 5, entries: [{ author: 'sam', time: 0, body: 'not mine' }] }]));
+    await page.evaluate(async () => { window.rv.pending.shift().resolve(); for (let i = 0; i < 5; i++) await null; });
+    assert.equal(await local.count(), 1, 'kept: setComments did not hold it');
+    await page.evaluate(() => window.rv.diff.setComments([{ id: 'other', path: 'x/f.go', side: 'new', line: 5, entries: [{ author: 'sam', time: 0, body: 'not mine' }] }]));
+    assert.equal(await local.count(), 1, 'still kept after another unrelated setComments');
+    await page.evaluate(() => window.rv.diff.setComments([{ id: 'mine', path: 'x/f.go', side: 'new', line: 1, entries: [{ author: 'Me', time: 0, body: 'mine' }] }]));
+    assert.equal(await local.count(), 0, 'gone once a thread holds the same text and author');
+    // Resolved with an id: the thread with that id covers it, whatever its text.
+    await post(2, 'by id');
+    await page.evaluate(async () => { window.rv.pending.shift().resolve({ id: 'server-7' }); for (let i = 0; i < 5; i++) await null; });
+    assert.equal(await local.count(), 1);
+    await page.evaluate(() => window.rv.diff.setComments([{ id: 'server-7', path: 'x/f.go', side: 'new', line: 2, entries: [{ author: 'Ana (edited)', time: 0, body: 'by id, reformatted' }] }]));
+    assert.equal(await local.count(), 0, 'the thread with the resolved id holds it');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('diff comments (final round): a reply box with text outlives its thread, listed as outdated, until sent or cancelled; a resolve after destroy() draws nothing', async () => {
+    const { page, problems } = await open();
+    const t = { id: 'gone', path: 'x/f.go', side: 'new', line: 2, entries: [{ author: 'ana', time: 0, body: 'x' }] };
+    await mountReview(page, { injected: true, sync: true, asyncResolve: true, comments: [t] });
+    const rv = page.locator('#rv');
+    await rv.locator('[data-action=reply]').click();
+    await page.keyboard.type('half a reply');
+    await page.evaluate(() => window.rv.diff.setComments([]));
+    const kept = rv.locator('.wk-diff-outdated .wk-diff-thread[data-thread="gone"]');
+    assert.equal(await kept.count(), 1, 'the thread is kept, outdated');
+    assert.equal(await kept.locator('textarea').inputValue(), 'half a reply');
+    assert.equal(await kept.locator('[data-action=resolve]').count(), 0, 'a thread that has gone offers no Resolve');
+    assert.equal(await rvFocus(page), 'Reply to the comments on x/f.go', 'focus stays in the box');
+    assert.equal((await rvLog(page)).filter(l => l[0] === 'destroy').length, 0);
+    // Another redraw keeps it; Cancel lets it go.
+    await page.evaluate(() => window.rv.diff.setComments([]));
+    assert.equal(await kept.count(), 1);
+    await kept.locator('[data-action=cancel]').click();
+    assert.equal(await rv.locator('.wk-diff-thread').count(), 0);
+    assert.equal(await rvFocus(page), 'x/f.go', 'focus moves to the file’s toggle');
+    // An empty reply box goes with its thread.
+    await page.evaluate(t => window.rv.diff.setComments([t]), t);
+    await rv.locator('[data-action=reply]').click();
+    await page.evaluate(() => window.rv.diff.setComments([]));
+    assert.equal(await rv.locator('.wk-diff-thread').count(), 0);
+    // Sending from a kept box: the reply goes to the app and the kept thread goes.
+    await page.evaluate(t => window.rv.diff.setComments([t]), t);
+    await rv.locator('[data-action=reply]').click();
+    await page.keyboard.type('sent anyway');
+    await page.evaluate(() => window.rv.diff.setComments([]));
+    await kept.locator('[data-action=submit]').click();
+    assert.deepEqual((await rvLog(page)).filter(l => l[0] === 'reply').at(-1), ['reply', 'gone', 'sent anyway']);
+    assert.equal(await rv.locator('.wk-diff-thread').count(), 0);
+    // A resolve in flight when the diff is destroyed draws nothing when it settles.
+    await page.evaluate(t => window.rv.diff.setComments([t]), t);
+    await rv.locator('[data-action=resolve]').click();
+    const after = await page.evaluate(async () => {
+      const button = document.querySelector('#rv [data-action="resolve"]');
+      window.rv.diff.destroy();
+      window.rv.pending.shift().resolve();
+      for (let i = 0; i < 5; i++) await null;
+      return [button.isConnected, button.hasAttribute('data-busy')];
+    });
+    assert.deepEqual(after, [true, true], 'the destroyed diff is left as it was');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
   await check('footer bar: a hairline above, the first link at the start, the last at the end, a hidden one leaves the rest at the start', async () => {
     const { page, problems } = await open();
     const [two, one] = await page.locator('#footer-bar .wk-footer-bar').evaluateAll(bars => bars.map(b => {

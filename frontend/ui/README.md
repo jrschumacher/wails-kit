@@ -542,9 +542,11 @@ diff.destroy();
   the comment shows at once as pending: secondary text, with a working dot
   and "Posting…" after `timings.indicatorDelay` (400 ms); once shown, the
   dot stays at least `timings.indicatorMin` (500 ms). When the promise
-  resolves, the copy stays, no longer pending, until your next
-  `setComments` (which should hold the real comment), or for 10 s at most;
-  if you called `setComments` while it was pending, the copy goes at once.
+  resolves, the copy stays, no longer pending, until your comments hold it,
+  checked then and at each `setComments`, or for 10 s at most. They hold
+  it when a thread (for a reply, an entry) has the id the promise resolved
+  with (`{ id }`, or the id itself), or, with no id, when an entry has the
+  same text and author (so set `author` to match your own comments).
   When it rejects, the comment shows "Couldn't post the comment" with the
   error in an ErrorBox (`wk-errorbox`, with a copy button), Retry (sends it
   again) and Edit (puts the text back in a box: a new one, or added to the
@@ -569,7 +571,11 @@ diff.destroy();
   width. Without review, the diff sizes as before.
 - **Redrawing.** A box opening or closing, a thread expanding, a comment
   being sent and a resolve redraw only the row they are in; `setComments`
-  redraws the threads of every built file. Focus stays where it was: in an
+  redraws the threads of every built file. A reply box with text outlives
+  its thread: when `setComments` drops the thread, it stays, listed as
+  outdated, until the reply is sent or cancelled (an empty one goes with
+  the thread). After `destroy()`, a resolve still in flight draws nothing.
+  Focus stays where it was: in an
   open box, on the same button of the same thread, else on the next
   thread, the file's toggle, or the diff.
 - **The comment box.** `commentBox(spec)` makes the box, so an app can use
