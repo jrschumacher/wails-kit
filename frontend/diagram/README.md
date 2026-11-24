@@ -12,7 +12,7 @@ loads only when a diagram first renders.
 
 | Module | Size (minified) | Gzipped | What it is |
 |---|---|---|---|
-| `dist/diagram.js` | 23 KB | 8 KB | `wkDiagram()`, the pan and zoom frame and its stylesheet. Loads `mermaid.js` on first use. |
+| `dist/diagram.js` | 25 KB | 9 KB | `wkDiagram()`, the pan and zoom frame and its stylesheet. Loads `mermaid.js` on first use. |
 | `dist/mermaid.js` | 1.23 MB | 344 KB | Mermaid 12.3.0 and its libraries, holding only the six diagram types below and the dagre layout. |
 
 The diagram types: **flowchart**, **sequence**, **state**, **class**,
@@ -45,22 +45,30 @@ printf 'Source: https://github.com/jrschumacher/wails-kit\nTag: %s\nCommit: %s\n
 
 Commit the vendored files with the app, `THIRD-PARTY-LICENSES.txt` included:
 it carries the licence of every package bundled in `mermaid.js`, as their
-licences require.
+licences require, including the two Mermaid's own build inlines (js-yaml and
+fastdom, kept in `scripts/licences/`). The libraries' `@license` banners
+(DOMPurify's copyright among them) are kept at the end of `mermaid.js`.
 
 ```html
-<link rel="stylesheet" href="vendor/wails-kit-ui/wails-kit-ui.css">
-<script type="module">
-  import { wkDiagram } from './vendor/wails-kit-diagram/diagram.js';
+<html class="wk-root">
+  <link rel="stylesheet" href="vendor/wails-kit-ui/wails-kit-ui.css">
+  <script type="module" src="app.js"></script>
+  …
+  <section id="release"></section>
+```
 
-  const diagram = wkDiagram({
-    label: 'Release flow',
-    source: `flowchart LR
-      push[Push a tag] --> ci{Checks pass?}
-      ci -->|yes| build[Build]
-      ci -->|no| fix[Fix it]`,
-  });
-  document.querySelector('#release').append(diagram);
-</script>
+```js
+// app.js: a module file, as a strict CSP allows (no inline scripts).
+import { wkDiagram } from './vendor/wails-kit-diagram/diagram.js';
+
+const diagram = wkDiagram({
+  label: 'Release flow',
+  source: `flowchart LR
+    push[Push a tag] --> ci{Checks pass?}
+    ci -->|yes| build[Build]
+    ci -->|no| fix[Fix it]`,
+});
+document.querySelector('#release').append(diagram);
 ```
 
 ### Content-Security-Policy
@@ -87,10 +95,20 @@ checks hold it to that on pages with that policy. How:
   callbacks), `htmlLabels: false` (labels are SVG text, no `foreignObject`),
   and the kit's theme, look, layout, fonts and `themeCSS` are secure keys, so
   a diagram's front matter or `%%{init}%%` directive cannot change them.
-- **Nothing loads.** No fonts, icons or images are fetched: links (`click`
-  targets) are removed from the SVG, every `href` that is not a fragment
-  goes, and every CSS declaration that names a `url()` other than a fragment
-  is dropped, as are `@import` and `@font-face`.
+- **Nothing loads.** No fonts, icons or images are fetched:
+  - links (`click` targets) are removed from the SVG, and every `href` that
+    is not a fragment goes;
+  - every CSS declaration that names a `url()` other than a fragment is
+    dropped, whole (in Mermaid's rules, in style attributes and in a
+    diagram's `style`, `classDef` and config such as `actorFontFamily`), as
+    are `@import` and `@font-face`;
+  - so is every presentation attribute (`fill`, `stroke`, `filter`, `mask`,
+    `marker-end`, `cursor`, …) that names one, while drawing and in the
+    finished SVG, before it enters the page;
+  - shapes that load a picture are refused with a message in the error box:
+    the image shape (`A@{ img: … }`, which Mermaid fetches before any
+    sanitizing) and the icon shapes (`A@{ icon: … }`, drawn through
+    `innerHTML` with style attributes).
 - **Lazy loading** uses `import('./mermaid.js')`, a same-origin module, which
   `script-src 'self'` allows.
 
@@ -117,7 +135,7 @@ wherever you like.
 | `label` | string | required | The accessible name: the SVG's and the viewport's. |
 | `source` | string | `''` | The Mermaid text. |
 | `description` | string | the source | A text alternative, in a `<details>` below the diagram. |
-| `id` | string | generated | The element's id. |
+| `id` | string | none | The element's id. Without one the element has none (its parts get generated ids; Mermaid's render ids start `wk-mermaid-`). |
 | `filename` | string | the label as a slug | The saved file's name, without its extension. |
 | `onerror(failure)` | function | | Called when the diagram can't be drawn (the error box shows either way). |
 | `onexport({ format, blob, filename })` | function | | Called by Save SVG and Save PNG instead of downloading the file: an app saves it through its Go side. |
@@ -132,7 +150,7 @@ wherever you like.
 | `toSVG()` | A standalone SVG string: the sanitized drawing with its styles in a `<style>` element, a `<title>` (the label) and a `<desc>` (the description or source). No scripts, links or external references. |
 | `toPNG(scale = 2)` | A promise for a PNG `Blob` on the diagram's ground. |
 | `copySource()` | Copies the source; resolves `false` if it couldn't. |
-| `destroy()` | Removes the diagram and its stylesheet; the element is left empty. |
+| `destroy()` | Removes the diagram and its stylesheet; the element is left empty. Optional: a diagram taken out of the document lets go of its stylesheet and its theme listener on its own, and takes them up again if it is put back. |
 
 | Event (bubbles) | `detail` |
 |---|---|
@@ -140,7 +158,8 @@ wherever you like.
 | `wk-error` | `{ message, line, kind }`: it couldn't be. `kind` is `'syntax'` (Mermaid's parse or draw failed; `line` is the source line when Mermaid gives one), `'unsupported'` (a type the kit doesn't draw, or no type) or `'load'` (`mermaid.js` didn't load). |
 
 Other exports: `preloadDiagrams()` loads Mermaid ahead of the first diagram;
-`diagramTypes`; `TIMINGS`; and the theme builder, `buildTheme(get)`, with
+`diagramTypes`; `TIMINGS` (`indicatorDelay`, `indicatorMin`, `loadingLine`,
+`copied`, as BEHAVIOUR.md names them); and the theme builder, `buildTheme(get)`, with
 `TEXT_PAIRS` and `MARK_PAIRS`, the pairs it holds to 4.5:1 and 3:1.
 
 ### Pan and zoom
@@ -169,7 +188,11 @@ longer one shows a spinner in the viewport (`role="progressbar"`, "Drawing the
 diagram"), kept for at least 500 ms, and after 3 s a line saying what is
 loading ("Loading the diagram library…" on first use). Re-rendering a diagram
 already shown (a new source or theme) keeps it until the new one replaces it,
-with the spinner in the corner. Mermaid loads once per page, however many
+with the spinner in the corner; a render that replaces another while the
+spinner shows keeps it, and its 500 ms still counts from when it appeared.
+Screen readers hear "Drawing the diagram" once, when the spinner appears, and
+then "Diagram drawn" or "Couldn't draw the diagram" (a status region). Mermaid
+loads once per page, however many
 diagrams there are; a failed load is tried again on the next render.
 
 A diagram that can't be drawn shows the kit's error box in place of the
@@ -206,20 +229,27 @@ example theme and a tinted-grounds theme; the browser checks measure the
 page's own tokens and the drawn labels).
 
 Diagrams re-render when the appearance or theme changes: `data-theme`,
-`class` or `style` on `<html>`, the system's light or dark setting, forced
-colours or increased contrast. A diagram detached at the time re-renders when
-it is shown again.
+`class` or `style` on `<html>`; `data-theme` on any other element (a themed
+region); a stylesheet `<link>` added, removed or re-pointed (an app swapping
+its theme file; checked once it has loaded) or a `<style>` added or removed;
+the system's light or dark setting, forced colours or increased contrast.
+Each re-renders only if its tokens changed. A diagram out of the document at
+the time re-renders when it is put back.
 
 In forced colours, the diagram is drawn in `CanvasText` on `Canvas`: grounds,
 lines, outlines and text.
 
 ### Accessibility
 
-The SVG has `role="img"`, named by `label` and described
-(`aria-describedby`) by the text alternative: `description`, or else the
-source itself, in a `<details>` below the diagram that anyone can open. The
-viewport is focusable, named by the label and described by how to pan and
-zoom. Toolbar buttons have names ("Zoom in", "Fit to view", "Save as PNG").
+The viewport carries the diagram for assistive technology: a focusable
+group with the role description "diagram", named by `label` and described
+(`aria-describedby`) by the text alternative (`description`, or else the
+source itself, in a `<details>` below the diagram that anyone can open) and
+by how to pan and zoom. The SVG inside is `aria-hidden`, so the name is given
+once and Mermaid's drawn text isn't read as loose fragments. The error box
+and the progress indicator inside the viewport stay reachable. Toolbar
+buttons have names ("Zoom in", "Fit to view", "Save as PNG"). A saved SVG is
+`role="img"` with a `<title>` and `<desc>`.
 
 ## Layout
 
@@ -249,5 +279,5 @@ unsupported type, with a light, dark and system switch. Serve `frontend/`
 After a Mermaid update (Dependabot opens one weekly), run `npm run build` and
 commit `dist/`; the build check fails until then. If the build fails on a
 patch, a line it patches has changed: read the new Mermaid code, update
-`PATCHES` (or `STYLE_CALLS`) in `scripts/build.mjs`, and run the browser
+`PATCHES` (or `STYLE_CALLS`, `REFUSED_SHAPES`, `INLINED`) in `scripts/build.mjs`, and run the browser
 checks, which catch any CSP violation that remains.

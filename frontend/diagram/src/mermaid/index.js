@@ -5,7 +5,7 @@
 // types and layouts the kit does not offer, and patches Mermaid's styling
 // through csp.js so it draws under a strict Content-Security-Policy.
 import mermaid from 'mermaid';
-import { setStyle, takeSheet } from './csp.js';
+import { setStyle, takeSheet, PRESENTATION, loadsInAttribute } from './csp.js';
 
 /** Mermaid's diagram ids for the types the kit offers, and the kit's name for each. */
 export const TYPES = {
@@ -75,19 +75,25 @@ function lineOf(err) {
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-// After DOMPurify: links and references that leave the document go (a
-// click in a desktop app's web view would navigate it), and style
-// attributes come back through the CSSOM.
-function finish(svg) {
+// After DOMPurify, while the SVG is still in the inert template: links and
+// references that leave the document go (a click in a desktop app's web
+// view would navigate it), and so does any presentation attribute that
+// names a url() other than a fragment.
+function sanitize(svg) {
   for (const a of [...svg.querySelectorAll('a')]) a.replaceWith(...a.childNodes);
-  for (const el of svg.querySelectorAll('*')) {
+  for (const el of svg.querySelectorAll('image, script, style, iframe, object, embed, foreignObject')) el.remove();
+  for (const el of [svg, ...svg.querySelectorAll('*')]) {
     for (const attr of [...el.attributes]) {
       const name = attr.name.toLowerCase();
       if ((name === 'href' || name === 'xlink:href' || name === 'src') && !attr.value.trim().startsWith('#')) el.removeAttributeNode(attr);
       else if (name.startsWith('on')) el.removeAttributeNode(attr);
+      else if (PRESENTATION(name) && loadsInAttribute(attr.value)) el.removeAttributeNode(attr);
     }
   }
-  for (const el of svg.querySelectorAll('image, script, style, iframe, object, embed')) el.remove();
+}
+
+// Once the SVG is in this document: style attributes back through the CSSOM.
+function restoreStyles(svg) {
   for (const el of [svg, ...svg.querySelectorAll('[data-wk-style]')]) {
     const style = el.getAttribute('data-wk-style');
     if (style == null) continue;
@@ -123,7 +129,8 @@ async function renderNow(source, theme) {
   }
   const type = TYPES[id];
   if (!type) throw new DiagramError(`"${id}" diagrams are not supported. Use a flowchart, sequence, state, class, entity-relationship or Gantt diagram.`, { kind: 'unsupported' });
-  const domId = `wk-diagram-${++counter}`;
+  // Its own prefix: Mermaid removes any element that already has this id.
+  const domId = `wk-mermaid-${++counter}`;
   let result;
   try {
     result = await mermaid.render(domId, source);
@@ -131,14 +138,16 @@ async function renderNow(source, theme) {
     takeSheet(domId)?.remove();
     document.getElementById(domId)?.remove();
     document.getElementById(`d${domId}`)?.remove();
-    throw new DiagramError(String(err?.message ?? err).trim() || 'The diagram could not be drawn.', { line: lineOf(err), cause: err });
+    const kind = err?.wkKind || 'syntax';
+    throw new DiagramError(String(err?.message ?? err).trim() || 'The diagram could not be drawn.', { line: kind === 'syntax' ? lineOf(err) : null, kind, cause: err });
   }
   const template = document.createElement('template');
   template.innerHTML = result.svg;
   const parsed = template.content.querySelector('svg');
   if (!parsed || parsed.namespaceURI !== SVG_NS) { takeSheet(domId)?.remove(); throw new DiagramError('Mermaid returned no SVG.'); }
+  sanitize(parsed);
   // Into this document before its styles go back through the CSSOM.
   const svg = document.adoptNode(parsed);
-  finish(svg);
+  restoreStyles(svg);
   return { type, svg, sheet: takeSheet(domId) };
 }

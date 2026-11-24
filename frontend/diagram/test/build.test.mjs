@@ -7,7 +7,7 @@ import { readFileSync, readdirSync, writeFileSync, mkdtempSync, rmSync } from 'n
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { build, root, KEEP, EMPTY, licenceOf } from '../scripts/build.mjs';
+import { build, root, KEEP, EMPTY, licenceOf, PATCHES, REFUSED_SHAPES, INLINED } from '../scripts/build.mjs';
 
 const built = await build();
 const read = p => readFileSync(path.join(root, p), 'utf8');
@@ -44,7 +44,8 @@ test('each module parses, and neither fetches, evaluates code or starts a worker
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
   for (const name of MODULES) {
-    const js = built.files[name];
+    // The code, without the licence banners esbuild gathers at the end.
+    const js = built.files[name].replace(/\/\*! Bundled license information:[\s\S]*\*\/\s*$/, '');
     for (const api of [/\bfetch\(/, /\beval\(/, /\bFunction\(/, /\bnew Worker\b/, /\bSharedWorker\b/, /\bimportScripts\b/, /\bXMLHttpRequest\b/, /\bWebSocket\b/, /\bEventSource\b/, /\bsendBeacon\b/, /setTimeout\(\s*["'`]/]) {
       assert.ok(!api.test(js), `${name} uses ${api}`);
     }
@@ -80,6 +81,26 @@ test('Mermaid\'s styling is patched to go through src/mermaid/csp.js', () => {
   assert.ok(read('node_modules/mermaid/dist/mermaid.core.mjs').includes('const style1 = document.createElement("style");'));
 });
 
+test('the build patches name no generated identifier (Mermaid\'s id38 and the like change between builds)', () => {
+  for (const [, pairs] of PATCHES) {
+    for (const [, to] of pairs) assert.doesNotMatch(to, /\b[a-z]+\d+\b/i, `a patch names a generated identifier: ${to}`);
+  }
+});
+
+test('the image and icon shapes refuse to draw', () => {
+  const js = built.files['mermaid.js'];
+  const count = what => (js.match(new RegExp(`\\b[\\w$]+\\("${what}"\\)`, 'g')) || []).length;
+  const want = {};
+  for (const what of Object.values(REFUSED_SHAPES)) want[what] = (want[what] || 0) + 1;
+  for (const [what, n] of Object.entries(want)) assert.equal(count(what), n, `${what}: ${count(what)} refusals in mermaid.js`);
+});
+
+test('mermaid.js keeps the libraries\' licence banners', () => {
+  const tail = built.files['mermaid.js'].match(/\/\*! Bundled license information:[\s\S]*\*\/\s*$/)?.[0] ?? '';
+  assert.match(tail, /@license DOMPurify \d+\.\d+\.\d+ \| \(c\) Cure53/);
+  assert.match(tail, /Lodash/);
+});
+
 test('THIRD-PARTY-LICENSES.txt names every bundled package with its version, licence and licence text', () => {
   const text = built.files['THIRD-PARTY-LICENSES.txt'];
   const allowed = new Set(['MIT', 'ISC', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0', '0BSD', '(MPL-2.0 OR Apache-2.0)']);
@@ -90,8 +111,28 @@ test('THIRD-PARTY-LICENSES.txt names every bundled package with its version, lic
     assert.ok(allowed.has(licence), `${name} is ${licence}`);
     assert.ok(text.includes(`\n${name} ${meta.version} (${licence})\n`), `${name} is missing from the licences`);
   }
-  assert.equal(text.split(/^-{72}\n/m).length, built.packages.length * 2 + 1);
+  // And the packages Mermaid's own build inlines, with their licence text.
+  for (const [name, { version, license }] of Object.entries(INLINED)) {
+    assert.ok(text.includes(`\n${name} ${version} (${license})\nBundled in: mermaid.js (inlined by Mermaid's own build)\n`), `${name} is missing from the licences`);
+    assert.ok(!built.packages.includes(name));
+  }
+  assert.match(text, /Copyright \(C\) 2011-2015 by Vitaly Puzrin/);
+  assert.match(text, /Copyright \(c\) 2016 Wilson Page/);
+  assert.equal(text.split(/^-{72}\n/m).length, (built.packages.length + built.inlined.length) * 2 + 1);
   assert.match(text, /Permission is hereby granted, free of charge/);
+});
+
+test('every package Mermaid inlines into the bundled files has a licence entry', () => {
+  // Mermaid marks an inlined package with a path comment naming it and its version.
+  const seen = new Map();
+  for (const file of built.inputs['mermaid.js'].filter(f => f.startsWith('node_modules/mermaid/'))) {
+    for (const [, name, version] of read(file).matchAll(/^\/\/ \S*node_modules\/\.pnpm\/((?:@[^+/]+\+)?[^@/]+)@([^_/]+)/gm)) seen.set(name.replace('+', '/'), version);
+  }
+  assert.ok(seen.size >= 2);
+  for (const [name, version] of seen) assert.equal(INLINED[name]?.version, version, `${name}@${version} has no INLINED entry`);
+  // And the inlined code is there: js-yaml's error class and fastdom.
+  assert.match(built.files['mermaid.js'], /YAMLException/);
+  assert.match(built.files['mermaid.js'], /fastdom/);
 });
 
 test('dependencies are pinned exactly and locked', () => {

@@ -12,7 +12,7 @@ export { buildTheme, TEXT_PAIRS, MARK_PAIRS, contrast } from './theme.js';
 export const diagramTypes = Object.freeze(['flowchart', 'sequence', 'state', 'class', 'er', 'gantt']);
 
 // Timings from @wails-kit/ui's BEHAVIOUR.md.
-export const TIMINGS = Object.freeze({ indicatorDelay: 400, indicatorMinimum: 500, loadingLine: 3000, copied: 2000 });
+export const TIMINGS = Object.freeze({ indicatorDelay: 400, indicatorMin: 500, loadingLine: 3000, copied: 2000 });
 
 const MIN_ZOOM = 0.1, MAX_ZOOM = 8, STEP = 1.25, PAN = 40, PAD = 16;
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -60,10 +60,33 @@ function themeChanged() {
     for (const d of live) d.themeChanged();
   });
 }
+// A stylesheet <link> added or changed: check once it has loaded (or failed).
+function watchLink(link) {
+  if (link.localName !== 'link' || !/\bstylesheet\b/i.test(link.rel)) return;
+  link.addEventListener('load', themeChanged, { once: true });
+  link.addEventListener('error', themeChanged, { once: true });
+}
 function watchTheme() {
   if (watching) return;
   watching = true;
-  new MutationObserver(themeChanged).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class', 'style'] });
+  const root = document.documentElement;
+  // <html>'s data-theme, class and style; data-theme on any element (a
+  // themed region); stylesheets added, removed, enabled or re-pointed (an
+  // app swapping its theme file).
+  new MutationObserver(themeChanged).observe(root, { attributes: true, attributeFilter: ['data-theme', 'class', 'style'] });
+  new MutationObserver(records => {
+    for (const r of records) {
+      if (r.type === 'attributes') {
+        if (r.attributeName === 'data-theme' && r.target !== root) themeChanged();
+        else if (r.target.localName === 'link') { watchLink(r.target); themeChanged(); }
+        continue;
+      }
+      for (const n of [...r.addedNodes, ...r.removedNodes]) {
+        if (n.localName === 'link') { watchLink(n); themeChanged(); }
+        else if (n.localName === 'style') themeChanged();
+      }
+    }
+  }).observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-theme', 'href', 'media', 'disabled', 'rel'] });
   for (const q of ['(prefers-color-scheme: dark)', '(forced-colors: active)', '(prefers-contrast: more)']) media(q)?.addEventListener('change', themeChanged);
 }
 
@@ -125,10 +148,12 @@ export function wkDiagram(spec = {}) {
   adoptStyles();
   watchTheme();
 
+  // Ids for the parts the element points at. The element's own id is the
+  // app's (spec.id); Mermaid's render ids have another prefix (wk-mermaid-).
   const uid = `wk-diagram-${++counter}`;
   const el = document.createElement('div');
   el.className = 'wk-diagram';
-  el.id = spec.id || uid;
+  if (spec.id) el.id = spec.id;
   const ids = { help: `${uid}-help`, text: `${uid}-text`, zoom: `${uid}-zoom` };
 
   // Toolbar: zoom out, zoom in, fit, 100%, the zoom level; copy and export.
@@ -159,9 +184,14 @@ export function wkDiagram(spec = {}) {
   const viewport = document.createElement('div');
   viewport.className = 'wk-diagram-viewport';
   viewport.tabIndex = 0;
+  // The viewport is what assistive technology meets: a focusable group
+  // ("diagram") named by the label and described by the text alternative
+  // and how to pan. The SVG inside is hidden from it (one name, not two);
+  // the error box and the progress indicator stay reachable.
   viewport.setAttribute('role', 'group');
+  viewport.setAttribute('aria-roledescription', 'diagram');
   viewport.setAttribute('aria-label', label);
-  viewport.setAttribute('aria-describedby', ids.help);
+  viewport.setAttribute('aria-describedby', `${ids.text} ${ids.help}`);
   const canvas = document.createElement('div');
   canvas.className = 'wk-diagram-canvas';
   const status = document.createElement('div');
@@ -175,6 +205,11 @@ export function wkDiagram(spec = {}) {
   const loadingLine = document.createElement('span');
   loadingLine.hidden = true;
   status.append(spinner, loadingLine);
+  // The announcer for the work's start and end (BEHAVIOUR.md: once each,
+  // when the indicator appears and when the work ends).
+  const announcer = document.createElement('span');
+  announcer.className = 'wk-visually-hidden';
+  announcer.setAttribute('role', 'status');
   const errorWrap = document.createElement('div');
   errorWrap.className = 'wk-diagram-error';
   errorWrap.hidden = true;
@@ -193,12 +228,12 @@ export function wkDiagram(spec = {}) {
   textAlt.id = ids.text;
   details.append(summary, textAlt);
 
-  el.append(toolbar, viewport, details, help);
+  el.append(toolbar, viewport, details, help, announcer);
 
   let source = String(spec.source ?? '');
   let svg = null, sheet = null, type = null, failure = null;
   let view = { x: 0, y: 0, k: 1 }, size = { w: 0, h: 0 }, fitted = true;
-  let themeKey = '', destroyed = false, generation = 0, stale = false;
+  let themeKey = '', destroyed = false, generation = 0, detached = false;
   let current = Promise.resolve();
 
   function describe() {
@@ -302,8 +337,15 @@ export function wkDiagram(spec = {}) {
 
   // Starts fitted; follows its container while fitted. A diagram that
   // missed a theme change while detached renders when it is shown again.
+  // The ResizeObserver also tells when the element leaves the document
+  // (its box becomes 0 by 0) and comes back. A diagram removed without
+  // destroy() lets go of its stylesheet and stops listening for theme
+  // changes, so nothing holds it; put back, it takes them up again and
+  // re-renders if the theme changed meanwhile.
   const resize = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
-    if (stale && el.isConnected) { stale = false; render(); return; }
+    if (destroyed) return;
+    if (!el.isConnected) { detach(); return; }
+    if (attach()) return;
     if (fitted) fit();
   }) : null;
   resize?.observe(viewport);
@@ -362,12 +404,10 @@ export function wkDiagram(spec = {}) {
     failure = null;
     errorWrap.hidden = true;
     errorWrap.replaceChildren();
-    // The SVG is a picture named by the label, described by the text alternative.
-    svg.setAttribute('role', 'img');
-    svg.setAttribute('aria-label', label);
-    svg.setAttribute('aria-describedby', ids.text);
-    svg.removeAttribute('aria-labelledby');
-    svg.removeAttribute('aria-roledescription');
+    // The viewport carries the name and description; the drawing is hidden
+    // from assistive technology (Mermaid's own role and aria go).
+    for (const a of ['role', 'aria-label', 'aria-labelledby', 'aria-describedby', 'aria-roledescription']) svg.removeAttribute(a);
+    svg.setAttribute('aria-hidden', 'true');
     svg.setAttribute('focusable', 'false');
     const vb = svg.viewBox?.baseVal;
     size = { w: vb?.width || parseFloat(svg.getAttribute('width')) || 0, h: vb?.height || parseFloat(svg.getAttribute('height')) || 0 };
@@ -375,16 +415,13 @@ export function wkDiagram(spec = {}) {
     svg.setAttribute('height', String(size.h));
     svg.style.removeProperty('max-width');
     canvas.replaceChildren(svg);
+    if (!el.isConnected) { detached = false; detach(); }
     setState('ready');
     if (keepView) { view = keepView; apply(); } else fit();
     el.dispatchEvent(new CustomEvent('wk-render', { bubbles: true, detail: { type } }));
   }
 
   // ---- Rendering -------------------------------------------------------------
-  // Quiet wait, then Working (BEHAVIOUR.md): no indicator for a render that
-  // ends within 400 ms; once shown, the indicator stays 500 ms; after 3 s a
-  // line says what is loading. A diagram already shown stays until the new
-  // one replaces it, with the indicator in the corner.
   // The theme where the diagram sits now, and its key ('' if unreadable).
   function themeNow() {
     try {
@@ -395,6 +432,46 @@ export function wkDiagram(spec = {}) {
     }
   }
 
+  // Quiet wait, then Working (BEHAVIOUR.md): no indicator for a render that
+  // ends within 400 ms; once shown, the indicator stays 500 ms; after 3 s a
+  // line says what is loading. A diagram already shown stays until the new
+  // one replaces it, with the indicator in the corner. Screen readers hear
+  // the start once, when the indicator appears, and the end.
+  // The indicator belongs to the element, not to one render: a render that
+  // supersedes another while the indicator shows keeps it, and its 500 ms
+  // minimum runs from when it appeared.
+  let shownAt = 0, showTimer = 0, lineTimer = 0;
+  function startIndicator() {
+    if (shownAt || showTimer) return;
+    showTimer = setTimeout(() => {
+      showTimer = 0;
+      shownAt = performance.now();
+      status.toggleAttribute('data-over', !!svg);
+      status.hidden = false;
+      announcer.textContent = 'Drawing the diagram';
+    }, TIMINGS.indicatorDelay);
+    lineTimer = setTimeout(() => {
+      lineTimer = 0;
+      loadingLine.textContent = loaded ? 'Drawing the diagram\u2026' : 'Loading the diagram library\u2026';
+      loadingLine.hidden = !!svg;
+    }, TIMINGS.loadingLine);
+  }
+  // Resolves when the indicator may go (now, if it never showed).
+  async function indicatorMayEnd() {
+    clearTimeout(showTimer);
+    clearTimeout(lineTimer);
+    showTimer = lineTimer = 0;
+    const wait = shownAt ? TIMINGS.indicatorMin - (performance.now() - shownAt) : 0;
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  }
+  function endIndicator(words) {
+    const shown = !!shownAt;
+    shownAt = 0;
+    status.hidden = true;
+    loadingLine.hidden = true;
+    if (shown) announcer.textContent = words;
+  }
+
   function render() {
     const gen = ++generation;
     // The key of the theme this render is for, recorded now: a theme check
@@ -402,32 +479,16 @@ export function wkDiagram(spec = {}) {
     themeKey = themeNow().key;
     describe();
     if (!svg && !failure) setState('loading');
-    let shownAt = 0;
-    const showTimer = setTimeout(() => {
-      shownAt = performance.now();
-      status.toggleAttribute('data-over', !!svg);
-      status.hidden = false;
-    }, TIMINGS.indicatorDelay);
-    const lineTimer = setTimeout(() => {
-      loadingLine.textContent = loaded ? 'Drawing the diagram…' : 'Loading the diagram library…';
-      loadingLine.hidden = !!svg;
-    }, TIMINGS.loadingLine);
-    const settle = async () => {
-      clearTimeout(showTimer);
-      clearTimeout(lineTimer);
-      if (shownAt) {
-        const wait = TIMINGS.indicatorMinimum - (performance.now() - shownAt);
-        if (wait > 0) await new Promise(r => setTimeout(r, wait));
-      }
-    };
+    startIndicator();
     const run = (async () => {
       let mod;
       try {
         mod = await loadMermaid();
       } catch (err) {
-        await settle();
         if (gen !== generation || destroyed) return;
-        status.hidden = true;
+        await indicatorMayEnd();
+        if (gen !== generation || destroyed) return;
+        endIndicator('Couldn\u2019t load the diagram library');
         showError({ message: String(err?.message ?? err), kind: 'load' });
         return;
       }
@@ -442,10 +503,11 @@ export function wkDiagram(spec = {}) {
       } catch (err) {
         error = err;
       }
-      await settle();
+      // A newer render owns the indicator now; this one leaves it alone.
       if (gen !== generation || destroyed) { result?.sheet?.remove(); return; }
-      status.hidden = true;
-      loadingLine.hidden = true;
+      await indicatorMayEnd();
+      if (gen !== generation || destroyed) { result?.sheet?.remove(); return; }
+      endIndicator(error ? 'Couldn\u2019t draw the diagram' : 'Diagram drawn');
       if (error) showError(error);
       else show(result);
     })();
@@ -479,8 +541,10 @@ export function wkDiagram(spec = {}) {
     if (!svg) throw new Error('wkDiagram: there is no diagram to export');
     const copy = svg.cloneNode(true);
     copy.setAttribute('xmlns', SVG_NS);
-    copy.removeAttribute('aria-describedby');
+    // A file on its own: an image named by its <title>.
+    copy.removeAttribute('aria-hidden');
     copy.removeAttribute('focusable');
+    copy.setAttribute('role', 'img');
     copy.style.removeProperty('transform');
     const title = document.createElementNS(SVG_NS, 'title');
     title.textContent = label;
@@ -541,10 +605,27 @@ export function wkDiagram(spec = {}) {
   const instance = {
     themeChanged() {
       if (destroyed) return;
-      if (!el.isConnected) { stale = true; return; }
+      if (!el.isConnected) { detach(); return; }
       if (themeNow().key !== themeKey) render();
     },
   };
+
+  function detach() {
+    if (detached || destroyed) return;
+    detached = true;
+    live.delete(instance);
+    sheet?.remove();
+  }
+  // Back in the document: true if that started a render.
+  function attach() {
+    if (!detached || destroyed || !el.isConnected) return false;
+    detached = false;
+    live.add(instance);
+    sheet?.restore();
+    if (themeNow().key !== themeKey) { render(); return true; }
+    if (fitted) fit();
+    return true;
+  }
 
   // Settles once the diagram shows the current source in the current theme.
   // An appearance change reaches the theme check on the next frame (media
@@ -590,6 +671,8 @@ export function wkDiagram(spec = {}) {
         live.delete(instance);
         resize?.disconnect();
         clearTimeout(noteTimer);
+        clearTimeout(showTimer);
+        clearTimeout(lineTimer);
         sheet?.remove();
         svg = null; sheet = null;
         el.replaceChildren();

@@ -36,18 +36,21 @@ export const KEEP = /^\.\/(?:chunks\/mermaid\.core\/)?(flowDiagram|sequenceDiagr
 export const EMPTY = ['d3-dsv', 'd3-fetch'];
 
 const csp = JSON.stringify(path.join(root, 'src', 'mermaid', 'csp.js'));
-const hooks = `import { adoptRules as __wkAdoptRules, stashStyles as __wkStashStyles, setAttr as __wkSetAttr } from ${csp};\n`;
+const hooks = `import { adoptRules as __wkAdoptRules, stashStyles as __wkStashStyles, setAttr as __wkSetAttr, refuse as __wkRefuse } from ${csp};\n`;
 
 // [file pattern, [from, to] pairs, whether the file needs the csp.js hooks].
-// Each pair must match exactly once.
+// Each `from` must match exactly once, so the build fails if Mermaid changes
+// the code; a `to` names only names from Mermaid's source (svg, rules,
+// root), never one its bundler generated (id38), which test/build.test.mjs
+// checks.
 export const PATCHES = [
   [/[\\/]mermaid[\\/]dist[\\/]mermaid\.core\.mjs$/, [
     // The diagram's <style> element: an adopted stylesheet instead.
     ['const style1 = document.createElement("style");\n  style1.innerHTML = rules;\n  svg.insertBefore(style1, firstChild);',
-      '__wkAdoptRules(svg, rules, id38);'],
+      '__wkAdoptRules(svg, rules);'],
     // Style attributes leave the markup DOMPurify parses.
-    ['let code2 = root.select(enclosingDivID_selector).node().innerHTML;',
-      '__wkStashStyles(root.select(enclosingDivID_selector).node());\n    let code2 = root.select(enclosingDivID_selector).node().innerHTML;'],
+    ['root.select(enclosingDivID_selector).node().innerHTML;',
+      '(__wkStashStyles(root.select(enclosingDivID_selector).node()), root.select(enclosingDivID_selector).node().innerHTML);'],
   ], true],
   // d3's selection.attr("style", …) and transition.attr.
   [/[\\/]d3-selection[\\/]dist[\\/]d3-selection\.mjs$/, [
@@ -63,6 +66,13 @@ export const PATCHES = [
     ["Function('return this')()", 'globalThis'],
   ], false],
 ];
+// Shapes that load a picture: the image shape (new Image().src, before any
+// sanitizing) and the icon shapes (an icon's SVG through d3's .html(), whose
+// style attributes a strict CSP blocks). Each refuses to draw, in whichever
+// Mermaid file holds it; the build fails unless each is found exactly once.
+export const REFUSED_SHAPES = { imageSquare: 'Images', icon: 'Icons', iconCircle: 'Icons', iconRounded: 'Icons', iconSquare: 'Icons' };
+const SHAPE_FN = /^async function (\w+)\(parent, node, \{[^\n]*\) \{\n/gm;
+
 // And in every Mermaid file: el.setAttribute("style", x) goes through the
 // CSSOM. STYLE_CALLS is how many the bundle had at this Mermaid version; the
 // build fails if that changes, so a new call gets looked at.
@@ -70,8 +80,21 @@ const STYLE_CALL = /([\w$.]+)\.setAttribute\("style",\s*/g;
 export const STYLE_CALLS = 1;
 const MERMAID_FILE = /[\\/]mermaid[\\/]dist[\\/].*\.mjs$/;
 
+// Packages Mermaid's own build inlines into its files, so they are not in
+// node_modules: their licences are kept by hand in scripts/licences/. Mermaid
+// marks each with a path comment (// …/node_modules/.pnpm/<name>@<version>…);
+// the build fails if a bundled file names a package that is not here, at
+// this version, or if one here is no longer bundled.
+export const INLINED = {
+  'js-yaml': { version: '4.3.2', license: 'MIT', file: 'scripts/licences/js-yaml.txt' },
+  fastdom: { version: '1.0.12', license: 'MIT', file: 'scripts/licences/fastdom.txt' },
+};
+const INLINED_MARK = /^\/\/ \S*node_modules\/\.pnpm\/((?:@[^+/]+\+)?[^@/]+)@([^_/]+)/gm;
+const inlinedSeen = new Map();
+
 const applied = new Set();
 let styleCalls = 0;
+const refused = new Map();
 
 const patch = {
   name: 'wk-patch',
@@ -91,6 +114,7 @@ const patch = {
       const mermaidFile = MERMAID_FILE.test(args.path);
       if (!found && !mermaidFile) return undefined;
       let text = readFileSync(args.path, 'utf8');
+      if (mermaidFile) for (const [, name, version] of text.matchAll(INLINED_MARK)) inlinedSeen.set(name.replace('+', '/'), version);
       let needsHooks = false;
       if (found) {
         for (const [from, to] of found[1]) {
@@ -102,6 +126,12 @@ const patch = {
       }
       if (mermaidFile) {
         text = text.replace(STYLE_CALL, (_, el) => { styleCalls++; needsHooks = true; return `__wkSetAttr(${el}, "style", `; });
+        text = text.replace(SHAPE_FN, (line, name) => {
+          if (!Object.hasOwn(REFUSED_SHAPES, name)) return line;
+          refused.set(name, (refused.get(name) || 0) + 1);
+          needsHooks = true;
+          return `${line}  __wkRefuse(${JSON.stringify(REFUSED_SHAPES[name])});\n`;
+        });
       }
       return { contents: (needsHooks ? hooks : '') + text, loader: 'js', resolveDir: path.dirname(args.path) };
     });
@@ -111,7 +141,8 @@ const patch = {
 // The modules: [output, entry, options].
 export const MODULES = [
   ['diagram.js', 'src/index.js', { external: ['./mermaid.js'], loader: { '.css': 'text' } }],
-  ['mermaid.js', 'src/mermaid/index.js', { plugins: [patch] }],
+  // legalComments 'eof' keeps the libraries' /*! @license */ banners (DOMPurify's carries its copyright).
+  ['mermaid.js', 'src/mermaid/index.js', { plugins: [patch], legalComments: 'eof' }],
 ];
 
 const banner = (file, what) => `/* ${pkg.name} ${pkg.version} ${file}: ${what}. Built by scripts/build.mjs from src/; do not edit. `
@@ -145,6 +176,8 @@ export async function build() {
   const files = {}, inputs = {}, imports = {}, bundled = new Map();
   applied.clear();
   styleCalls = 0;
+  refused.clear();
+  inlinedSeen.clear();
   for (const [file, entry, options] of MODULES) {
     const result = await esbuild.build({
       absWorkingDir: root,
@@ -174,18 +207,31 @@ export async function build() {
   }
   const missed = PATCHES.flatMap(([, pairs]) => pairs.map(([from]) => from)).filter(from => !applied.has(from));
   if (missed.length) throw new Error(`scripts/build.mjs: patches not applied (is the file still bundled?):\n${missed.join('\n')}`);
+  for (const [name, version] of inlinedSeen) {
+    if (INLINED[name]?.version !== version) throw new Error(`scripts/build.mjs: Mermaid inlines ${name}@${version}; add its licence to INLINED and scripts/licences/`);
+  }
+  for (const name of Object.keys(INLINED)) {
+    if (!inlinedSeen.has(name)) throw new Error(`scripts/build.mjs: ${name} is in INLINED but no bundled Mermaid file inlines it; remove it`);
+  }
+  for (const name of Object.keys(REFUSED_SHAPES)) {
+    if (refused.get(name) !== 1) throw new Error(`scripts/build.mjs: the ${name} shape was found ${refused.get(name) || 0} times, not once; review REFUSED_SHAPES`);
+  }
   if (styleCalls !== STYLE_CALLS) throw new Error(`scripts/build.mjs: Mermaid has ${styleCalls} setAttribute("style", …) calls, not ${STYLE_CALLS}; check them and update STYLE_CALLS`);
   const types = path.join(root, 'src', 'index.d.ts');
   if (!existsSync(types)) throw new Error('src/index.d.ts is missing');
   files['diagram.d.ts'] = readFileSync(types, 'utf8');
-  const sections = [...bundled.keys()].sort().map(name => {
-    const meta = JSON.parse(readFileSync(path.join(root, 'node_modules', name, 'package.json'), 'utf8'));
-    const rule = '-'.repeat(72);
-    return `${rule}\n${name} ${meta.version} (${licenceOf(name, meta)})\nBundled in: ${[...bundled.get(name)].sort().join(', ')}\n${rule}\n\n${licenceText(name)}\n`;
-  });
+  const rule = '-'.repeat(72);
+  const sections = [
+    ...[...bundled.keys()].map(name => {
+      const meta = JSON.parse(readFileSync(path.join(root, 'node_modules', name, 'package.json'), 'utf8'));
+      return [name, `${rule}\n${name} ${meta.version} (${licenceOf(name, meta)})\nBundled in: ${[...bundled.get(name)].sort().join(', ')}\n${rule}\n\n${licenceText(name)}\n`];
+    }),
+    ...Object.entries(INLINED).map(([name, { version, license, file }]) => [name,
+      `${rule}\n${name} ${version} (${license})\nBundled in: mermaid.js (inlined by Mermaid's own build)\n${rule}\n\n${readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n').trim()}\n`]),
+  ].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([, text]) => text);
   files['THIRD-PARTY-LICENSES.txt'] = `Third-party software bundled in ${pkg.name} ${pkg.version} dist/.\n`
     + 'Generated by scripts/build.mjs from the packages in node_modules; do not edit.\n\n' + sections.join('\n');
-  return { files, inputs, imports, packages: [...bundled.keys()].sort() };
+  return { files, inputs, imports, packages: [...bundled.keys()].sort(), inlined: Object.keys(INLINED).sort() };
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -80,9 +80,10 @@ const setTheme = (page, theme) => page.evaluate(v => { if (v) document.documentE
 // Resolves after the diagram `id` next draws or fails.
 const nextRender = (page, id) => page.evaluate(i => new Promise(resolve => {
   const el = document.getElementById(i);
-  const done = e => { el.removeEventListener('wk-render', done); el.removeEventListener('wk-error', done); resolve(e.type); };
+  const done = e => { el.removeEventListener('wk-render', done); el.removeEventListener('wk-error', done); resolve(e?.type ?? 'nothing within 10 s'); };
   el.addEventListener('wk-render', done);
   el.addEventListener('wk-error', done);
+  setTimeout(done, 10000);
 }), id);
 // A new diagram from the dist module in #demo-scratch.
 const make = (page, spec) => page.evaluate(async s => {
@@ -125,7 +126,7 @@ try {
         const look = await page.evaluate(types => ({
           csp: document.querySelector('meta[http-equiv="Content-Security-Policy"]').content,
           drawn: types.map(t => document.getElementById(`demo-${t}`).type),
-          svgs: [...document.querySelectorAll('.wk-diagram-canvas > svg')].map(s => ({ role: s.getAttribute('role'), label: s.getAttribute('aria-label'), w: s.getBoundingClientRect().width, texts: s.querySelectorAll('text').length })),
+          svgs: [...document.querySelectorAll('.wk-diagram-canvas > svg')].map(s => ({ hidden: s.getAttribute('aria-hidden'), label: s.closest('.wk-diagram-viewport').getAttribute('aria-label'), w: s.getBoundingClientRect().width, texts: s.querySelectorAll('text').length })),
           errors: document.querySelectorAll('.wk-diagram-error:not([hidden]) .wk-errorbox').length,
           styleTags: document.querySelectorAll('style').length,
           adopted: document.adoptedStyleSheets.length,
@@ -136,7 +137,7 @@ try {
         assert.deepEqual(look.drawn, TYPES, `${url} ${scheme}`);
         assert.equal(look.svgs.length, 6);
         for (const s of look.svgs) {
-          assert.equal(s.role, 'img');
+          assert.equal(s.hidden, 'true');
           assert.ok(s.label && s.w > 50 && s.texts > 2, JSON.stringify(s));
         }
         assert.equal(look.errors, 2);
@@ -149,22 +150,30 @@ try {
     }
   });
 
-  await check('accessibility: the SVG is an image named by the label and described by the source; the viewport is focusable and says how to pan', async () => {
+  await check('accessibility: the viewport is a focusable diagram named by the label and described by the source and how to pan; the SVG is hidden', async () => {
     const { page, close: done } = await open();
     const a = await page.evaluate(() => {
       const el = document.getElementById('demo-sequence');
       const svg = el.querySelector('svg');
-      const desc = document.getElementById(svg.getAttribute('aria-describedby'));
       const vp = el.querySelector('.wk-diagram-viewport');
+      const [descId, helpId] = vp.getAttribute('aria-describedby').split(' ');
+      const desc = document.getElementById(descId);
       return {
-        role: svg.getAttribute('role'), label: svg.getAttribute('aria-label'), desc: desc?.textContent, inDetails: desc?.parentElement.localName,
+        svgHidden: svg.getAttribute('aria-hidden'), svgRole: svg.getAttribute('role'), svgLabel: svg.getAttribute('aria-label'),
+        named: document.querySelectorAll('#demo-sequence [aria-label="Update check"]').length,
+        role: vp.getAttribute('role'), roledescription: vp.getAttribute('aria-roledescription'),
+        desc: desc?.textContent, inDetails: desc?.parentElement.localName,
         summary: el.querySelector('summary').textContent, source: el.source,
-        tab: vp.tabIndex, vpLabel: vp.getAttribute('aria-label'), help: document.getElementById(vp.getAttribute('aria-describedby'))?.textContent,
+        tab: vp.tabIndex, vpLabel: vp.getAttribute('aria-label'), help: document.getElementById(helpId)?.textContent,
         buttons: [...el.querySelectorAll('.wk-diagram-toolbar button')].map(b => b.getAttribute('aria-label') || b.textContent),
       };
     });
-    assert.equal(a.role, 'img');
-    assert.equal(a.label, 'Update check');
+    assert.equal(a.svgHidden, 'true');
+    assert.equal(a.svgRole, null);
+    assert.equal(a.svgLabel, null);
+    assert.equal(a.named, 1, 'one element carries the name');
+    assert.equal(a.role, 'group');
+    assert.equal(a.roledescription, 'diagram');
     assert.equal(a.desc, a.source);
     assert.equal(a.inDetails, 'details');
     assert.equal(a.summary, 'Diagram source');
@@ -172,11 +181,15 @@ try {
     assert.equal(a.vpLabel, 'Update check');
     assert.match(a.help, /arrow keys to pan/);
     assert.deepEqual(a.buttons, ['Zoom out', 'Zoom in', 'Fit to view', 'Actual size', 'Copy source', 'Save as SVG', 'Save as PNG']);
+    // The accessibility tree: one named diagram; the drawing's text is not in it.
+    const snapshot = await page.locator('#demo-sequence .wk-diagram-viewport').ariaSnapshot();
+    assert.match(snapshot, /group "Update check"/);
+    assert.doesNotMatch(snapshot, /Check for updates/);
     // A description replaces the source as the text alternative.
     await make(page, { id: 'described', label: 'Two steps', description: 'A goes to B.', source: 'flowchart LR\n A --> B' });
     const d = await page.evaluate(() => {
-      const svg = document.querySelector('#described svg');
-      return { desc: document.getElementById(svg.getAttribute('aria-describedby')).textContent, summary: document.querySelector('#described summary').textContent };
+      const vp = document.querySelector('#described .wk-diagram-viewport');
+      return { desc: document.getElementById(vp.getAttribute('aria-describedby').split(' ')[0]).textContent, summary: document.querySelector('#described summary').textContent };
     });
     assert.deepEqual(d, { desc: 'A goes to B.', summary: 'Description' });
     // label is required.
@@ -232,6 +245,214 @@ try {
     await done();
   });
 
+  await check('diagrams without an id: two, a re-render and a syntax error stay in the page, with no duplicate ids', async () => {
+    const { page, close: done } = await open();
+    const out = await page.evaluate(async () => {
+      const { wkDiagram } = await import('/diagram/dist/diagram.js');
+      const host = document.createElement('div');
+      document.getElementById('demo').prepend(host);
+      const a = wkDiagram({ label: 'First', source: 'flowchart LR\n a --> b' });
+      const b = wkDiagram({ label: 'Second', source: 'sequenceDiagram\n A->>B: hi' });
+      host.append(a, b);
+      await Promise.all([a.ready, b.ready]);
+      a.source = 'flowchart LR\n a --> c';
+      await a.ready;
+      const c = wkDiagram({ label: 'Third', source: 'flowchart LR\n a --> --> b' });
+      host.append(c);
+      await c.ready;
+      b.source = 'stateDiagram-v2\n [*] --> S';
+      await b.ready;
+      const ids = [...document.querySelectorAll('[id]')].map(e => e.id);
+      return {
+        connected: [a, b, c].map(d => d.isConnected), children: host.childElementCount,
+        ownIds: [a, b, c].map(d => d.id), svgs: [a, b].map(d => d.querySelector('.wk-diagram-canvas > svg')?.id),
+        types: [a.type, b.type, c.type], error: !!c.querySelector('.wk-diagram-error:not([hidden]) .wk-errorbox'),
+        dups: ids.filter((x, i) => ids.indexOf(x) !== i),
+        // Each diagram's rules select its own SVG only.
+        scoped: [a, b].map(d => { const id = d.querySelector('svg').id; return document.querySelectorAll(`#${id}`).length; }),
+      };
+    });
+    assert.deepEqual(out.connected, [true, true, true]);
+    assert.equal(out.children, 3);
+    assert.deepEqual(out.ownIds, ['', '', '']);
+    for (const id of out.svgs) assert.match(id, /^wk-mermaid-\d+$/);
+    assert.notEqual(out.svgs[0], out.svgs[1]);
+    assert.deepEqual(out.types, ['flowchart', 'state', null]);
+    assert.equal(out.error, true);
+    assert.deepEqual(out.dups, []);
+    assert.deepEqual(out.scoped, [1, 1]);
+    await done();
+  });
+
+  await check('shapes that load a picture are refused: image and icon shapes show the ErrorBox and fetch nothing', async () => {
+    const { page, close: done } = await open();
+    const cases = [
+      ['flowchart LR\n A@{ img: "http://127.0.0.1:9/abs.png", label: "x", h: 60 }\n A-->B', /Images in diagrams are not supported/],
+      ['flowchart LR\n A@{ img: "rel-picture.png", label: "x", h: 60 }\n A-->B', /Images in diagrams are not supported/],
+      ['flowchart LR\n A@{ img: "data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\'/>", label: "x", h: 60 }\n A-->B', /Images in diagrams are not supported/],
+      ['flowchart LR\n A@{ icon: "fa:user", form: "square", label: "x" }\n A-->B', /Icons in diagrams are not supported/],
+      ['flowchart LR\n A@{ icon: "fa:user", form: "circle", label: "x" }\n A-->B', /Icons in diagrams are not supported/],
+      ['flowchart LR\n A@{ icon: "fa:user", form: "rounded", label: "x" }\n A-->B', /Icons in diagrams are not supported/],
+      ['flowchart LR\n A@{ icon: "logos:aws", label: "x" }\n A-->B', /Icons in diagrams are not supported/],
+    ];
+    for (const [source, want] of cases) {
+      await make(page, { id: 'pic', label: 'Picture', source });
+      const c = await page.evaluate(() => window.calls[0]);
+      assert.equal(c[0], 'wk-error', source);
+      assert.equal(c[1].kind, 'unsupported', source);
+      assert.equal(c[1].line, null);
+      assert.match(c[1].message, want);
+      assert.equal(await page.evaluate(() => document.querySelector('#pic .wk-diagram-error .wk-errorbox-head span').textContent), 'Can’t draw this kind of diagram');
+    }
+    await page.waitForTimeout(300); // a request the image shape started would have been made by now
+    await done();
+  });
+
+  await check('a diagram\'s CSS cannot load anything: url() is dropped from rules, style attributes and presentation attributes, live and exported', async () => {
+    const { page, close: done } = await open();
+    const sources = [
+      ['state classDef and style', 'stateDiagram-v2\n [*] --> S1\n [*] --> S2\n classDef ev fill:url(rel-a),background-image:url(rel-b)\n class S1 ev\n style S2 fill:url(http://127.0.0.1:9/s.svg#a),filter:url(http://127.0.0.1:9/f.svg#f),mask:url(rel-m.svg#m)'],
+      ['sequence font config', '%%{init: {"sequence": {"actorFontFamily": "x;background-image:url(rel-c)", "messageFontFamily": "y;filter:url(rel-d.svg#f)", "noteFontFamily": "z;mask:url(rel-e.svg#m)"}}}%%\nsequenceDiagram\n Alice->>Bob: hi\n Note over Alice: n'],
+      // (The flowchart and ER grammars take no brackets in a style, so no url().)
+      ['state style, protocol-relative', 'stateDiagram-v2\n [*] --> S1\n style S1 fill:url(//evil.example/f.svg#a),stroke:url(//evil.example/s.svg#a),marker-end:url(rel-k.svg#m),cursor:url(rel-cur),filter:u\\72l(rel-esc.svg#f)'],
+      ['class style and classDef', 'classDiagram\n class A:::ev\n class B\n classDef ev fill:url(rel-f.svg#a),filter:url(//evil.example/cf.svg#f)\n style B fill:url(//evil.example/b.svg#x),filter:url(rel-g.svg#f)'],
+    ];
+    for (const [name, source] of sources) {
+      await make(page, { id: 'css', label: 'CSS', source });
+      const out = await page.evaluate(() => {
+        const el = document.getElementById('css');
+        const svg = el.querySelector('.wk-diagram-canvas > svg');
+        const loads = v => /url\(\s*(?!['"]?#)|image-set\(|@import/i.test(v);
+        const attrs = svg ? [svg, ...svg.querySelectorAll('*')].flatMap(e => [...e.attributes].filter(a => a.name !== 'xmlns' && loads(a.value)).map(a => `${e.localName}@${a.name}=${a.value}`)) : [];
+        const rules = [...document.adoptedStyleSheets].flatMap(s => [...s.cssRules].map(r => r.cssText)).filter(loads);
+        let exported = '';
+        try { exported = el.toSVG().replace(/<desc>[\s\S]*<\/desc>/, ''); } catch { /* no diagram */ }
+        return { drawn: !!svg, calls: window.calls.map(c => c[0]), attrs, rules, exported: exported.match(/url\(\s*(?!['"]?#)[^)]*\)|image-set\(/gi) || [] };
+      });
+      assert.deepEqual(out.calls, ['wk-render'], name);
+      assert.deepEqual(out.attrs, [], `${name}: attributes`);
+      assert.deepEqual(out.rules, [], `${name}: stylesheet rules`);
+      assert.deepEqual(out.exported, [], `${name}: the exported SVG`);
+    }
+    await page.waitForTimeout(300);
+    await done();
+  });
+
+  await check('a diagram taken out of the document without destroy() lets go of its stylesheet and theme listener, and takes them up again when put back', async () => {
+    const { page, close: done } = await open();
+    await make(page, { id: 'away', label: 'Away', source: 'flowchart LR\n a --> b' });
+    const sheetIn = () => page.evaluate(() => {
+      const id = document.querySelector('#away svg').id;
+      return document.adoptedStyleSheets.some(s => [...s.cssRules].some(r => r.selectorText?.startsWith(`#${id}`)));
+    });
+    assert.equal(await sheetIn(), true);
+    await page.evaluate(() => {
+      const el = document.getElementById('away');
+      window.away = el;
+      window.awayRenders = 0;
+      el.addEventListener('wk-render', () => window.awayRenders++);
+      el.remove();
+    });
+    await until(page, () => !document.adoptedStyleSheets.some(s => [...s.cssRules].some(r => r.selectorText?.startsWith(`#${window.away.querySelector('svg').id}`))));
+    // A theme change while it is out does not render it.
+    await setTheme(page, 'dark');
+    await page.evaluate(() => Promise.all([...document.querySelectorAll('.wk-diagram')].map(d => d.ready)));
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    assert.equal(await page.evaluate(() => window.awayRenders), 0);
+    // Put back: it re-renders in the new theme and its sheet is in again.
+    await page.evaluate(() => document.getElementById('demo').prepend(window.away));
+    await until(page, () => window.awayRenders === 1);
+    await page.evaluate(() => window.away.ready);
+    assert.equal(await sheetIn(), true);
+    const fill = await page.evaluate(() => [getComputedStyle(document.querySelector('#away svg text')).fill, window.t.colour('var(--wk-color-text)')]);
+    assert.equal(fill[0], fill[1]);
+    // A diagram never put in the page holds no sheet once drawn.
+    const held = await page.evaluate(async () => {
+      const { wkDiagram } = await import('/diagram/dist/diagram.js');
+      const before = document.adoptedStyleSheets.length;
+      const el = wkDiagram({ label: 'Never shown', source: 'flowchart LR\n a --> b' });
+      await el.ready;
+      return { drawn: el.type, sheets: document.adoptedStyleSheets.length - before };
+    });
+    assert.deepEqual(held, { drawn: 'flowchart', sheets: 0 });
+    await done();
+  });
+
+  await check('working: a render that replaces another while the spinner shows keeps it for its 500 ms; start and end are announced once', async () => {
+    // One diagram on the page; mermaid.js arrives 450 ms late. The spinner
+    // shows at 400 ms, a render that replaces the first starts at once, and
+    // it finishes soon after the load, before the spinner's 500 ms are up.
+    const { page, close: done } = await open('/diagram/demo/index.html', {}, {
+      before: async p => {
+        await p.route('**/diagram/demo/demo.js', route => route.fulfill({ contentType: 'text/javascript', body: 'window.demoReady = true;' }));
+        await p.route('**/diagram/dist/mermaid.js', async route => { await new Promise(r => setTimeout(r, 450)); await route.continue(); });
+      },
+    });
+    const w = await page.evaluate(async () => {
+      const { wkDiagram } = await import('/diagram/dist/diagram.js');
+      const el = wkDiagram({ label: 'Slow', source: 'flowchart LR\n a --> b --> c' });
+      document.getElementById('demo').append(el);
+      const status = el.querySelector('.wk-diagram-status');
+      const announcer = el.querySelector('.wk-visually-hidden[role="status"]');
+      const w = { said: [], shownAt: 0, hiddenAt: 0 };
+      new MutationObserver(() => { if (announcer.textContent) w.said.push(announcer.textContent); }).observe(announcer, { childList: true, characterData: true, subtree: true });
+      new MutationObserver(() => {
+        if (!status.hidden && !w.shownAt) w.shownAt = performance.now();
+        if (status.hidden && w.shownAt && !w.hiddenAt) w.hiddenAt = performance.now();
+      }).observe(status, { attributes: true, attributeFilter: ['hidden'] });
+      const t0 = performance.now();
+      while (!w.shownAt && performance.now() - t0 < 3000) await new Promise(r => setTimeout(r, 5));
+      el.source = 'flowchart LR\n a --> b';
+      await el.ready;
+      while (!w.hiddenAt && performance.now() - t0 < 5000) await new Promise(r => setTimeout(r, 5));
+      return { ...w, shown: w.hiddenAt - w.shownAt, nodes: el.querySelectorAll('svg g.node').length };
+    });
+    assert.ok(w.shownAt > 0, 'the spinner never showed');
+    console.log(`      (the spinner showed for ${Math.round(w.shown)} ms)`);
+    assert.ok(w.shown >= 495, `the spinner showed for ${Math.round(w.shown)} ms`);
+    assert.deepEqual(w.said, ['Drawing the diagram', 'Diagram drawn']);
+    assert.equal(w.nodes, 2, 'the replacing diagram is the one drawn');
+    await done();
+  });
+
+  await check('theme: swapping a theme stylesheet and data-theme on a region re-render the diagram', async () => {
+    const { page, close: done } = await open();
+    const activation = () => page.evaluate(() => getComputedStyle(document.querySelector('#demo-sequence svg [class^="activation"]')).stroke);
+    assert.equal(await activation(), await page.evaluate(() => window.t.colour('var(--wk-color-accent)')));
+    // The app links its theme file after the kit's.
+    let next = nextRender(page, 'demo-sequence');
+    await page.evaluate(() => {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = '../../ui/theme/example.css';
+      document.head.append(link);
+    });
+    assert.equal(await next, 'wk-render');
+    await page.evaluate(() => document.getElementById('demo-sequence').ready);
+    assert.equal(await activation(), 'rgb(31, 107, 85)');
+    // A region that sets its own tokens under data-theme.
+    const region = await page.evaluate(async () => {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync('.demo-region[data-theme="ink"] { --wk-color-text: #00008a; }');
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+      const { wkDiagram } = await import('/diagram/dist/diagram.js');
+      const region = document.createElement('div');
+      region.className = 'demo-region';
+      const el = wkDiagram({ id: 'regional', label: 'Region', source: 'flowchart LR\n a --> b' });
+      region.append(el);
+      document.getElementById('demo').prepend(region);
+      await el.ready;
+      const before = getComputedStyle(el.querySelector('svg text')).fill;
+      const drawn = new Promise(r => { el.addEventListener('wk-render', r, { once: true }); setTimeout(r, 5000); });
+      region.dataset.theme = 'ink';
+      await drawn;
+      return { before, after: getComputedStyle(el.querySelector('svg text')).fill };
+    });
+    assert.notEqual(region.before, 'rgb(0, 0, 138)');
+    assert.equal(region.after, 'rgb(0, 0, 138)');
+    await done();
+  });
+
   await check('setting source re-renders; the type follows; a fixed error goes', async () => {
     const { page, close: done } = await open();
     await make(page, { id: 'live', label: 'Live', source: 'flowchart LR\n a --> b' });
@@ -239,7 +460,7 @@ try {
       const next = nextRender(page, 'live');
       await page.evaluate(s => { document.getElementById('live').source = s; }, source);
       assert.equal(await next, type ? 'wk-render' : 'wk-error');
-      const look = await page.evaluate(() => ({ type: document.getElementById('live').type, box: !!document.querySelector('#live .wk-diagram-error:not([hidden])'), svg: !!document.querySelector('#live svg[role="img"]') }));
+      const look = await page.evaluate(() => ({ type: document.getElementById('live').type, box: !!document.querySelector('#live .wk-diagram-error:not([hidden])'), svg: !!document.querySelector('#live .wk-diagram-canvas > svg') }));
       assert.deepEqual(look, { type, box: !type, svg: !!type });
     }
     await done();
