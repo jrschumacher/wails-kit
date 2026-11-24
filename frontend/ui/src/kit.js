@@ -32,6 +32,7 @@
 // or other elements is removed when it is disconnected.
 
 import { timings } from './motion.js';
+import { placeAnnouncer } from './announce.js';
 
 let uid = 0;
 // An id for el, keeping the one it has; a new one is free in the document.
@@ -690,6 +691,7 @@ class WkDialog extends Wired {
     const back = this.opener;
     this.opener = null;
     dialog.close();
+    placeAnnouncer(dialog, false);
     this.reflect(false);
     if (focusless()) focusEl(back);
   }
@@ -716,12 +718,14 @@ class WkDialog extends Wired {
     this.opener = focusless() ? opener || clicked : document.activeElement;
     this.dialog.returnValue = '';
     this.dialog.showModal();
+    // The page behind is inert now, live regions too: the announcer moves in.
+    placeAnnouncer(this.dialog, true);
     this.reflect(true);
     emit(this, 'wk-open', {});
   }
 
   close(returnValue = '') {
-    if (this.dialog?.open) this.dialog.close(returnValue);
+    if (this.dialog?.open) { this.dialog.close(returnValue); placeAnnouncer(this.dialog, false); }
   }
 }
 

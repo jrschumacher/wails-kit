@@ -2,7 +2,7 @@
 // view's rows and the word-level marks.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseUnifiedDiff, diffSplitRows, diffWordRanges } from '../src/diff.js';
+import { parseUnifiedDiff, diffSplitRows, diffWordRanges, diffCommentPlaces } from '../src/diff.js';
 
 const lines = (file, k = 0) => file.hunks[k].lines.map(l => [l.kind, l.old, l.new, l.text]);
 
@@ -398,4 +398,72 @@ diff --git a/g b/g
     ['h', 0, 0, [['context:kept']]],
     ['k', 1, 1, [['del:p', 'add:q']]],
   ]);
+});
+
+// Review threads: where each goes in a parsed file.
+test('diffCommentPlaces: threads go under lines shown on their side; ranges stay in one hunk; the rest are outdated', () => {
+  const [file] = parseUnifiedDiff(`diff --git a/src/app.js b/src/app.js
+--- a/src/app.js
++++ b/src/app.js
+@@ -1,4 +1,5 @@
+ const a = 1;
+-const b = 2;
++const b = 3;
++const c = 4;
+ const d = 5;
+ const e = 6;
+@@ -20,3 +21,2 @@
+ one
+-two
+ three
+`);
+  const t = (id, side, line, endLine, extra = {}) => ({ id, path: 'src/app.js', side, line, endLine, entries: [], ...extra });
+  const threads = [
+    t('add', 'new', 3),                  // an added line
+    t('del', 'old', 2),                  // a removed line
+    t('ctx-old', 'old', 4),              // a context line, by its old number
+    t('ctx-new', 'new', 4),              // the same line by its new number
+    t('range', 'new', 2, 4),             // a range in the first hunk
+    t('swapped', 'new', 5, 3),           // ends given the wrong way round
+    t('across', 'new', 4, 22),           // a range across two hunks
+    t('gone', 'new', 10),                // a line the diff does not show
+    t('wrong-side', 'old', 3, undefined, { line: 21 }), // old 21 is shown (one), so placed
+    t('old-not-new', 'new', 2, undefined, { side: 'old', line: 22 }), // old 22 is removed ("two")
+    t('flagged', 'new', 3, undefined, { outdated: true }),
+    t('no-side', undefined, 22),         // no side: the new side
+    t('nan', 'new', undefined),
+    { id: 'other', path: 'docs/x.md', side: 'new', line: 1, entries: [] },
+  ];
+  const { placed, outdated } = diffCommentPlaces(file, threads);
+  assert.deepEqual(placed.map(p => [p.thread.id, p.side, p.line, p.endLine, p.hunk]), [
+    ['add', 'new', 3, 3, 0], ['del', 'old', 2, 2, 0], ['ctx-old', 'old', 4, 4, 0], ['ctx-new', 'new', 4, 4, 0],
+    ['range', 'new', 2, 4, 0], ['swapped', 'new', 3, 5, 0], ['wrong-side', 'old', 21, 21, 1], ['old-not-new', 'old', 22, 22, 1],
+    ['no-side', 'new', 22, 22, 1],
+  ]);
+  assert.deepEqual(outdated.map(p => [p.thread.id, p.outdated]), [['across', true], ['gone', true], ['flagged', true], ['nan', true]]);
+  assert.ok(!placed.concat(outdated).some(p => p.thread.id === 'other'), 'a thread on another file is in neither list');
+  // A number is looked up on the thread's side only: old 20 is shown, new 20 is not.
+  assert.equal(diffCommentPlaces(file, [t('x', 'old', 20)]).placed.length, 1);
+  assert.equal(diffCommentPlaces(file, [t('x', 'new', 20)]).outdated.length, 1);
+  assert.equal(diffCommentPlaces(file, [t('x', 'old', 5)]).outdated.length, 1);
+});
+
+test('diffCommentPlaces: a rename matches either path; a binary file or one with no hunks has only outdated threads', () => {
+  const [renamed, binary] = parseUnifiedDiff(`diff --git a/docs/serve.md b/docs/running.md
+similarity index 88%
+rename from docs/serve.md
+rename to docs/running.md
+--- a/docs/serve.md
++++ b/docs/running.md
+@@ -1,2 +1,2 @@
+-# Serving
++# Running
+ text
+diff --git a/icon.png b/icon.png
+Binary files a/icon.png and b/icon.png differ
+`);
+  const threads = [{ id: 'new', path: 'docs/running.md', side: 'new', line: 1 }, { id: 'old', path: 'docs/serve.md', side: 'old', line: 1 }];
+  assert.deepEqual(diffCommentPlaces(renamed, threads).placed.map(p => p.thread.id), ['new', 'old']);
+  assert.deepEqual(diffCommentPlaces(binary, [{ id: 'b', path: 'icon.png', side: 'new', line: 1 }]).outdated.map(p => p.thread.id), ['b']);
+  assert.deepEqual(diffCommentPlaces(binary, null), { placed: [], outdated: [] });
 });

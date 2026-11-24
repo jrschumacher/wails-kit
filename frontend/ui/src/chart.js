@@ -26,7 +26,18 @@
 //     view: 'chart' | 'table', onview: view => {},
 //     selection: -1, onselection: index => {}, // category index, or -1 for none
 //     retainSelectionOnBlur: false,    // keep the readout when focus leaves the plot
+//     loading: 'Fetching runs',         // loading: the frame and legend, a spinner in the plot
 //   }) -> <figure class="wk-chart">
+//
+// A loading chart (BEHAVIOUR.md, "Loading content") keeps its frame, title
+// and view switch, and its legend when the series are known (their labels;
+// values may be empty), and has aria-busy="true". Its plot keeps the
+// chart's height and shows a spinner, named by the loading words, after the
+// indicator delay (400 ms). There's no skeleton for a chart.
+// wkChart.ready(fig) resolves when the loading chart may be replaced: at
+// once if its spinner hasn't shown, else once it has shown for 500 ms.
+import { timings } from './motion.js';
+
 const SVG = 'http://www.w3.org/2000/svg';
 const GAP = 2;          // the surface between touching marks
 const BAR_MAX = 24;     // a bar is never thicker than this
@@ -260,9 +271,9 @@ function legend(spec) {
     key.dataset.shape = shape; if (tone != null) key.dataset.tone = tone; key.setAttribute('aria-hidden', 'true');
     htmlEl('span', null, text, li);
   };
-  for (const s of spec.series) entry(spec.kind === 'line' ? 'line' : 'bar', s.tone, spec.legendValues ? `${s.label} ${fmt(sum(s.values))}` : s.label);
+  for (const s of spec.series) entry(spec.kind === 'line' ? 'line' : 'bar', s.tone, spec.legendValues && !spec.loading ? `${s.label} ${fmt(sum(s.values || []))}` : s.label);
   if (spec.band) entry('band', spec.band.tone, spec.band.label);
-  if (spec.shadeLabel && spec.categories.some(c => c.shaded)) entry('shade', null, spec.shadeLabel);
+  if (spec.shadeLabel && (spec.categories || []).some(c => c.shaded)) entry('shade', null, spec.shadeLabel);
   return list;
 }
 
@@ -306,8 +317,14 @@ function unwatchSize(plot) {
   if (observing.delete(plot)) sizeObserver.unobserve(plot);
 }
 
+// Loading charts: fig -> { shownAt, timer }.
+const chartLoads = new WeakMap();
+
 /** Builds the chart's <figure>. It redraws itself when its width changes. */
 export function wkChart(spec) {
+  if (spec.loading) {
+    spec = { ...spec, categories: spec.categories || [], series: (spec.series || []).map(s => ({ ...s, values: s.values || [] })) };
+  }
   const id = spec.id || `wk-chart-${++sequence}`;
   let view = spec.view === 'table' ? 'table' : 'chart';
   const fig = htmlEl('figure', 'wk-chart');
@@ -324,7 +341,7 @@ export function wkChart(spec) {
     htmlEl('span', null, text, label);
     input.addEventListener('change', () => { if (input.checked) { view = value; spec.onview?.(value); paint(); } });
   }
-  fig.append(legend(spec));
+  if (!spec.loading || spec.series.length) fig.append(legend(spec));
   const body = htmlEl('div', 'wk-chart-body', null, fig);
   const status = htmlEl('p', 'wk-chart-readout', null, fig);
   status.setAttribute('role', 'status');
@@ -384,6 +401,16 @@ export function wkChart(spec) {
   function paint() {
     if (observed) unwatchSize(observed); observed = null; current = null; activeIndex = selection; status.textContent = '';
     body.replaceChildren();
+    if (spec.loading) {
+      const plot = htmlEl('div', 'wk-chart-plot wk-chart-loading', null, body);
+      plot.style.setProperty('--wk-chart-height', `${HEIGHT}px`);
+      const spinner = htmlEl('span', 'wk-spinner', null, plot);
+      spinner.setAttribute('role', 'progressbar');
+      spinner.setAttribute('aria-label', spec.loading);
+      const load = chartLoads.get(fig);
+      if (!load || load.shownAt < 0) spinner.hidden = true;
+      return;
+    }
     if (view === 'table') {
       const { head: header, rows } = tableModel(spec);
       const scroll = htmlEl('div', 'wk-chart-scroll', null, body);
@@ -409,6 +436,25 @@ export function wkChart(spec) {
       if (w > 0 && w !== width) drawChart(plot, w);
     });
   }
+  if (spec.loading) {
+    fig.setAttribute('aria-busy', 'true');
+    const load = { shownAt: -1, timer: 0 };
+    chartLoads.set(fig, load);
+    load.timer = setTimeout(() => {
+      load.shownAt = Date.now();
+      fig.querySelector('.wk-chart-loading > .wk-spinner')?.removeAttribute('hidden');
+    }, timings.indicatorDelay);
+  }
   paint();
   return fig;
 }
+
+/** Resolves when a loading chart may be replaced: at once if its spinner hasn't shown, else after it has shown for 500 ms. */
+wkChart.ready = fig => {
+  const load = chartLoads.get(fig);
+  if (!load) return Promise.resolve();
+  clearTimeout(load.timer);
+  const wait = load.shownAt < 0 ? 0 : load.shownAt + timings.indicatorMin - Date.now();
+  chartLoads.delete(fig);
+  return wait > 0 ? new Promise(resolve => setTimeout(resolve, wait)) : Promise.resolve();
+};

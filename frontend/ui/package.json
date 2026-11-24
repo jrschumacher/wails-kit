@@ -29,6 +29,9 @@
     "./src/index.js",
     "./src/kit.js",
     "./src/settings.js",
+    "./src/announce.js",
+    "./src/task.js",
+    "./src/copy.js",
     "./dist/wails-kit-ui.js",
     "*.css"
   ],

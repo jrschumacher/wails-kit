@@ -11,6 +11,7 @@ import (
 	"github.com/jrschumacher/wails-kit/errors"
 	"github.com/jrschumacher/wails-kit/events"
 	"github.com/jrschumacher/wails-kit/settings"
+	"github.com/jrschumacher/wails-kit/shortcuts"
 	"github.com/jrschumacher/wails-kit/tasks"
 	"github.com/jrschumacher/wails-kit/updates"
 )
@@ -68,6 +69,9 @@ func TestEventsTypeParity(t *testing.T) {
 		"TasksChanged":        tasks.EventChanged,
 		"DesktopShowTasks":    desktop.EventShowTasks,
 		"DesktopQuitPending":  desktop.EventQuitPending,
+		"UndoChanged":         shortcuts.EventUndoChanged,
+		"UndoText":            shortcuts.EventUndoText,
+		"UndoFailed":          shortcuts.EventUndoFailed,
 	}
 	for name, value := range eventConstants {
 		if !strings.Contains(ts, `"`+value+`"`) {
@@ -129,6 +133,11 @@ func TestErrorsTypeParity(t *testing.T) {
 		tasks.ErrInvalidState,
 		tasks.ErrUnsupported,
 		desktop.ErrInvalidColour,
+		shortcuts.ErrUndoEmpty,
+		shortcuts.ErrUndoBusy,
+		shortcuts.ErrUndoStale,
+		shortcuts.ErrUndoInvalid,
+		shortcuts.ErrUndoFailed,
 	}
 
 	for _, code := range codes {
@@ -166,6 +175,19 @@ func TestTasksTypeParity(t *testing.T) {
 
 	events := readFile(t, "types/events.ts")
 	checkFieldTypes(t, events, "TasksChangedPayload", reflect.TypeOf(tasks.ChangedPayload{}))
+}
+
+// TestUndoTypeParity checks the undo stack's event payloads exactly, with
+// the same nullability (a Go pointer is "| null" in TypeScript).
+func TestUndoTypeParity(t *testing.T) {
+	undo := readFile(t, "types/undo.ts")
+	events := readFile(t, "types/events.ts")
+	checkUnion(t, undo, "UndoOp", []string{`"undo"`, `"redo"`})
+	checkFieldTypes(t, undo, "UndoEntry", reflect.TypeOf(shortcuts.UndoEntry{}))
+	checkFieldTypes(t, undo, "UndoError", reflect.TypeOf(shortcuts.UndoError{}))
+	checkFieldTypes(t, events, "UndoChangedPayload", reflect.TypeOf(shortcuts.UndoState{}))
+	checkFieldTypes(t, events, "UndoTextPayload", reflect.TypeOf(shortcuts.UndoTextPayload{}))
+	checkFieldTypes(t, events, "UndoFailedPayload", reflect.TypeOf(shortcuts.UndoFailedPayload{}))
 }
 
 // checkUnion compares the members of `export type name = a | b | ...;` with

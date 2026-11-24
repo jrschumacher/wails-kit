@@ -14,7 +14,25 @@ updates:
           - "@codemirror/*"
           - "@lezer/*"
           - "style-mod"
+      # ProseMirror's packages depend on each other's versions: one PR.
+      prosemirror:
+        patterns:
+          - "prosemirror-*"
   - package-ecosystem: npm
     directory: /frontend/diagram
     schedule:
       interval: weekly
+  # @wails-kit/ui and the component gallery: playwright-core only. The browser
+  # checks in every frontend package pin the same version, so the gallery's
+  # and ui's pins move in one PR.
+  - package-ecosystem: npm
+    directories:
+      - /frontend/ui
+      - /frontend/gallery
+    schedule:
+      interval: weekly
+    groups:
+      playwright:
+        patterns:
+          - "playwright-core"
+        group-by: dependency-name

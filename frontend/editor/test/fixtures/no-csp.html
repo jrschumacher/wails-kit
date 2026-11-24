@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en" class="wk-root">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" href="data:,">
+  <title>Rich-text editor without a CSP (test page)</title>
+  <link rel="stylesheet" href="../../../ui/src/ui.css">
+  <script type="module" src="no-csp.js"></script>
+</head>
+<!-- A test page for test/browser.mjs: the rich-text editor on a page with no
+     Content-Security-Policy, as many Wails apps run, so a sanitising step that
+     lets hostile HTML run script shows up as script running, not as a blocked
+     CSP violation. -->
+<body><main id="demo"></main></body>
+</html>

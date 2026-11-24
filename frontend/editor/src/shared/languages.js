@@ -1,4 +1,4 @@
-// The languages the code editor bundles, by name, alias and file extension.
+// The languages the editors bundle, by name, alias and file extension.
 // Another language comes in as a CodeMirror stream parser (a legacy mode,
 // such as those in @codemirror/legacy-modes): it is plain data with no
 // CodeMirror imports, so it works with this bundle's copy of CodeMirror.
