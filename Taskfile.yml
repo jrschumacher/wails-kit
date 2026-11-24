@@ -25,6 +25,7 @@ tasks:
       - task: ts:check:settings
       - task: ts:check:ui
       - task: ts:check:editor
+      - task: ts:check:diagram
 
   ts:check:types:
     desc: Run frontend/types TypeScript typecheck and lint
@@ -54,6 +55,14 @@ tasks:
   ts:check:editor:
     desc: Run frontend/editor build check, node tests and browser tests (browser tests skip without Chrome)
     dir: frontend/editor
+    cmds:
+      - npm ci --silent
+      - npm test
+      - npm run test:browser
+
+  ts:check:diagram:
+    desc: Run frontend/diagram build check, node tests and browser tests (browser tests skip without Chrome)
+    dir: frontend/diagram
     cmds:
       - npm ci --silent
       - npm test

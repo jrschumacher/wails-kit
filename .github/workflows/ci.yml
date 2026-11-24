@@ -37,6 +37,7 @@ jobs:
             ci
             database
             diagnostics
+            diagram
             editor
             frontend
             keyring
@@ -221,6 +222,27 @@ jobs:
       # Static checks, the licences, and that the committed dist/ matches a fresh build.
       - run: npm test
       # The code editor on the demo pages (they link frontend/ui's stylesheet), in the runner's Chrome.
+      - run: npm run test:browser
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+
+  diagram-test:
+    name: Diagram Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/diagram
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/diagram/package-lock.json
+      - run: npm ci
+      # Static checks, the licences, theme contrast, and that the committed dist/ matches a fresh build.
+      - run: npm test
+      # Every diagram type on the demo pages (they link frontend/ui's stylesheet) under a strict CSP, in the runner's Chrome.
       - run: npm run test:browser
         env:
           CHROME_PATH: /usr/bin/google-chrome

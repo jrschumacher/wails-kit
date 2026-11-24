@@ -37,8 +37,10 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ executablePath: chrome, headless: true });
 
-async function open(url = '/demo/index.html', { ready, ...options } = {}) {
+async function open(url = '/demo/index.html', { ready, clock, ...options } = {}) {
   const page = await browser.newPage({ viewport: { width: 1100, height: 800 }, colorScheme: 'light', ...options });
+  // clock: the page's timers run on Playwright's fake clock (page.clock), for timing checks.
+  if (clock) await page.clock.install();
   const problems = [];
   page.on('pageerror', e => problems.push(`pageerror: ${e.message}`));
   page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') problems.push(`console ${m.type()}: ${m.text()}`); });
@@ -2168,6 +2170,8 @@ try {
   const openSettings = async (options = {}) => {
     const r = await open('/demo/settings.html', { ...options, ready: false });
     await r.page.waitForFunction(() => document.querySelector('#demo-settings .wk-settings-row'));
+    // A fake clock stands still from here; the test moves it.
+    if (options.clock) await r.page.clock.pauseAt(await r.page.evaluate(() => Date.now() + 1000));
     return r;
   };
   const row = (page, key) => page.locator(`#demo-settings .wk-settings-row[data-key="${key}"]`);
@@ -2295,6 +2299,389 @@ try {
       return out;
     });
     assert.deepEqual(look, { one: { tabs: 0, heading: 'Only', rows: 1 }, none: 'There are no settings.' });
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  // ---- Settings window: validation timing, back-end checks and the Notice (BEHAVIOUR.md "Forms and validation") ----
+  // A check the test answers: window.checks holds each call's key, values and resolve.
+  const manualChecks = page => page.evaluate(() => {
+    window.checks = [];
+    document.getElementById('demo-settings').check = (key, values) => new Promise(resolve => window.checks.push({ key, values, resolve }));
+  });
+  const answer = (page, i, errors) => page.evaluate(([n, errs]) => window.checks[n].resolve(errs), [i, errors]);
+  // The pending words shown beside a field, and the outcome its status region holds for screen readers.
+  const pendingText = (page, key) => row(page, key).locator('.wk-settings-pending').evaluate(p => (p.hasAttribute('data-outcome') ? '' : p.textContent));
+  const outcome = (page, key) => row(page, key).locator('.wk-settings-pending').evaluate(p => (p.hasAttribute('data-outcome') ? p.textContent : null));
+  const eventCount = page => page.evaluate(() => window.settingsEvents.length);
+
+  await check('settings window: an error shows when the field is left, then clears (and returns) as the person types', async () => {
+    const { page, problems } = await openSettings();
+    const name = row(page, 'general.name').locator('input');
+    const error = row(page, 'general.name').locator('.wk-error');
+    // Typing a value that will fail shows nothing until the field is left.
+    const tooLong = 'a'.repeat(41);
+    await page.evaluate(() => { document.getElementById('demo-settings').validate = (schema, values) => String(values['general.name'] ?? '').length > 40 ? [{ field: 'general.name', message: 'Display name must be at most 40 characters', code: 'max_length' }] : []; });
+    await name.fill(tooLong);
+    assert.equal(await name.getAttribute('aria-invalid'), null, 'no error while typing before the field shows one');
+    await name.press('Tab');
+    assert.equal(await error.textContent(), 'Display name must be at most 40 characters');
+    // Once shown, each keystroke re-checks the draft: the error clears with no change event.
+    const before = await eventCount(page);
+    await name.focus();
+    await page.keyboard.press('End');
+    await page.keyboard.press('Backspace');
+    assert.equal(await name.getAttribute('aria-invalid'), null);
+    assert.equal(await error.isVisible(), false);
+    assert.equal(await page.locator('#demo-settings [role=tab]', { hasText: 'General' }).getAttribute('data-attention'), null);
+    assert.equal(await eventCount(page), before, 'the value applies on change, not on each keystroke');
+    await page.keyboard.type('b');
+    assert.equal(await error.textContent(), 'Display name must be at most 40 characters', 'and it comes back while the field is still being re-checked');
+    await page.keyboard.press('Backspace');
+    await name.press('Tab');
+    const e = await lastEvent(page);
+    assert.deepEqual([e.key, e.value], ['general.name', 'a'.repeat(40)]);
+    assert.equal(await error.isVisible(), false);
+    // Without validate, an empty required field's error clears as soon as something is typed.
+    await page.evaluate(() => { document.getElementById('demo-settings').validate = null; });
+    await name.fill('');
+    await name.press('Tab');
+    assert.equal(await error.textContent(), 'Display name is required');
+    await name.focus();
+    await page.keyboard.type('A');
+    assert.equal(await name.getAttribute('aria-invalid'), null);
+    await page.keyboard.press('Backspace');
+    assert.equal(await error.textContent(), 'Display name is required');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('settings window: a back-end check shows its words beside the field after 400 ms, for at least 500 ms, and never blocks typing', async () => {
+    const { page, problems } = await openSettings({ clock: true });
+    await manualChecks(page);
+    const folder = row(page, 'general.folder').locator('input');
+    const before = await eventCount(page);
+    await folder.fill('/work');
+    await folder.press('Tab');
+    assert.equal(await page.evaluate(() => window.checks.length), 1);
+    assert.deepEqual(await page.evaluate(() => [window.checks[0].key, window.checks[0].values['general.folder'], window.checks[0].values['general.name']]), ['general.folder', '/work', 'Sam']);
+    assert.equal(await pendingText(page, 'general.folder'), '', 'nothing in the quiet wait');
+    await page.clock.runFor(399);
+    assert.equal(await pendingText(page, 'general.folder'), '');
+    await page.clock.runFor(1);
+    assert.equal(await pendingText(page, 'general.folder'), 'Checking folder…');
+    assert.equal(await row(page, 'general.folder').getAttribute('data-pending'), '');
+    const pending = row(page, 'general.folder').locator('.wk-settings-pending');
+    assert.equal(await pending.getAttribute('role'), 'status');
+    assert.equal(await pending.locator('.wk-spinner[aria-hidden=true]').count(), 1);
+    assert.deepEqual(await pending.locator('.wk-spinner').evaluate(sp => [getComputedStyle(sp).width, getComputedStyle(sp).animationName]), ['12px', 'wk-spin'], 'small, and turning');
+    assert.ok((await folder.getAttribute('aria-describedby')).split(' ').includes(await pending.getAttribute('id')));
+    assert.equal(await folder.isEditable(), true, 'typing is never blocked');
+    // The check passes 100 ms after the words appeared: they stay until 500 ms, then the value applies in the same step.
+    await page.clock.runFor(100);
+    await answer(page, 0, null);
+    await page.clock.runFor(399);
+    assert.equal(await pendingText(page, 'general.folder'), 'Checking folder…');
+    assert.equal(await eventCount(page), before, 'the result waits for the indicator minimum');
+    await page.clock.runFor(1);
+    assert.equal(await pendingText(page, 'general.folder'), '');
+    assert.equal(await row(page, 'general.folder').getAttribute('data-pending'), null);
+    // The outcome is announced in words, in the same polite region, visually hidden.
+    assert.equal(await outcome(page, 'general.folder'), 'Projects folder checked');
+    assert.equal(await pending.evaluate(p => [p.getBoundingClientRect().width, getComputedStyle(p).clipPath].join(' ')), '1 inset(50%)');
+    assert.equal((await folder.getAttribute('aria-describedby')).split(' ').includes(await pending.getAttribute('id')), false);
+    const e = await lastEvent(page);
+    assert.deepEqual([e.key, e.value, e.checked], ['general.folder', '/work', true]);
+    assert.equal(await page.evaluate(() => document.getElementById('demo-settings').values['general.folder']), '/work');
+    // A quick check shows no words at all, and applies at once.
+    await folder.fill('/quick');
+    await folder.press('Tab');
+    await page.clock.runFor(200);
+    await answer(page, 1, []);
+    await until(page, () => window.settingsEvents.at(-1).value === '/quick');
+    assert.equal(await pendingText(page, 'general.folder'), '');
+    await page.clock.runFor(1000);
+    assert.equal(await pendingText(page, 'general.folder'), '', 'the indicator never appears after the result');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('settings window: a value applies only once its check passes; after a failure it re-checks 500 ms after typing stops', async () => {
+    const { page, problems } = await openSettings({ clock: true });
+    await manualChecks(page);
+    const folder = row(page, 'general.folder').locator('input');
+    const error = row(page, 'general.folder').locator('.wk-error');
+    const before = await eventCount(page);
+    await folder.fill('nowhere');
+    await folder.press('Tab');
+    await answer(page, 0, [{ field: 'general.folder', message: 'There is no folder at this path. Choose a folder that exists.', code: 'check' }]);
+    await until(page, () => !document.querySelector('[data-key="general.folder"] .wk-error').hidden);
+    assert.equal(await error.textContent(), 'There is no folder at this path. Choose a folder that exists.');
+    assert.equal(await outcome(page, 'general.folder'), 'There is no folder at this path. Choose a folder that exists.', 'the failure is announced in the status region');
+    assert.equal(await eventCount(page), before, 'a value that failed its check is not applied');
+    assert.equal(await page.evaluate(() => document.getElementById('demo-settings').values['general.folder']), '~/Projects');
+    assert.equal(await folder.inputValue(), 'nowhere', 'the person\'s text stays');
+    // Something else changing redraws the window, and the draft and its error stay.
+    await row(page, 'general.launch').locator('label').click();
+    assert.equal(await folder.inputValue(), 'nowhere');
+    assert.equal(await folder.getAttribute('aria-invalid'), 'true');
+    // Typing re-checks with the back end 500 ms after the last keystroke, not on each one.
+    await folder.focus();
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type('/ho');
+    await page.clock.runFor(300);
+    await page.keyboard.type('me');
+    await page.clock.runFor(499);
+    assert.equal(await page.evaluate(() => window.checks.length), 1);
+    await page.clock.runFor(1);
+    assert.equal(await page.evaluate(() => window.checks.length), 2);
+    assert.equal(await page.evaluate(() => window.checks[1].values['general.folder']), '/home');
+    // A check overtaken by a newer one applies nothing, even when it answers.
+    await page.keyboard.type('s');
+    await page.clock.runFor(500);
+    assert.equal(await page.evaluate(() => window.checks[2]?.values['general.folder']), '/homes');
+    await answer(page, 1, []);
+    await page.clock.runFor(1000);
+    assert.equal(await page.evaluate(() => window.settingsEvents.some(x => x.key === 'general.folder')), false, 'the overtaken check applied nothing');
+    await answer(page, 2, []);
+    await until(page, () => window.settingsEvents.at(-1)?.key === 'general.folder');
+    const e = await lastEvent(page);
+    assert.deepEqual([e.value, e.checked], ['/homes', true]);
+    assert.equal(await folder.getAttribute('aria-invalid'), null);
+    // Passed: typing again checks on leaving the field, not as the person types.
+    await page.keyboard.type('/x');
+    await page.clock.runFor(2000);
+    assert.equal(await page.evaluate(() => window.checks.length), 3);
+    // A check that fails to run says so on the field.
+    await page.evaluate(() => { document.getElementById('demo-settings').check = () => Promise.reject(new Error('binding gone')); });
+    await folder.press('Tab');
+    await until(page, () => !document.querySelector('[data-key="general.folder"] .wk-error').hidden);
+    assert.equal(await error.textContent(), 'Couldn\'t check your projects folder. Edit it to check again.');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('settings window: an empty required setting shows its error on open, and the window\'s Notice counts what needs attention', async () => {
+    const { page, problems } = await openSettings({ clock: true });
+    assert.equal(await page.locator('#demo-settings .wk-settings-status').textContent(), '', 'nothing needs attention at first');
+    assert.equal(await page.locator('#demo-settings .wk-settings-status').isVisible(), false);
+    const look = await page.evaluate(async () => {
+      const { schema } = await import('./settings-demo.js');
+      const el = document.createElement('wk-settings');
+      el.id = 'fresh';
+      el.values = { 'general.name': '', 'provider.name': 'alpha', 'provider.key': '' };
+      el.schema = schema;
+      document.querySelector('.demo-settings-window').replaceChildren(el);
+      const status = el.querySelector('.wk-settings-status');
+      return {
+        error: el.querySelector('[data-key="general.name"] .wk-error').textContent,
+        invalid: el.querySelector('[data-key="general.name"] input').getAttribute('aria-invalid'),
+        tabs: [...el.querySelectorAll('[role=tab]')].map(t => t.hasAttribute('data-attention')),
+        role: status.getAttribute('role'),
+        notice: status.textContent,
+        tone: status.querySelector('.wk-notice').dataset.tone,
+        place: [status.previousElementSibling.getAttribute('role'), status.nextElementSibling.getAttribute('role')],
+      };
+    });
+    assert.deepEqual(look, { error: 'Display name is required', invalid: 'true', tabs: [true, false], role: 'status', notice: '1 setting needs attention.', tone: 'attention', place: ['tablist', 'tabpanel'] });
+    const status = page.locator('#fresh .wk-settings-status');
+    assert.equal(await status.isVisible(), true);
+    await page.evaluate(() => { document.getElementById('fresh').errors = [{ field: 'general.copies', message: 'Keep at most 8 copies', code: 'max' }]; });
+    assert.equal(await status.textContent(), '2 settings need attention.');
+    // While the person types, the field's error clears at once, but the
+    // Notice waits until typing stops, and changes (announces) only when the count does.
+    await page.evaluate(() => {
+      window.noticeChanges = 0;
+      new MutationObserver(m => { window.noticeChanges += m.length; }).observe(document.querySelector('#fresh .wk-settings-status'), { subtree: true, childList: true, characterData: true });
+    });
+    const name = page.locator('#fresh [data-key="general.name"] input');
+    await name.focus();
+    await page.keyboard.type('Ana');
+    assert.equal(await name.getAttribute('aria-invalid'), null);
+    assert.equal(await status.textContent(), '2 settings need attention.', 'not on each keystroke');
+    assert.equal(await page.evaluate(() => window.noticeChanges), 0);
+    await page.clock.runFor(499);
+    assert.equal(await status.textContent(), '2 settings need attention.');
+    await page.clock.runFor(1);
+    assert.equal(await status.textContent(), '1 setting needs attention.', 'the count follows once typing stops');
+    const changes = await page.evaluate(() => window.noticeChanges);
+    assert.ok(changes > 0);
+    await page.keyboard.type('x');
+    await page.keyboard.press('Backspace');
+    await page.clock.runFor(500);
+    assert.equal(await page.evaluate(() => window.noticeChanges), changes, 'an unchanged count leaves the region alone');
+    await page.evaluate(() => { document.getElementById('fresh').errors = []; });
+    assert.equal(await status.textContent(), '');
+    assert.equal(await status.isVisible(), false);
+    // One group: the Notice sits under the heading.
+    const single = await page.evaluate(() => {
+      const el = document.getElementById('fresh');
+      el.schema = { groups: [{ key: 'only', label: 'Only', fields: [{ key: 'x', type: 'text', label: 'X', validation: { required: true } }] }] };
+      const status = el.querySelector('.wk-settings-status');
+      return [status.previousElementSibling.className, status.textContent];
+    });
+    assert.deepEqual(single, ['wk-settings-heading', '1 setting needs attention.']);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('settings window: reveal(key) opens on a field (its tab, the Advanced section) and focuses it', async () => {
+    const { page, problems } = await openSettings();
+    const r = await page.evaluate(() => {
+      const el = document.getElementById('demo-settings');
+      el.errors = [{ field: 'provider.endpoint', message: 'The endpoint must be https', code: 'check' }];
+      el.expand('provider', false);
+      return [el.reveal('provider.endpoint'), el.reveal('provider.port'), el.reveal('nope')];
+    });
+    assert.deepEqual(r, [true, false, false], 'a hidden or unknown field can\'t be revealed');
+    assert.equal(await page.locator('#demo-settings [role=tab]', { hasText: 'Provider' }).getAttribute('aria-selected'), 'true');
+    assert.equal(await page.locator('#demo-settings .wk-settings-advanced').getAttribute('aria-expanded'), 'true');
+    assert.equal(await page.evaluate(() => document.activeElement.closest('.wk-settings-row')?.dataset.key), 'provider.endpoint');
+    assert.equal(await row(page, 'provider.endpoint').locator('.wk-error').textContent(), 'The endpoint must be https');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+
+  await check('settings window: a value passes its check and applies while another required field is empty; a reply that didn\'t save it doesn\'t apply it', async () => {
+    const { page, problems } = await openSettings({ clock: true });
+    const name = row(page, 'general.name').locator('input');
+    await name.fill('');
+    await name.press('Tab');
+    assert.equal(await row(page, 'general.name').locator('.wk-error').textContent(), 'Display name is required');
+    // The demo's stand-in saves the one value, like CheckValue: no errors.
+    const folder = row(page, 'general.folder').locator('input');
+    await folder.fill('/work');
+    await folder.press('Tab');
+    await page.clock.runFor(600);
+    await page.clock.runFor(400);
+    await until(page, () => window.settingsEvents.at(-1)?.key === 'general.folder');
+    const e = await lastEvent(page);
+    assert.deepEqual([e.value, e.checked], ['/work', true]);
+    assert.equal(await row(page, 'general.name').locator('.wk-error').textContent(), 'Display name is required', 'the other field keeps its error');
+    // A reply with errors for other fields says the value wasn't saved: it doesn't apply.
+    await manualChecks(page);
+    const before = await eventCount(page);
+    await folder.fill('/other');
+    await folder.press('Tab');
+    await answer(page, 0, [{ field: 'general.name', message: 'Display name is required', code: 'required' }]);
+    await until(page, () => !document.querySelector('[data-key="general.folder"] .wk-error').hidden);
+    assert.equal(await row(page, 'general.folder').locator('.wk-error').textContent(), 'Your projects folder wasn\'t saved. Fix the other settings, then enter it again.');
+    assert.equal(await eventCount(page), before);
+    assert.equal(await page.evaluate(() => document.getElementById('demo-settings').values['general.folder']), '/work');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('settings window: a check failure the app passes in stays when another field changes, until its own field commits', async () => {
+    const { page, problems } = await openSettings({ clock: true });
+    await manualChecks(page);
+    // As when Settings reopens on CheckFailures(): an error, no draft.
+    await page.evaluate(() => { document.getElementById('demo-settings').errors = [{ field: 'general.folder', message: 'There is no folder at this path. Choose a folder that exists.', code: 'check' }]; });
+    const error = row(page, 'general.folder').locator('.wk-error');
+    await row(page, 'general.launch').locator('label').click();
+    assert.equal((await lastEvent(page)).key, 'general.launch');
+    assert.equal(await error.textContent(), 'There is no folder at this path. Choose a folder that exists.', 'the app\'s reply to the other change keeps it');
+    await page.evaluate(() => { document.getElementById('demo-settings').validate = () => []; });
+    await row(page, 'general.copies').locator('button[aria-label=More]').click();
+    assert.equal(await error.isVisible(), true, 'and so does validate on another change');
+    const folder = row(page, 'general.folder').locator('input');
+    await folder.fill('/fixed');
+    await folder.press('Tab');
+    await answer(page, 0, []);
+    await until(page, () => window.settingsEvents.at(-1)?.key === 'general.folder');
+    assert.equal(await error.isVisible(), false);
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+
+  await check('settings window: a value the window\'s own validation rejects still goes to the back end, so an older check can\'t save the value it replaced', async () => {
+    const { page, problems } = await openSettings({ clock: true });
+    await manualChecks(page);
+    await page.evaluate(() => { document.getElementById('demo-settings').validate = (schema, values) => String(values['general.folder'] ?? '').length > 12 ? [{ field: 'general.folder', message: 'Use 12 characters or fewer', code: 'max_length' }] : []; });
+    const folder = row(page, 'general.folder').locator('input');
+    const error = row(page, 'general.folder').locator('.wk-error');
+    await folder.fill('/good');
+    await folder.press('Tab');
+    // While /good is being checked, the person commits a value the window rejects itself.
+    await folder.fill('/a-very-long-path');
+    await folder.press('Tab');
+    assert.equal(await error.textContent(), 'Use 12 characters or fewer');
+    await until(page, () => window.checks.length === 2);
+    assert.equal(await page.evaluate(() => window.checks[1].values['general.folder']), '/a-very-long-path', 'the back end hears of the new value, and overtakes its check of /good');
+    // The window ignores both replies: /good was abandoned, and the new value's errors are shown already.
+    await answer(page, 0, []);
+    await answer(page, 1, [{ field: 'general.folder', message: 'General folder must be at most 12 characters', code: 'max_length' }]);
+    await page.clock.runFor(1000);
+    assert.equal(await page.evaluate(() => window.settingsEvents.some(e => e.key === 'general.folder')), false);
+    assert.equal(await error.textContent(), 'Use 12 characters or fewer');
+    // A live re-check of an invalid draft goes to the back end too, once typing stops.
+    await folder.focus();
+    await page.keyboard.press('End');
+    await page.keyboard.type('xyz');
+    await page.clock.runFor(499);
+    assert.equal(await page.evaluate(() => window.checks.length), 2);
+    await page.clock.runFor(1);
+    assert.equal(await page.evaluate(() => window.checks.length), 3);
+    assert.equal(await page.evaluate(() => window.checks[2].values['general.folder']), '/a-very-long-pathxyz');
+    assert.equal(await error.textContent(), 'Use 12 characters or fewer');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('settings window: a check failure the window kept goes when the app sets a new value for that field', async () => {
+    const { page, problems } = await openSettings();
+    const error = row(page, 'general.folder').locator('.wk-error');
+    const look = await page.evaluate(() => {
+      const el = document.getElementById('demo-settings');
+      const out = [];
+      el.errors = [{ field: 'general.folder', message: 'There is no folder at this path. Choose a folder that exists.', code: 'check' }];
+      el.errors = []; // an empty CheckFailures() keeps it: it is about the field, not the app's last reply
+      out.push(el.errors.length);
+      el.values = { ...el.values }; // the same value keeps it
+      out.push(el.errors.length);
+      el.values = { ...el.values, 'general.folder': '/saved/elsewhere' };
+      out.push(el.errors.length);
+      return out;
+    });
+    assert.deepEqual(look, [1, 1, 0]);
+    assert.equal(await error.isVisible(), false);
+    assert.equal(await row(page, 'general.folder').locator('input').inputValue(), '/saved/elsewhere');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
+  await check('settings window: in forced colours, the pending words and their spinner, and the Notice\'s outline and words, take system colours', async () => {
+    const { page, problems } = await openSettings({ forcedColors: 'active', clock: true });
+    await manualChecks(page);
+    const folder = row(page, 'general.folder').locator('input');
+    await folder.fill('/f');
+    await folder.press('Tab');
+    await page.clock.runFor(400);
+    await page.evaluate(() => { document.getElementById('demo-settings').errors = [{ field: 'general.copies', message: 'x', code: 'max' }]; });
+    const look = await page.evaluate(() => {
+      const probe = c => { const e = document.createElement('i'); e.style.forcedColorAdjust = 'none'; e.style.color = c; document.body.append(e); const v = getComputedStyle(e).color; e.remove(); return v; };
+      const spinner = getComputedStyle(document.querySelector('[data-key="general.folder"] .wk-spinner'));
+      const words = getComputedStyle(document.querySelector('[data-key="general.folder"] .wk-settings-pending'));
+      const notice = getComputedStyle(document.querySelector('#demo-settings .wk-settings-status .wk-notice'));
+      const bold = getComputedStyle(document.querySelector('#demo-settings .wk-settings-status b'));
+      return {
+        canvasText: probe('CanvasText'), canvas: probe('Canvas'),
+        spinner: [spinner.borderTopStyle, spinner.borderTopWidth !== '0px', spinner.borderTopColor, spinner.borderRightColor],
+        words: words.color,
+        // The system keeps a background's alpha: compare its colour channels.
+        notice: [notice.borderTopStyle, notice.borderTopWidth !== '0px', notice.borderTopColor, notice.backgroundColor.match(/\d+/g).slice(0, 3).join()],
+        bold: bold.color,
+      };
+    });
+    const { canvasText } = look;
+    const canvas = look.canvas.match(/\d+/g).slice(0, 3).join();
+    assert.notEqual(canvasText, look.canvas);
+    assert.deepEqual(look.spinner, ['solid', true, canvasText, 'rgba(0, 0, 0, 0)'], 'the spinner is drawn with a CanvasText border, open on one side');
+    assert.equal(look.words, canvasText, 'the pending words read as text');
+    assert.deepEqual(look.notice, ['solid', true, canvasText, canvas], 'the Notice keeps a CanvasText outline on Canvas');
+    assert.equal(look.bold, canvasText);
     assert.deepEqual(problems, []);
     await page.close();
   });
