@@ -1,6 +1,6 @@
-# Dependabot version updates. frontend/editor bundles its libraries into a
-# committed dist/: after an update, run npm run build there and commit dist/
-# (the build check fails until then).
+# Dependabot version updates. frontend/editor and frontend/diagram bundle
+# their libraries into a committed dist/: after an update, run npm run build
+# there and commit dist/ (the build check fails until then).
 version: 2
 updates:
   - package-ecosystem: npm
@@ -14,3 +14,7 @@ updates:
           - "@codemirror/*"
           - "@lezer/*"
           - "style-mod"
+  - package-ecosystem: npm
+    directory: /frontend/diagram
+    schedule:
+      interval: weekly
