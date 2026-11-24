@@ -82,19 +82,23 @@ import { wkChart } from './vendor/wails-kit-ui/wails-kit-ui.js';
 
 `dist/wails-kit-ui.js` exports exactly what the package entry exports, and
 `dist/wails-kit-ui.css` is `src/ui.css` with its imports inlined. Neither loads
-anything else, fonts included. The first line of each file names the package version; the tag, commit and
-checksums recorded above identify the exact vendored release.
+anything else, fonts included. The first line of each file names the package
+version; the tag, commit and checksums recorded above identify the exact
+vendored release.
 
 ## Font
 
 The kit sets text in the platform's own UI font and bundles none:
 `--wk-font-family` is `system-ui`, then the named system fonts for engines
-that lack it (`-apple-system`, `BlinkMacSystemFont`, `"Segoe UI"`, `Ubuntu`,
-`Cantarell`, `"Noto Sans"`, `"Helvetica Neue"`, `Arial`), then `sans-serif`.
-That is San Francisco on macOS, Segoe UI on Windows and the desktop's font
-on Linux, so a kit app reads like the other apps on the machine, and no
-font file is shipped, licensed or loaded. Code, keys and other monospace text
-use `--wk-font-family-mono` (`ui-monospace` first), as before.
+that lack it (`-apple-system`, `BlinkMacSystemFont`, `"Segoe UI"`,
+`"Noto Sans"`, `Cantarell`, `Ubuntu`, `"Helvetica Neue"`, `Arial`), then
+`sans-serif`. That is San Francisco on macOS, Segoe UI on Windows and the
+desktop's font on Linux, so a kit app reads like the other apps on the
+machine, and no font file is shipped, licensed or loaded. On a Windows CJK
+locale, `system-ui` is the locale's UI font (such as Yu Gothic UI or
+Microsoft YaHei UI), which also draws Latin text; that is intended. Code,
+keys and other monospace text use `--wk-font-family-mono` (`ui-monospace`
+first), as before.
 
 System fonts differ in their metrics, so the same size can render slightly
 wider or narrower, and wrap differently, on each system. The type scale (11

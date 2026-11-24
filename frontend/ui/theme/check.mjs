@@ -148,7 +148,11 @@ export function derive(get, mode) {
   };
 }
 
-const firstFamily = v => (v || '').split(',')[0].trim().replace(/^["']|["']$/g, '').toLowerCase();
+const firstEntry = v => (v || '').split(',')[0].trim();
+const firstFamily = v => firstEntry(v).replace(/^["']|["']$/g, '').toLowerCase();
+// A quoted name is a font family, never a generic keyword: "system-ui" in
+// quotes names a font called system-ui, which WKWebView and WebView2 lack.
+const isQuoted = v => /^["']/.test(firstEntry(v));
 const px = v => (/^-?[\d.]+px$/.test(v || '') ? parseFloat(v) : NaN);
 
 // The increased-contrast mixes in the kit's stylesheet: the token, and the
@@ -217,6 +221,8 @@ export function checkTheme(themeCss, kitCss, { exceptions = {}, requireIdentity 
   }
   if (theme.light.has(FONT) && firstFamily(theme.light.get(FONT)) !== firstFamily(kit.light.get(FONT))) {
     add('font', `${FONT} starts with "${firstFamily(theme.light.get(FONT))}"; a theme only adds fallbacks after the kit's "${firstFamily(kit.light.get(FONT))}"`);
+  } else if (theme.light.has(FONT) && isQuoted(theme.light.get(FONT)) && !isQuoted(kit.light.get(FONT))) {
+    add('font', `${FONT} starts with ${firstEntry(theme.light.get(FONT))} in quotes, a font name; the kit's ${firstEntry(kit.light.get(FONT))} is a keyword, so a theme writes it unquoted`);
   }
 
   // Format: identity and ground colours are opaque #rrggbb, so the kit can

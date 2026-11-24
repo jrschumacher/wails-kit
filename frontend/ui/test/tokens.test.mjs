@@ -174,6 +174,7 @@ test('the theme check catches each way a theme breaks the contract', () => {
   assert.deepEqual(rulesOf(base.replace('--wk-radius-group: 10px;', '--wk-radius-group: 11px;')), ['radii']);
   assert.deepEqual(rulesOf(base.replace('--wk-radius-control: 7px;', '--wk-radius-control: 7px;\n  --wk-font-family: "Avenir Next", sans-serif;')), ['font']);
   assert.deepEqual(rulesOf(base.replace('--wk-radius-control: 7px;', '--wk-radius-control: 7px;\n  --wk-font-family: -apple-system, system-ui, sans-serif;')), ['font'], 'system-ui stays first');
+  assert.deepEqual(rulesOf(base.replace('--wk-radius-control: 7px;', '--wk-radius-control: 7px;\n  --wk-font-family: "system-ui", sans-serif;')), ['font'], 'a quoted "system-ui" names a font, not the keyword');
   assert.deepEqual(rulesOf(base.replace('--wk-radius-control: 7px;', '--wk-radius-control: 7px;\n  --wk-font-family: system-ui, "Noto Sans Arabic", sans-serif;')), [], 'a fallback after system-ui');
   assert.deepEqual(rulesOf(base.replace('--wk-color-accent: #1f6b55;\n', '')), ['identity', 'tokens']);
   // Grounds: all ten from the warm fixture, then each rule broken in turn.
