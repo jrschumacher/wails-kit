@@ -92,8 +92,10 @@ func WithCheckTimeout(d time.Duration) ServiceOption {
 //   - A failure is recorded (CheckFailures), emitted as EventCheckFailed and
 //     returned as a ValidationError with CodeCheck; nothing is saved.
 //   - When the key changed while the check ran (a newer CheckValue for it,
-//     or a SetValues that changed it), nothing is saved, recorded or
-//     emitted, and the result is a CodeCheck error saying so.
+//     even one whose value failed validation, or a SetValues that changed
+//     it), nothing is saved, recorded or emitted, and the result is a
+//     CodeCheck error saying so. A SetValues given the key's saved value
+//     unchanged doesn't count: see SetValues.
 func (s *Service) CheckValue(key string, values map[string]any) ([]ValidationError, error) {
 	field, fn, ok := s.checkFor(key)
 	if !ok {
@@ -127,12 +129,13 @@ func (s *Service) CheckValue(key string, values map[string]any) ([]ValidationErr
 		saveErr := s.saveOneLocked(field, value)
 		if saveErr == nil {
 			delete(s.failures, key)
+			s.queueSavedLocked()
 		}
 		s.mu.Unlock()
 		if saveErr != nil {
 			return nil, errors.Wrap(errors.ErrStorageWrite, "save checked setting", saveErr)
 		}
-		s.notifySaved()
+		s.deliver()
 		return nil, nil
 	}
 	failure := ValidationError{Field: key, Message: checkMessage(err), Code: CodeCheck}
@@ -204,9 +207,9 @@ func (s *Service) saveOneLocked(field Field, value any) error {
 	return s.store.Save(map[string]any{field.Key: value})
 }
 
-// notifySaved calls the onChange callbacks with every saved value (secrets
-// masked) after CheckValue saves one.
-func (s *Service) notifySaved() {
+// queueSavedLocked queues an onChange notification with every saved value
+// (secrets masked) after CheckValue saves one. The caller holds s.mu.
+func (s *Service) queueSavedLocked() {
 	if len(s.onChange) == 0 {
 		return
 	}
@@ -219,9 +222,7 @@ func (s *Service) notifySaved() {
 			values[k] = SecretMask
 		}
 	}
-	for _, fn := range s.onChange {
-		fn(values)
-	}
+	s.queueNotify(values)
 }
 
 // runCheck runs fn under the check timeout, returning when it does or when

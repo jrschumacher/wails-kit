@@ -27,6 +27,12 @@ type Service struct {
 	// its key's generation is still the one it started with.
 	gen      map[string]uint64
 	failures map[string]ValidationError // guarded by mu
+
+	// The onChange notifications waiting to be delivered, queued under mu in
+	// save order and delivered by deliver() without it (guarded by notifyMu).
+	notifyMu    sync.Mutex
+	notifyQueue []map[string]any
+	delivering  bool
 }
 
 type ServiceOption func(*Service)
@@ -161,12 +167,24 @@ func (s *Service) GetSecret(key string) (string, error) {
 // SetValues validates and saves settings. Password fields with the mask
 // sentinel are skipped (no change). Empty string clears a secret.
 // A key whose value it changes has its running check made out of date and
-// its recorded check failure dropped (see CheckValue).
+// its recorded check failure dropped (see CheckValue). A key it is given
+// with the value already saved (the mask, for a password) is not a change:
+// it doesn't overtake a check running for that key, so the window's saves
+// of other fields, which carry every value, leave its checks alone.
+// The onChange callbacks run after the service's lock is released, in save
+// order, so they may call back into the service.
 // This method is safe for concurrent use.
 func (s *Service) SetValues(values map[string]any) ([]ValidationError, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	errs, err := s.setValuesLocked(values)
+	s.mu.Unlock()
+	// The onChange callbacks run after the lock is released, so they may call
+	// back into the service, and in the order the saves happened.
+	s.deliver()
+	return errs, err
+}
 
+func (s *Service) setValuesLocked(values map[string]any) ([]ValidationError, error) {
 	if errs := Validate(s.schema, values); errs != nil {
 		return errs, nil
 	}
@@ -221,11 +239,48 @@ func (s *Service) SetValues(values map[string]any) ([]ValidationError, error) {
 			notifyValues[k] = SecretMask
 		}
 	}
-	for _, fn := range s.onChange {
-		fn(notifyValues)
-	}
+	s.queueNotify(notifyValues)
 
 	return nil, nil
+}
+
+// queueNotify queues one onChange notification. The caller holds s.mu, so
+// notifications queue in the order the saves happened.
+func (s *Service) queueNotify(values map[string]any) {
+	if len(s.onChange) == 0 {
+		return
+	}
+	s.notifyMu.Lock()
+	s.notifyQueue = append(s.notifyQueue, values)
+	s.notifyMu.Unlock()
+}
+
+// deliver runs the queued onChange notifications, one at a time and in
+// order, without holding s.mu. If another call is already delivering (on
+// another goroutine, or further up this one's stack when a callback saved
+// again), it leaves the queue to that call, which delivers it next.
+func (s *Service) deliver() {
+	s.notifyMu.Lock()
+	if s.delivering {
+		s.notifyMu.Unlock()
+		return
+	}
+	s.delivering = true
+	defer func() {
+		s.notifyMu.Lock()
+		s.delivering = false
+		s.notifyMu.Unlock()
+	}()
+	for len(s.notifyQueue) > 0 {
+		values := s.notifyQueue[0]
+		s.notifyQueue = s.notifyQueue[1:]
+		s.notifyMu.Unlock()
+		for _, fn := range s.onChange {
+			fn(values)
+		}
+		s.notifyMu.Lock()
+	}
+	s.notifyMu.Unlock()
 }
 
 // changes reports whether SetValues writing v to key changes it: a new secret

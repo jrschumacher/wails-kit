@@ -3,7 +3,10 @@ package settings
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -373,5 +376,88 @@ func TestInSentence(t *testing.T) {
 		if got := inSentence(in); got != want {
 			t.Errorf("inSentence(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// An onChange callback may call back into the service: the callbacks run
+// after the lock is released. Notifications keep the order of the saves,
+// including those a callback makes itself.
+func TestOnChange_MayCallBackIntoTheService(t *testing.T) {
+	var svc *Service
+	var seen []string
+	var failures [][]ValidationError
+	calledBack := false
+	onChange := func(v map[string]any) {
+		seen = append(seen, fmt.Sprint(v["account.name"], " ", v["account.folder"]))
+		failures = append(failures, svc.CheckFailures())
+		if !calledBack {
+			calledBack = true
+			// A save from inside a callback is delivered after this one returns.
+			if errs, err := svc.CheckValue("account.folder", map[string]any{"account.folder": "/from-callback"}); errs != nil || err != nil {
+				t.Errorf("%v %v", errs, err)
+			}
+			seen = append(seen, "callback returned")
+		}
+	}
+	svc, _ = checkedService(t, rejectBad, WithOnChange(onChange))
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := svc.SetValues(map[string]any{"account.name": "first", "account.token": "tok-1"}); err != nil {
+			t.Error(err)
+		}
+		if _, err := svc.SetValues(map[string]any{"account.name": "second", "account.token": SecretMask}); err != nil {
+			t.Error(err)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("deadlock: an onChange callback that calls the service never returned")
+	}
+	// SetValues notifies with the values it was given; CheckValue with every saved value.
+	want := []string{"first <nil>", "callback returned", "first /from-callback", "second <nil>"}
+	if fmt.Sprint(seen) != fmt.Sprint(want) {
+		t.Errorf("notifications %q, want %q", seen, want)
+	}
+	if len(failures) != 3 {
+		t.Errorf("CheckFailures calls = %d", len(failures))
+	}
+}
+
+// Concurrent saves still notify one at a time, each save once.
+func TestOnChange_ConcurrentSavesNotifyOneAtATime(t *testing.T) {
+	var running, calls, saves int32
+	svc, _ := checkedService(t, rejectBad, WithOnChange(func(map[string]any) {
+		if atomic.AddInt32(&running, 1) != 1 {
+			t.Error("two callbacks ran at once")
+		}
+		atomic.AddInt32(&calls, 1)
+		atomic.AddInt32(&running, -1)
+	}))
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var errs []ValidationError
+			var err error
+			if i%2 == 0 {
+				errs, err = svc.SetValues(map[string]any{"account.name": fmt.Sprint(i), "account.token": "tok"})
+			} else {
+				// Concurrent checks of one key overtake each other: some don't save.
+				errs, err = svc.CheckValue("account.folder", map[string]any{"account.folder": fmt.Sprint("/", i)})
+			}
+			if errs == nil && err == nil {
+				atomic.AddInt32(&saves, 1)
+			}
+		}()
+	}
+	wg.Wait()
+	// A save whose notification another goroutine was delivering may return
+	// first; one more save drains the queue.
+	_, _ = svc.SetValues(map[string]any{"account.name": "last", "account.token": SecretMask})
+	if got, want := atomic.LoadInt32(&calls), atomic.LoadInt32(&saves)+1; got != want {
+		t.Errorf("callbacks = %d, want one per save, %d", got, want)
 	}
 }

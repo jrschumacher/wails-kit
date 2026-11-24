@@ -205,7 +205,11 @@ The settings window calls the `CheckValue(key, values)` binding for such a field
 - on a failure, saves nothing, records the failure (`CheckFailures()`), emits `settings:check_failed`, and returns a `ValidationError` with code `check`. The message is the error's `*errors.UserError` user message, else `ErrCheckFailed`'s; a raw error never reaches the person;
 - when the key changed while the check ran (a newer `CheckValue` for it, including one whose value failed validation, or a `SetValues` that changed it), saves, records and emits nothing, and returns a `check` error: "This setting changed while it was being checked. Enter it again to check it." Each key has a generation, guarded by the service's lock, that both bump; the save happens under that lock only if the generation is still the check's own.
 
-`CheckFailures()` returns the failures that haven't passed since, in schema order. A `SetValues` that changes the key drops its failure too. When Settings opens, pass them in as its errors and open it on the first one (`<wk-settings>`'s `reveal(key)`).
+`CheckFailures()` returns the failures that haven't passed since, in schema order. A `SetValues` that changes the key drops its failure too.
+
+A `SetValues` given a key's saved value unchanged (the mask, for a password) doesn't count as a change: it neither overtakes a running check for that key nor drops its failure. That is what lets the window save other fields, sending every value, while a check runs.
+
+`onChange` callbacks run after the service's lock is released, one at a time and in the order the saves happened, so a callback may call `GetValues`, `SetValues`, `CheckValue` or `CheckFailures`. A save made from inside a callback is delivered after that callback returns. When saves race on several goroutines, a save's callbacks may run on whichever goroutine is already delivering, so `SetValues` can return before they have run. When Settings opens, pass them in as its errors and open it on the first one (`<wk-settings>`'s `reveal(key)`).
 
 | Option | |
 |---|---|
