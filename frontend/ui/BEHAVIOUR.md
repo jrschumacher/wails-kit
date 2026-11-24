@@ -579,6 +579,9 @@ Where shipped code doesn't yet follow this page:
 - The diff view's "Show more" button sets `disabled` while loading, which drops focus,
   and each hunk has its own `aria-live` note instead of the shared announcer.
 - `wk-copy` is styling only: the app copies, and nothing gives feedback.
+- The Markdown editor (`@wails-kit/editor/markdown`) marks its submit button busy at
+  once while `onsubmit`'s promise is pending, with no 400 ms indicator and nothing sent
+  to the announcer; it waits for `wkTask`.
 - The design system's Button card documents `disabled` and the locked state, but no
   busy state; the kit's README documents it.
 - On Windows, Wails's question dialog offers only Yes and No, so the `desktop`
