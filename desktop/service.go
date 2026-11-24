@@ -144,9 +144,10 @@ func WithClock(c tasks.Clock) ServiceOption {
 
 // WithReaskAfter lets a quit attempt ask again when the last question has
 // gone this long without an answer: for a dialog that can be dismissed
-// without answering (a GTK dialog closed with Esc runs no button). An
-// earlier question's answer still counts when it comes. 0 (the default)
-// never asks while a question is open. Attach sets 1 min on Linux.
+// without answering (a GTK dialog closed with Esc runs no button). Asking
+// again abandons the earlier question: an answer from it no longer counts.
+// 0 (the default) never asks while a question is open. Attach sets 2 s on
+// Linux, which absorbs a double press of Quit.
 func WithReaskAfter(d time.Duration) ServiceOption {
 	return func(s *Service) {
 		if d >= 0 {
@@ -201,8 +202,9 @@ type Service struct {
 	sent         map[string][]string // notification ID -> task IDs
 	sentOrder    []string
 	windows      map[uint]bool // focused windows, by ID (WindowFocused)
-	asked        int           // quit questions open
-	askedAt      time.Time     // when the last one was asked
+	askGen       int           // the latest quit question; earlier ones are abandoned
+	askOpen      bool          // the latest quit question has no answer yet
+	askedAt      time.Time     // when the latest one was asked
 	reaskAfter   time.Duration // a quit attempt this long after an unanswered question asks again
 	quitAllowed  bool
 	quitPending  bool
@@ -213,6 +215,7 @@ type Service struct {
 	started     bool
 	shownBadge  int
 	shownBar    taskbarWant
+	lastBarErr  string // the taskbar's last error, reported once until it changes or clears
 	notifyMu    sync.Mutex
 	askedNotify bool
 }
@@ -410,11 +413,17 @@ func (s *Service) apply() {
 		default:
 			err = s.taskbar.SetProgressState(bar.state)
 		}
-		s.report(err)
 		if err == nil {
-			s.shownBar = bar // else the next change tries again from what is shown
+			s.shownBar = bar
+			s.lastBarErr = ""
 		} else {
+			// The next change tries again from scratch. A taskbar that keeps
+			// failing the same way (no taskbar button) is reported once.
 			s.shownBar = taskbarWant{state: -1}
+			if err.Error() != s.lastBarErr {
+				s.lastBarErr = err.Error()
+				s.report(err)
+			}
 		}
 	}
 }
@@ -611,9 +620,11 @@ func (s *Service) ShouldQuit() bool {
 		return true
 	}
 	now := s.clock.Now()
-	if s.asked == 0 || (s.reaskAfter > 0 && now.Sub(s.askedAt) >= s.reaskAfter) {
-		s.asked++
+	if !s.askOpen || (s.reaskAfter > 0 && now.Sub(s.askedAt) >= s.reaskAfter) {
+		s.askGen++
+		s.askOpen = true
 		s.askedAt = now
+		gen := s.askGen
 		q := QuitQuestion{
 			Message:      s.words.QuitMessage(s.running),
 			Detail:       s.words.QuitDetail,
@@ -622,22 +633,27 @@ func (s *Service) ShouldQuit() bool {
 			QuitWhenDone: s.words.QuitWhenDone,
 			QuitNow:      s.words.QuitNow,
 		}
-		go s.ask(s.asker, q)
+		go s.ask(s.asker, q, gen)
 	}
 	s.mu.Unlock()
 	return false
 }
 
-// ask asks one quit question and applies the answer whenever it comes,
-// even after another question was asked (see WithReaskAfter).
-func (s *Service) ask(asker Asker, q QuitQuestion) {
+// ask asks one quit question and applies the answer, unless a newer
+// question has been asked since (see WithReaskAfter).
+func (s *Service) ask(asker Asker, q QuitQuestion, gen int) {
 	choice := asker.AskQuit(q)
 	s.mu.Lock()
-	s.asked--
+	if gen != s.askGen {
+		s.mu.Unlock()
+		return // abandoned: a newer question was asked
+	}
+	s.askOpen = false
 	quit, pending := false, false
 	switch {
-	case s.quitAllowed || s.closed:
-		// Already quitting, or closed: nothing more to do.
+	case s.closed:
+		// Closed: nothing more to do. (Only the latest question's answer
+		// gets here, so the app can't already be quitting.)
 	case choice == QuitNow:
 		s.quitAllowed, s.quitPending, quit = true, false, true
 	case choice == QuitWhenDone:

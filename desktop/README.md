@@ -76,7 +76,10 @@ The badge needs Wails's dock service registered with the app
 ### What Attach does
 
 `Attach(app)` wires the service to a Wails app. Call it after `application.New` and
-before `app.Run`. It:
+**before `app.Run`**: it starts the service on Wails's `ApplicationStarted`, which has
+already fired once the app runs, and Wails doesn't expose whether it is running. If
+you attach from a running app (in a service's `ServiceStartup`, say), call
+`desk.Start()` right after `Attach`. It:
 
 - follows every window's focus, so notifications and the taskbar's Error state know
   whether the person is watching;
@@ -146,7 +149,8 @@ Wails doesn't expose `ITaskbarList3`'s progress: the adapter uses the object Wai
 `w32` package creates and calls `SetProgressState` and `SetProgressValue` through its
 vtable, on the main thread, for every window; a window that fails doesn't stop the
 others, and the failures come back joined, each with its HRESULT. A state that failed
-to draw is drawn again on the next change. No cgo. Only amd64 and arm64: 32-bit Windows
+to draw is drawn again on the next change; the same failure again (no taskbar button
+yet) reaches `WithErrorHandler` once, until it changes or a draw succeeds. No cgo. Only amd64 and arm64: 32-bit Windows
 gets no taskbar progress. macOS has no standard Dock
 progress (it needs a custom Dock tile view, which Wails doesn't expose), and Linux has
 no standard equivalent, so there is no taskbar there.
@@ -187,10 +191,12 @@ default), without Quit When Done. An app that wants all three choices on Windows
 its own `Asker` (`WithAsker`), such as a sheet in the window.
 
 A Linux (GTK) dialog closed with Esc runs no button, and Wails can't close or query a
-dialog. So on Linux the question stays open as far as the service knows: a quit within a
-minute doesn't ask again, and one after a minute does (`WithReaskAfter`, which `Attach`
-sets on Linux). An answer from an earlier dialog still counts whenever it comes; once
-the app is quitting, later answers do nothing.
+dialog. Wails's GTK dialog is modal and destroyed on Esc, so no answer can come from it
+later. So on Linux a quit more than 2 s after an unanswered question asks again
+(`WithReaskAfter`, which `Attach` sets on Linux; the 2 s absorbs a double press), and
+the unanswered question is abandoned: if an answer from it did arrive, it wouldn't
+count. Each question is a generation: once a newer one is asked or answered, older
+ones no longer hold up quitting.
 
 ## Launch background
 
@@ -234,7 +240,7 @@ lines, outlines and secondary text under `prefers-contrast: more`, live.
 | `WithGroupWindow(d)` | 1 s | How long to wait for other tasks to end with one, to share a notification |
 | `WithBackground(light, dark)` | the kit's `bg` | The window background in each appearance |
 | `WithClock(c)` | real clock | The tasks package's `Clock`; tests inject a fake |
-| `WithReaskAfter(d)` | 0 (Linux: 1 min, from `Attach`) | Ask again when a quit comes this long after an unanswered question |
+| `WithReaskAfter(d)` | 0 (Linux: 2 s, from `Attach`) | Ask again when a quit comes this long after an unanswered question |
 | `WithErrorHandler(f)` | ignore | Errors from the notifier, badge and taskbar, which never stop the work |
 
 ## Methods

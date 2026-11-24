@@ -760,6 +760,59 @@ func (f *flakyTaskbar) SetProgressState(s TaskbarState) error {
 	return f.fakeOS.SetProgressState(s)
 }
 
+// brokenTaskbar always fails the same way.
+type brokenTaskbar struct{ calls int }
+
+func (b *brokenTaskbar) SetProgressState(TaskbarState) error {
+	b.calls++
+	return stderrors.New("no taskbar button")
+}
+func (b *brokenTaskbar) SetProgressValue(uint64, uint64) error {
+	b.calls++
+	return stderrors.New("no taskbar button")
+}
+
+func TestRepeatedTaskbarErrorsAreReportedOnce(t *testing.T) {
+	bar := &brokenTaskbar{}
+	var errs []error
+	h := newHarness(t, WithBadge(nil), WithTaskbar(bar), WithErrorHandler(func(err error) { errs = append(errs, err) }))
+	k := h.add(tasks.Spec{})
+	for i := range 5 {
+		k.Progress(tasks.Progress{Done: int64(i), Total: 10})
+	}
+	if bar.calls < 5 {
+		t.Fatalf("taskbar calls = %d: it should keep trying", bar.calls)
+	}
+	if len(errs) != 1 {
+		t.Fatalf("errors reported = %d, want 1 for the same failure", len(errs))
+	}
+}
+
+// flakyBadge fails its first SetBadge.
+type flakyBadge struct {
+	fakeOS
+	failed bool
+}
+
+func (f *flakyBadge) SetBadge(label string) error {
+	if !f.failed {
+		f.failed = true
+		return stderrors.New("dock not ready")
+	}
+	return f.fakeOS.SetBadge(label)
+}
+
+func TestBadgeIsKeptOnlyWhenDrawn(t *testing.T) {
+	badge := &flakyBadge{}
+	h := newHarness(t, WithTaskbar(nil), WithBadge(badge))
+	k := h.add(tasks.Spec{})
+	k.Fail(stderrors.New("x"), "Couldn't") // the first draw fails
+	h.add(tasks.Spec{})                    // the same count: drawn now
+	if got, want := badge.take(), []string{"badge 1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("badge calls = %q, want %q", got, want)
+	}
+}
+
 func TestTaskbarStateIsKeptOnlyWhenDrawn(t *testing.T) {
 	bar := &flakyTaskbar{fail: 1}
 	var errs []error
@@ -814,32 +867,89 @@ func TestWindowFocusOutOfOrder(t *testing.T) {
 	}
 }
 
+// seqAsker gives each question its own answer channel, so a test can
+// answer a particular one.
+type seqAsker struct{ asked chan chan QuitChoice }
+
+func newSeqAsker() *seqAsker { return &seqAsker{asked: make(chan chan QuitChoice, 4)} }
+
+func (a *seqAsker) AskQuit(QuitQuestion) QuitChoice {
+	reply := make(chan QuitChoice)
+	a.asked <- reply
+	return <-reply
+}
+
+func (a *seqAsker) next(t *testing.T, when string) chan QuitChoice {
+	t.Helper()
+	select {
+	case r := <-a.asked:
+		return r
+	case <-time.After(time.Second):
+		t.Fatalf("didn't ask %s", when)
+		return nil
+	}
+}
+
+func (a *seqAsker) none(t *testing.T, when string) {
+	t.Helper()
+	select {
+	case <-a.asked:
+		t.Fatalf("asked %s", when)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// answered waits until the latest question has its answer applied.
+func answered(t *testing.T, s *Service) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.Lock()
+		open := s.askOpen
+		s.mu.Unlock()
+		if !open {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("the answer wasn't applied")
+}
+
 func TestReaskAfterAnUnansweredQuestion(t *testing.T) {
-	asker := newAsker()
+	asker := newSeqAsker()
 	quit := make(chan struct{}, 2)
 	h := newHarness(t, WithAsker(asker), WithQuit(func() { quit <- struct{}{} }), WithReaskAfter(time.Minute))
 	h.add(tasks.Spec{})
 	h.desk.ShouldQuit()
-	<-asker.asked // dismissed with Esc: never answered
+	first := asker.next(t, "on the first quit") // left unanswered
 	h.clock.Advance(30 * time.Second)
 	h.desk.ShouldQuit()
-	select {
-	case <-asker.asked:
-		t.Fatal("asked again before the re-ask time")
-	case <-time.After(50 * time.Millisecond):
-	}
+	asker.none(t, "again before the re-ask time")
 	h.clock.Advance(30 * time.Second)
 	h.desk.ShouldQuit()
-	select {
-	case <-asker.asked:
-	case <-time.After(time.Second):
-		t.Fatal("didn't ask again after the re-ask time")
-	}
-	// The first question's answer, late, still counts.
-	asker.answer <- QuitNow
-	waitQuit(t, quit, true)
-	asker.answer <- QuitNow // the second dialog's: already quitting
+	second := asker.next(t, "after the re-ask time")
+	// The first question is abandoned: an answer from it doesn't count.
+	first <- QuitNow
 	waitQuit(t, quit, false)
+	second <- QuitNow
+	waitQuit(t, quit, true)
+}
+
+// The reviewer's case: an Esc-dismissed question must not swallow later
+// quits once a newer question has been answered.
+func TestQuitAfterAnAbandonedQuestionAsksAgain(t *testing.T) {
+	asker := newSeqAsker()
+	h := newHarness(t, WithAsker(asker), WithReaskAfter(time.Minute)) // wider than the 5 s: the generation matters, not the window
+	h.add(tasks.Spec{})
+	h.desk.ShouldQuit()
+	asker.next(t, "on the first quit") // dismissed with Esc
+	h.clock.Advance(60 * time.Second)
+	h.desk.ShouldQuit()
+	asker.next(t, "after an abandoned question") <- QuitKeepRunning
+	answered(t, h.desk)
+	h.clock.Advance(5 * time.Second)
+	h.desk.ShouldQuit()
+	asker.next(t, "5 s after Keep Running") <- QuitKeepRunning
 }
 
 func TestNeedsPersonDecidesTheTaskbarError(t *testing.T) {

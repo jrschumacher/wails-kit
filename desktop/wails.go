@@ -31,7 +31,10 @@ func (s *Service) WindowBackground(app *application.App) application.RGBA {
 }
 
 // Attach wires the service to a Wails app. Call it after application.New
-// and before app.Run. It:
+// and before app.Run: it starts the service on Wails's ApplicationStarted,
+// which has already fired once the app runs, and Wails doesn't say whether
+// it is running. Attaching from a running app (a service's ServiceStartup,
+// a window event) must be followed by Start. It:
 //
 //   - follows every window's focus, so notifications and the taskbar's
 //     Error state know whether the person is watching;
@@ -163,8 +166,10 @@ func bringForward(app *application.App) {
 
 // linuxReaskAfter is how long an unanswered quit question on Linux holds
 // up asking again: a GTK dialog closed with Esc runs no button's callback,
-// and Wails can't close or query the dialog.
-const linuxReaskAfter = time.Minute
+// and Wails can't close or query the dialog. Wails's GTK dialog is modal and
+// destroyed on Esc, so no late answer can come; 2 s only absorbs a double
+// press of Quit.
+const linuxReaskAfter = 2 * time.Second
 
 // dialogAsker asks the quit question with a Wails question dialog.
 //
@@ -203,9 +208,8 @@ func (d dialogAsker) AskQuit(q QuitQuestion) QuitChoice {
 	dialog.AddButton(q.QuitWhenDone).OnClick(pick(QuitWhenDone))
 	dialog.AddButton(q.QuitNow).OnClick(pick(QuitNow))
 	dialog.Show()
-	// On Linux the answer may never come (Esc); the service asks again on
-	// a later quit after WithReaskAfter, and still applies this answer if
-	// it comes late.
+	// On Linux the answer never comes after Esc; the service asks again on
+	// a later quit (WithReaskAfter) and abandons this question.
 	return <-answer
 }
 
