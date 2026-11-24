@@ -359,15 +359,18 @@ actions (`control`), named by `label` in the task list:
 - when the promise resolves, `doneWords` ("Sent") are announced; when it
   rejects, `failWords` ("Couldn’t send"), assertively while focus is still on
   the actions, and the task waits in the window's task list with Retry, which
-  sends the value that failed again (not what the editor holds now). The
-  failure leaves the list when the next submit starts, or on `destroy()`;
+  sends the value that failed again (not what the editor holds now); while the
+  editor is disabled or another submit is pending, Retry sends nothing and the
+  announcer says why ("Couldn’t send: Comment is turned off"). The failure
+  leaves the list when the next submit starts, or on `destroy()`;
 - at the end each action gets back the `aria-disabled` it had, so an action
   the app locked stays locked;
 - there is no timeout unless `submitTask.timeout` (ms) sets one: the request
   is the app's, and it knows how long it may take. After that time the task
   fails with `timeoutWords` ("Couldn’t confirm it was sent", since the request
-  may still land) and the actions are back at rest; another submit still does
-  nothing until `onsubmit`'s promise settles, so nothing is sent twice.
+  may still land), and the spinner goes; the actions stay busy
+  (`aria-disabled`, `data-busy`) and another submit does nothing until
+  `onsubmit`'s promise settles, so nothing is sent twice.
 
 The editor does not clear the text or show a failure itself: on success the
 app sets `value = ''` (or removes the editor), and on failure it shows the

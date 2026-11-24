@@ -3502,6 +3502,47 @@ try {
     await page.close();
   });
 
+  await check('settings window: a value the window\'s own validation rejects, committed between checks, doesn\'t let the next check draw over words still holding', async () => {
+    const { page, problems } = await openSettings({ clock: true });
+    await manualChecks(page);
+    await page.evaluate(() => { document.getElementById('demo-settings').validate = (s, v) => (String(v['general.folder']).length > 6 ? [{ field: 'general.folder', message: 'Keep it short.', code: 'max_length' }] : []); });
+    const folder = row(page, 'general.folder').locator('input');
+    const commit = async text => { await folder.fill(text); await folder.press('Tab'); };
+    // /a is answered while its words show (they hold until 900 ms); /b waits for them;
+    // a value too long for the window drops /b; /c comes 5 ms later.
+    await commit('/a');
+    await page.clock.runFor(410);
+    await answer(page, 0, []);
+    await page.clock.runFor(10);
+    await commit('/b');
+    await page.clock.runFor(5);
+    await commit('/toolongvalue');
+    await page.clock.runFor(5);
+    await commit('/c');
+    await page.clock.runFor(1000);
+    assert.deepEqual(await pendingState(page), ['Checking folder…', true, true, 1], '/c shows its own words once /a\'s have gone');
+    const n = await page.evaluate(() => window.checks.length);
+    await answer(page, n - 1, []);
+    await page.clock.runFor(1500);
+    assert.deepEqual(await pendingState(page), ['', false, false, 0], 'nothing left beside the field');
+    assert.equal(await page.evaluate(() => document.getElementById('demo-settings').values['general.folder']), '/c');
+    // The same with a check whose words show, abandoned for the window's own error
+    // (its words hold for their 500 ms), then a value that passes 5 ms later.
+    await commit('/d');
+    await page.clock.runFor(450);
+    await commit('/toolongvalue');
+    await page.clock.runFor(5);
+    await commit('/e');
+    await page.clock.runFor(1000);
+    assert.deepEqual(await pendingState(page), ['Checking folder…', true, true, 1]);
+    await answer(page, (await page.evaluate(() => window.checks.length)) - 1, []);
+    await page.clock.runFor(1500);
+    assert.deepEqual(await pendingState(page), ['', false, false, 0]);
+    assert.equal(await page.evaluate(() => document.getElementById('demo-settings').values['general.folder']), '/e');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
   await check('settings window: a check abandoned for the window\'s own error, or by a new schema, is cancelled without saying "Cancelled"; checks stay out of the task list', async () => {
     const { page, problems } = await openSettings({ clock: true });
     await manualChecks(page);
@@ -3511,8 +3552,9 @@ try {
     await folder.fill('/abc');
     await folder.press('Tab');
     await page.clock.runFor(600);
-    assert.equal(await page.evaluate(() => document.wkTask.showList().querySelectorAll('.wk-task-row').length), 0, 'not in the task list');
-    await page.evaluate(() => document.querySelector('.wk-task-list').close());
+    // Not in the task list: its summary has nothing to show. (Read without opening the
+    // list, whose close would hand focus back a task later, under the next fill.)
+    assert.equal(await page.evaluate(() => { const b = document.wkTask.summary(); const empty = b.hidden; b.dispose(); return empty; }), true, 'not in the task list');
     await said(page);
     await folder.fill('/abcdefghij');
     await folder.press('Tab');

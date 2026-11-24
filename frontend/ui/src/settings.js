@@ -72,6 +72,9 @@ class WkSettings extends HTMLElement {
     this.drafts = new Map();
     this.live = new Set();
     this.checks = new Map();
+    // endings: key -> the end of the last answered check's task (its words
+    // held for their 500 ms), until it has ended: a newer check's words wait.
+    this.endings = new Map();
     this.rechecks = new Map();
     this.noticeTimer = null;
     this.noticeCount = 0;
@@ -144,7 +147,7 @@ class WkSettings extends HTMLElement {
     // The checks running go with the window they drew in; the person didn't cancel them.
     for (const run of this.checks.values()) if (!run.ending) run.task?.cancelled({ quiet: true });
     for (const timer of this.rechecks.values()) clearTimeout(timer);
-    this.checks.clear(); this.rechecks.clear(); this.drafts.clear(); this.live.clear();
+    this.checks.clear(); this.rechecks.clear(); this.endings.clear(); this.drafts.clear(); this.live.clear();
     clearTimeout(this.noticeTimer);
     this.noticeCount = 0;
     // The window's Notice: empty until a field needs attention. Its count goes
@@ -388,7 +391,8 @@ class WkSettings extends HTMLElement {
     if (own.length) {
       this.checks.delete(key);
       // The check it overtakes has nothing left to say: the field shows why.
-      if (prior && !prior.ending) prior.task?.cancelled({ quiet: true });
+      // Shown, its words still hold for their 500 ms: the next check waits.
+      if (prior?.task && !prior.ending) this.ending(key, prior.task.cancelled({ quiet: true }));
       this.state.errors = [...this.state.errors.filter(e => e.field !== key), ...own];
       this.live.add(key);
       this.sync();
@@ -414,10 +418,9 @@ class WkSettings extends HTMLElement {
   // The check's wkTask: its words beside the field after 400 ms, for at least
   // 500 ms. A check overtaken before its words show is cancelled (nothing is
   // said); once they show, the newer check keeps them, so they don't go and
-  // come back. One whose outcome is already showing ends first: the newer
-  // check's task starts when it has (wait: that ending, carried on to every
-  // check that overtakes one still waiting for it), so two tasks never draw
-  // in the line at once. No timeout: the window waits for CheckValue's
+  // come back. One whose outcome is already showing ends first: every newer
+  // check's task starts when it has (this.endings, kept whatever happens to
+  // the checks in between), so two tasks never draw in the line at once. No timeout: the window waits for CheckValue's
   // answer, which carries on in Go if the window closes. Not in the task
   // list: the field shows the check, and its outcome.
   checkTask(field, run, prior) {
@@ -431,8 +434,8 @@ class WkSettings extends HTMLElement {
       if (this.checks.get(field.key) !== run || !pending.isConnected) return;
       run.task = wkTask({ target: pending, words: field.check.pending || 'Checking…', subject: this.labelOf(field), timeout: false, listed: false });
     };
-    run.wait = prior?.ending || (prior && !prior.task ? prior.wait : null) || null;
-    if (run.wait) run.started = run.wait.then(start);
+    const wait = this.endings.get(field.key);
+    if (wait) run.started = wait.then(start);
     else start();
   }
 
@@ -470,7 +473,14 @@ class WkSettings extends HTMLElement {
       if (this.drafts.get(key) === run.raw) this.drafts.delete(key);
       this.apply(field, run.value, { checked: true });
     };
-    run.ending = Promise.resolve(run.started).then(() => (run.task ? run.task.done({ words, quiet: true }).then(finish) : finish()));
+    run.ending = this.ending(key, Promise.resolve(run.started).then(() => (run.task ? run.task.done({ words, quiet: true }).then(finish) : finish())));
+  }
+
+  // Keeps a check task's end as the key's last, until it has come.
+  ending(key, promise) {
+    this.endings.set(key, promise);
+    promise.then(() => { if (this.endings.get(key) === promise) this.endings.delete(key); });
+    return promise;
   }
 
   // The values the window shows: the applied ones with the drafts typed over them.

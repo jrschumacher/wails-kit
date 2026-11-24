@@ -1115,8 +1115,8 @@ sets `errors`.
   overtaken by a newer one is ignored, its answer neither applied nor said:
   before its words show, its task is cancelled; once they show, the newer check
   keeps them, so they don't go and come back; and once its answer is in (its
-  words held for their 500 ms), the newer check's words wait until they have
-  gone. A check abandoned because the window's own validation rejects the value,
+  words held for their 500 ms), every newer check's words wait until they have
+  gone, as they do after a shown check abandoned for the window's own error. A check abandoned because the window's own validation rejects the value,
   or because a new `schema` or `icons` redraws the window, is cancelled without
   saying "Cancelled". In a modal Sheet the announcer is inside it, so all this
   is heard. An error with

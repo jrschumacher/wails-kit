@@ -852,6 +852,17 @@ try {
     await heard(page, 'Posted');
     await until(page, () => !document.querySelector('#probe [data-submit]').hasAttribute('data-busy'));
     assert.deepEqual(await failedRows(page), []);
+    // Retry while the editor is disabled: nothing is sent, and the announcer says why.
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => window.ed.submit());
+    await page.evaluate(() => window.pend[2].rej(new Error('offline')));
+    await until(page, () => !document.querySelector('#probe [data-submit]').hasAttribute('data-busy'));
+    await page.evaluate(() => { window.ed.disabled = true; document.wkTask.showList(); });
+    await until(page, () => document.querySelector('.wk-task-list[open]'));
+    await page.click('.wk-task-list .wk-task-row[data-state=failed] button:text-is("Retry")');
+    await heard(page, 'Couldn’t send: Probe is turned off');
+    assert.equal(await page.evaluate(() => window.sends.length), 3);
+    await page.evaluate(() => { window.ed.disabled = false; window.pend.splice(2, 1); });
     // A failure, then a new submit: the failure leaves the task list.
     await page.keyboard.press('Escape');
     await page.evaluate(() => window.ed.submit());
@@ -861,7 +872,7 @@ try {
     assert.equal((await failedRows(page)).length, 1);
     await page.evaluate(() => window.ed.submit());
     assert.deepEqual(await failedRows(page), [], 'the earlier failure is dismissed');
-    assert.deepEqual(await page.evaluate(() => window.sends), ['first', 'first', 'a new draft', 'a new draft']);
+    assert.deepEqual(await page.evaluate(() => window.sends), ['first', 'first', 'a new draft', 'a new draft', 'a new draft']);
     // A failure, then destroy(): its Retry has nothing to send, so it goes.
     await page.evaluate(() => window.pend[3].rej(new Error('offline')));
     await until(page, () => !document.querySelector('#probe [data-submit]').hasAttribute('data-busy'));
@@ -878,7 +889,7 @@ try {
     await page.close();
   });
 
-  await check('markdown submit: no timeout by default, its words end in an ellipsis; with submitTask.timeout the actions rest, but nothing is sent twice until onsubmit settles', async () => {
+  await check('markdown submit: no timeout by default, its words end in an ellipsis; with submitTask.timeout the task fails, but the actions stay busy and nothing is sent twice until onsubmit settles', async () => {
     const { page, problems } = await open(MD);
     await listen(page);
     // The spec the editor gives the window's wkTask.
@@ -892,10 +903,13 @@ try {
     await probeEditor(page, { submitTask: { timeout: 600 } });
     await page.evaluate(() => window.ed.submit());
     await heard(page, 'Couldn’t confirm it was sent');
-    await until(page, () => !document.querySelector('#probe [data-submit]').hasAttribute('data-busy'));
-    assert.equal(await page.getAttribute('#probe [data-submit]', 'aria-disabled'), null, 'the actions are at rest');
-    assert.deepEqual(await page.evaluate(() => [window.ed.submit(), window.sends.length]), [false, 1], 'but the first submit is still pending');
+    await until(page, () => !document.querySelector('#probe [data-submit] > .wk-spinner'));
+    const look = () => page.evaluate(() => { const b = document.querySelector('#probe [data-submit]'); return [b.getAttribute('aria-disabled'), b.hasAttribute('data-busy')]; });
+    assert.deepEqual(await look(), ['true', true], 'the task has ended, but the actions stay busy, without a spinner');
+    assert.deepEqual(await page.evaluate(() => [window.ed.submit(), window.sends.length]), [false, 1], 'the first submit is still pending');
     await page.evaluate(() => window.pend[0].res());
+    await until(page, () => !document.querySelector('#probe [data-submit]').hasAttribute('data-busy'));
+    assert.deepEqual(await look(), [null, false], 'at rest once onsubmit settles');
     await page.waitForFunction(() => window.ed.submit() === true, null, { timeout: 3000 });
     assert.equal(await page.evaluate(() => window.sends.length), 2);
     assert.equal(await busyNow(page), true);

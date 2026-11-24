@@ -703,6 +703,15 @@ export function wkRichTextEditor(spec = {}) {
     return send(value);
   }
 
+  // Retry from the task list. Its row has gone by now: when the value can't
+  // be sent, say why rather than drop it silently.
+  function retry(value) {
+    if (destroyed) return;
+    const why = disabled ? `Couldn\u2019t send: ${label} is turned off` : busy ? `Couldn\u2019t send: ${label} is still sending` : null;
+    if (why) { kitAnnounce(root, spec.kit)?.(why); return; }
+    send(value);
+  }
+
   // Sends a value: wk-submit, then onsubmit. Retry (in the window's task
   // list, after a failed submit) sends the value that failed again, not what
   // the editor holds now. The editor stays busy until onsubmit's promise
@@ -720,9 +729,9 @@ export function wkRichTextEditor(spec = {}) {
       // and data-busy), not on the editor: through the window's wkTask.
       busy = true;
       const controls = actionButtons.filter(b => b.hasAttribute('data-submit'));
-      const run = busySubmit(root, controls, result, { subject: label, retry: () => send(value), ...spec.submitTask, kit: spec.kit });
+      const run = busySubmit(root, controls, result, { subject: label, retry: () => retry(value), ...spec.submitTask, kit: spec.kit });
       lastTask = run.task;
-      Promise.all([result.then(() => {}, () => {}), run.ended]).then(() => {
+      run.ended.then(() => {
         busy = false;
         if (destroyed) run.task?.dismiss?.();
       });
