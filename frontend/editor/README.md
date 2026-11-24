@@ -8,17 +8,16 @@ properties, so light, dark and an app's theme apply without extra work.
 `@wails-kit/ui` stays dependency-free; the editors live here so an app pays
 only for the editor it imports. Each editor is its own entry and its own
 prebuilt module, and importing one never loads another. What the editors
-share (CodeMirror, the theme, the languages) is in shared chunks,
-`dist/chunk-*.js`, which the entries import by relative path, so an app that
-uses two editors loads one CodeMirror.
+share (CodeMirror, the theme, the languages; marked, the Markdown limits and
+the link rules; style-mod) is in shared chunks, `dist/chunk-*.js`, which the
+entries import by relative path, so an app that uses two editors loads one
+copy of each.
 
 | Entry | Module | Editor |
 |---|---|---|
 | `@wails-kit/editor/code` | `dist/code.js` | a code editor on [CodeMirror 6](https://codemirror.net/) (MIT) |
 | `@wails-kit/editor/markdown` | `dist/markdown.js` | a Markdown editor (Write and Preview) on the same CodeMirror, and a safe Markdown renderer on [marked](https://marked.js.org/)'s parser (MIT) |
-
-A rich-text editor (`/richtext`) is planned as a further entry, on the same
-shared chunk.
+| `@wails-kit/editor/richtext` | `dist/richtext.js` | a rich-text (WYSIWYG) editor on [ProseMirror](https://prosemirror.net/) (MIT), reading and writing the Markdown editor's Markdown (or sanitised HTML) |
 
 ## Use it
 
@@ -46,7 +45,7 @@ printf 'Source: https://github.com/jrschumacher/wails-kit\nTag: %s\nCommit: %s\n
 ```
 
 Commit the vendored files with the app, `THIRD-PARTY-LICENSES.txt` included:
-the modules bundle CodeMirror, Lezer and marked, and their MIT licences
+the modules bundle CodeMirror, Lezer, marked and ProseMirror, and their MIT licences
 travel with them. The file says which entries load each package.
 
 The modules are minified ES modules with everything bundled. They import only
@@ -60,13 +59,17 @@ Minified, then gzipped, as built from this tree:
 
 | File | Minified | Gzipped | Loaded by |
 |---|---|---|---|
-| `chunk-*.js` (CodeMirror, Lezer, the theme, the nine languages) | 601 KiB | 208 KiB | both entries |
+| `chunk-*.js` (CodeMirror, Lezer, the theme, the nine languages) | 596 KiB | 209 KiB | code, markdown |
+| `chunk-*.js` (marked, the Markdown limits, the link rules, the rendered-Markdown styles) | 54 KiB | 17 KiB | markdown, richtext |
+| `chunk-*.js` (style-mod, w3c-keyname) | 5 KiB | 3 KiB | all three |
 | `code.js` | under 1 KiB | under 1 KiB | |
-| `markdown.js` (the editor, the renderer, marked) | 71 KiB | 23 KiB | |
+| `markdown.js` (the editor, the renderer) | 18 KiB | 7 KiB | |
+| `richtext.js` (the editor, ProseMirror) | 245 KiB | 78 KiB | |
 
-So the code editor costs about 601 KiB (208 KiB gzipped), the Markdown editor
-about 672 KiB (231 KiB), and both together the same 672 KiB: the second editor
-adds only its own entry. These are loaded from the app's own files, never the
+So the code editor costs about 601 KiB (212 KiB gzipped), the Markdown editor
+about 673 KiB (235 KiB), the rich-text editor about 304 KiB (97 KiB), and all
+three together about 918 KiB (313 KiB): each further editor adds only what it
+does not share. These are loaded from the app's own files, never the
 network.
 
 ```html
@@ -97,7 +100,7 @@ constructable stylesheet adopted by the document (`document.adoptedStyleSheets`)
 instead of a `<style>` element, which such a policy blocks. On an older WebKit
 without adopted stylesheets, CodeMirror falls back to a `<style>` element;
 under a strict CSP that is blocked, CodeMirror's structural CSS is missing and
-the editor breaks. `wkCodeEditor` and `wkMarkdownEditor` log a one-time `console.warn` when
+the editor breaks. `wkCodeEditor`, `wkMarkdownEditor` and `wkRichTextEditor` log a one-time `console.warn` when
 `document.adoptedStyleSheets` is unavailable. The build patches style-mod
 (CodeMirror's style injector) once, in the shared chunk, so every entry gets
 the patch; `npm test` checks it.
@@ -470,15 +473,231 @@ editor changes its own state only once that retry has worked; any other
 error, or a retry that fails, is thrown as it was. Highlighting comes back
 when the app sets a new `value`.
 
+## Rich-text editor: `wkRichTextEditor(spec)`
+
+Bold, lists and links edited in place, with no visible markup: for people
+who should not have to write Markdown. Its value is Markdown in the Markdown
+editor's dialect, so the two editors (and `renderMarkdown`) can edit and show
+the same text; or sanitised HTML.
+
+```js
+import { wkRichTextEditor } from './vendor/wails-kit-editor/richtext.js';
+
+const notes = wkRichTextEditor({
+  label: 'Release notes',                 // the accessible name; required
+  value: markdown,
+  placeholder: 'Write the notes',
+  onlink: url => Browser.OpenURL(url),     // links open outside the webview
+  onchange: value => draft.save(value),
+  actions: [
+    { label: 'Cancel', cancel: true },
+    { label: 'Save', primary: true, submit: true },
+  ],
+  oncancel: editor => editor.destroy(),
+  onsubmit: async value => { await Notes.Save(value); },
+});
+document.querySelector('#notes').append(notes);
+```
+
+It needs `@wails-kit/ui`'s stylesheet on the page, not its script. It
+returns a `<div class="wk-richtext-editor">` (a `role="group"` named by
+`label`) holding:
+
+- the formatting toolbar: kit quiet icon buttons in groups (marks and link;
+  headings; lists, quote and code block; rule) split by separators, with
+  `aria-pressed` on each toggle following the selection;
+- the text: a `role="textbox"` with `aria-multiline="true"` and the label,
+  styled as rendered Markdown (`wk-markdown`: the kit's type, `wk-code` code
+  blocks, `wk-link` links) in a field's box that grows between `minHeight`
+  and `maxHeight`, then scrolls;
+- the link popover (a kit `wk-popover`), opened from the toolbar or Mod-K;
+- the footer: the error and the action buttons, as in the Markdown editor.
+
+| Option | | Default |
+|---|---|---|
+| `label` | the accessible name of the text; **required** (it throws without one) | |
+| `value` | the content, in `format` | `''` |
+| `format` | `'markdown'` or `'html'`: what `value`, `onchange` and `onsubmit` read and write; another value throws | `'markdown'` |
+| `features` | the features to offer, any of `bold`, `italic`, `code`, `link`, `heading` (two levels), `bulletList`, `orderedList`, `quote`, `codeBlock`, `rule`; an unknown name throws. Content the editor does not offer is cut down when loaded or pasted (below) | all |
+| `placeholder` | text shown while it is empty (also `aria-placeholder`) | |
+| `toolbar` | the formatting toolbar; the shortcuts work without it | `true` |
+| `readOnly` | the text can be read, selected, copied and its links followed (Tab reaches them), not changed (`aria-readonly`); no toolbar | `false` |
+| `disabled` | the text cannot be changed (`aria-disabled`) and the toolbar and actions are disabled (a `cancel` action stays usable). Disabling while focus is on a toolbar button or an action moves focus to the editor element; enabling it again moves that focus back to the text | `false` |
+| `minHeight`, `maxHeight` | CSS lengths, or numbers of pixels | `100px`, `360px` |
+| `required` | an empty text does not submit | `true` |
+| `actions` | the buttons under it: `{ label, primary?, submit?, cancel?, onclick?(editor) }`, as the Markdown editor's | none |
+| `onchange(value)` | after each edit, not when the app sets `value` | |
+| `onsubmit(value)` | on submit; return a promise to keep the submit actions busy until it settles | |
+| `oncancel(editor)` | on cancel: a `cancel` action, `cancel()`, or Escape in the editor | |
+| `onlink(url)` | a link opened by the person (below): an `http`, `https` or `mailto` URL | |
+| `id` | the element's id; also the stem of its parts' ids | |
+
+**Properties and methods:** `value` (setting it replaces the content and its
+undo history, clears an error and fires nothing), `format` (read-only),
+`disabled`, `focus()`, `submit()` (returns whether it submitted), `cancel()`
+and `destroy()` (the element is left empty; then `value`, `focus()`,
+`submit()` and `cancel()` do nothing). `FEATURES` lists the feature names.
+
+**Events** (bubbling; typed in `richtext.d.ts`): `wk-change` (`{ value }`,
+after each edit, before `onchange`), `wk-submit` (`{ value }`, cancelable,
+before `onsubmit`) and `wk-cancel` (`null`, before `oncancel`).
+
+Submitting, the error ("Write something first.", in a polite live region
+under the text, with `aria-invalid` and `aria-describedby` on it, cleared as
+the person types) and the busy submit actions (`aria-disabled="true"` and
+`data-busy` while `onsubmit`'s promise is pending) work as in the
+[Markdown editor](#submitting).
+
+### Keyboard
+
+| Keys | |
+|---|---|
+| **Mod-B**, **Mod-I**, **Mod-E** | bold, italic, inline code; on the selection, or for what is typed next |
+| **Mod-K** | the link popover |
+| **Mod-Shift-8**, **Mod-Shift-7** | bulleted list, numbered list (again to lift the item out) |
+| **Mod-]**, **Mod-[** | indent or outdent a list item |
+| **Enter**, **Shift-Enter** | a new paragraph or list item; a line break (a new line in a code block) |
+| **Mod-Z**, **Mod-Shift-Z** (and **Mod-Y**) | undo, redo |
+| **Mod-Enter** | submit (when there is an `onsubmit` or a submit action; otherwise it leaves a code block) |
+| **Escape** | cancel, when `oncancel` is set (not while an input method is composing); in the link popover, it closes the popover instead. ProseMirror calls `preventDefault()` on Escape in the text either way, so an outer listener sees `defaultPrevented` set |
+| **Alt-F10** | from the text to the toolbar |
+| **Tab**, **Shift-Tab** | move focus on and back (toolbar, text, actions); the text never traps it |
+
+In the toolbar (one tab stop, the WAI-ARIA toolbar pattern), Left and Right
+move between the buttons and wrap, Home and End go to the first and last,
+and Enter or Space applies the button and returns focus to the text. The
+buttons carry their keys in `aria-keyshortcuts` and `title`. A key acts on
+the selection the person just made, even right after Shift-Arrow.
+
+**Markdown as you type** (for the features offered): `# ` and `## ` make a
+heading, `- `, `* ` or `+ ` a bulleted list, `1. ` (any number) a numbered
+list, `> ` a quote, ```` ``` ```` (with a language) and a space or Enter a
+code block, and `` `text` `` inline code. Backspace straight after one puts
+the typed text back. None fire inside a code block.
+
+### Links
+
+The link popover (`role="dialog"`, named "Link") has a field for the address,
+Save, Cancel and, on an existing link, Open and Remove. A selection becomes
+the link's text; with nothing selected, the address is inserted as the text.
+The address must be an `http`, `https` or `mailto` URL (`example.com` gets
+`https://`, `a@example.com` gets `mailto:`); anything else shows "Use a web
+or email address, such as https://example.com." in a polite live region on
+the field (`aria-invalid`), and the field keeps focus. Save and Remove return
+focus to the text; Cancel and Escape return it to what opened the popover
+(the toolbar button, or the text for Mod-K).
+
+A link never navigates the webview. In the text, a click places the cursor;
+Mod-click (or any click while the text is read-only or disabled, or Enter on
+a link in a read-only text, or Open in the popover) calls `onlink(url)` with
+the safe URL. Links carry `rel="noopener noreferrer"` and no `target`.
+
+### Markdown in and out
+
+Markdown is read by marked's lexer, as `renderMarkdown` reads it, and written
+in one spelling per feature, so text in that spelling comes back unchanged:
+
+| Feature | Written as |
+|---|---|
+| headings | `# Heading`, `## Subheading` (deeper headings load as `##`) |
+| bold, italic, code | `**bold**`, `_italic_` (`*italic*` inside a word), `` `code` `` (longer fences around backticks) |
+| links | `[text](url)`; a link whose text is its address as the bare address (`https://…`, `www.…`, an e-mail address) or `<url>` |
+| lists | `- ` bullets, `1. ` numbers from the list's start; `*` or `1)` for a list straight after one of the same kind; tight lists stay tight unless Markdown cannot keep them so |
+| quotes, code blocks, rules | `> `, ```` ``` ```` fences with the language, `---` |
+| line breaks | a backslash at the end of the line |
+| text | Markdown's characters escaped (`\*`, `\_`, `` \` ``, `\[`, `\#` at a line's start, …), `snake_case` left alone |
+
+Other spellings (`*italic*`, `__bold__`, setext headings, `~~~` or indented
+code, `***` rules, two-space line breaks) settle on these after one save. A
+soft line break inside a paragraph becomes a space; leading spaces on a line,
+empty paragraphs, link titles and character references (written as the
+characters) are not kept. What the editor does not offer comes in as text:
+a table row by row, a task list's box as `[ ]`, strikethrough as plain text,
+an image as a link to it, raw HTML as the text it is. Emphasis that Markdown
+cannot spell (opening on punctuation straight after a letter, `x*"y"*`) may
+shift after a save; the text itself never changes, and a code span inside a
+link that holds a bracket, backslash or backtick goes as plain text. The node
+tests check the round trip for every feature and on 3,000 random documents.
+
+**Hostile text.** The rich-text editor loads Markdown under the
+[renderer's limits](#rendering-markdown-rendermarkdowntext-options): text past
+`MAX_MARKDOWN_LENGTH`, `MAX_MARKDOWN_DEPTH` or the delimiter limits (or that
+marked fails on) is not parsed. It loads as its source, a plain paragraph per
+line, with the formatting off (the toolbar buttons are `aria-disabled`, the
+shortcuts and Markdown rules do nothing, pastes go in as text, and the
+element has `data-source`), and `value` gives it back exactly as it came,
+edits included. Setting a value within the limits turns formatting back on.
+No edit or paste nests quotes and lists deeper than the depth limit allows,
+so what the editor writes always loads again as Markdown, in it and in the
+Markdown editor (pasted content nested deeper goes in as its text).
+
+### HTML in and out
+
+With `format: 'html'`, `value` is HTML built from the document as a string,
+holding only the Markdown preview's elements and attributes: `p`, `h1`,
+`h2`, `strong`, `em`, `code`, `a` (`href`: the normalised `http`, `https` or
+`mailto` URL; `rel="noopener noreferrer"`), `ul`, `ol` (`start`), `li`,
+`blockquote`, `pre` (with `code data-language`), `hr` and `br`; text and
+attributes escaped. HTML set as `value` is parsed into an inert document
+(`DOMParser`: no script runs, nothing loads) and read through the editor's
+schema, like a paste.
+
+### Paste
+
+Pasted (and dropped) HTML is read through the schema, so only the features
+offered get in: scripts, styles, event handlers, images, frames, forms and
+tables are dropped (their text kept), and a link stays only with an `http`,
+`https` or `mailto` address. Bold and italic are kept from `<b>`, `<i>` and
+`font-weight` or `font-style` spans (Word, Google Docs). Before the browser
+parses pasted HTML, its `style` attributes are renamed and its `<style>`
+elements made inert, so the strict CSP logs no violation. Plain text pastes
+as text: Markdown in it is not read.
+
+### Why ProseMirror
+
+| | ProseMirror | Lexical |
+|---|---|---|
+| Size for this feature set (the engine's packages bundled alone with esbuild, minified / gzipped) | 212 KiB / 66 KiB | 435 KiB / 143 KiB |
+| Strict CSP | no `eval`, no `<style>` element (it needs its structural CSS, which the editor adopts); inline styles only through the CSSOM | the same, with more CSSOM styling |
+| Accessibility | a native `contenteditable` with the platform's caret, selection and IME; the editor adds the textbox role, label and toolbar | the same model |
+| Markdown | the editor's own reader and writer on marked, shared with the Markdown editor | its own Markdown transformers (a second parser to keep in step) |
+
+ProseMirror is the smaller, older and more widely used base, takes the
+schema the editor needs (so pasted content is cut down by construction), and
+leaves Markdown to marked, which the Markdown editor already ships. Of
+CodeMirror's packages it shares only `w3c-keyname`.
+
+### Classes
+
+Proposals for the design system (it has no rich-text card yet):
+
+| Class | |
+|---|---|
+| `wk-richtext-editor` | the editor; `data-disabled` while disabled, `data-source` while it holds text past the limits |
+| `wk-richtext-editor-toolbar`, `-separator` | the toolbar and the hairline between its groups |
+| `wk-richtext-editor-content` | the text (also `wk-markdown`) |
+| `wk-richtext-editor-placeholder` | the empty first paragraph showing the placeholder |
+| `wk-richtext-editor-link`, `-link-error`, `-link-actions` | the link popover (also `wk-popover`) |
+| `wk-richtext-editor-foot`, `-error`, `-actions` | the footer |
+
+It also uses the kit's `wk-button` (`--quiet`, `--icon`, `--small`,
+`--primary`, `--destructive`), `wk-popover`, `wk-label`, `wk-field`,
+`wk-error`, `wk-code` and `wk-link`. The styles come from the module as an
+adopted stylesheet, every colour a `--wk-*` token. **Forced colours:** the
+text box keeps a `CanvasText` edge and a `Highlight` focus ring, a pressed
+toolbar button is drawn in `Highlight` and `HighlightText`, separators in
+`CanvasText`, and the placeholder in `GrayText`.
+
 ## Layout
 
 | Path | |
 |---|---|
 | `src/code/` | the code editor entry: `index.js`, `index.d.ts` |
 | `src/markdown/` | the Markdown editor entry: `index.js` (the editor), `render.js` (the renderer), `style-spec.js` (its styles, plain data checked by the tests), `index.d.ts` |
-| `src/shared/` | shared by the editors: the CodeMirror core (`code-editor.js`), the languages, the highlighter, the theme (`theme-spec.js`, plain data checked by the tests; `theme.js`) and the search panel |
+| `src/richtext/` | the rich-text editor entry: `index.js` (the editor), `schema.js` (the document model per feature set), `markdown.js` and `html.js` (in and out), `limits.js` (the nesting limit), `style-spec.js`, `index.d.ts` |
+| `src/shared/` | shared by the editors: the CodeMirror core (`code-editor.js`), the languages, the highlighter, the theme (`theme-spec.js`, plain data checked by the tests; `theme.js`) and the search panel; and, for the Markdown and rich-text editors, the link rules (`url.js`), the Markdown limits scan (`markdown-limits.js`), rendered Markdown's styles (`markdown-style-spec.js`, `markdown-styles.js`) and the adopted-stylesheet warning |
 | `dist/` | the prebuilt entries, their shared chunks, their types and `THIRD-PARTY-LICENSES.txt`, committed and checked against a fresh build |
-| `demo/` | review pages: `index.html` (no theme), `themed.html` (ui's example theme), `markdown.html` (the Markdown editor) |
+| `demo/` | review pages: `index.html` (no theme), `themed.html` (ui's example theme), `markdown.html` (the Markdown editor), `richtext.html` (the rich-text editor: every feature, empty, read-only, disabled, HTML, fewer features) |
 | `scripts/build.mjs` | builds `dist/` with esbuild |
 | `test/` | the checks |
 
@@ -498,8 +717,9 @@ npm run test:browser   # the editor in Chrome
 
 Dependencies are build-time only (`devDependencies`), pinned exactly and
 locked. Dependabot (`.github/dependabot.yml`) proposes updates weekly, with
-CodeMirror and Lezer grouped into one pull request. marked is a
-dependency of the Markdown entry only. After an update, rebuild and commit
+CodeMirror and Lezer grouped into one pull request, and ProseMirror's packages
+into another. marked is loaded by the Markdown and rich-text entries,
+ProseMirror by the rich-text entry only. After an update, rebuild and commit
 `dist/`, including the regenerated `THIRD-PARTY-LICENSES.txt`.
 
 `npm test` checks that `dist/` matches a fresh build, that each module imports
@@ -507,7 +727,9 @@ only `./chunk-*.js` files the build made and uses no network or worker API,
 that the entries share one copy of CodeMirror and the patched style-mod, that
 no entry loads another entry's source, that the licence file covers every
 bundled package with the entries that load it, the Markdown renderer's
-sanitising and rendering (in node, on a small fake DOM), that the theme
+sanitising and rendering (in node, on a small fake DOM), the rich-text
+editor's Markdown round trips (each feature, and seeded random documents),
+its HTML output's allow-list, links and limits, that the theme
 takes every colour from a `--wk-*` token `@wails-kit/ui` defines, that
 selectors are scoped, and that nothing names an app.
 
@@ -521,5 +743,11 @@ focus, find, forced colours, the highlighter, no network and no CSP
 violations; and for the Markdown editor, Write and Preview by keyboard, the
 formatting keys and toolbar, submitting (errors, busy, cancel), the count,
 links going to `onlink`, no image requests, disabled, the API and forced
-colours. These run in Chrome; check WebKit by hand on a Mac for a change
+colours; and for the rich-text editor, marks and blocks by toolbar and
+shortcut, the Markdown input rules, undo and redo, `aria-pressed` following
+the selection, the link popover, links going to `onlink`, paste sanitising,
+the HTML format, hostile text, the nesting limit, keyboard-only use,
+submitting (errors, busy, cancel), disabled and read-only, the API, and light,
+dark and forced colours. `CHECK=richtext npm run test:browser` runs only the
+checks whose name holds the text. These run in Chrome; check WebKit by hand on a Mac for a change
 in behaviour.
