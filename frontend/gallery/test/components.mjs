@@ -2761,6 +2761,35 @@ try {
     await page.close();
   });
 
+  await check('locked button, forced colours: an aria-disabled button reads as GrayText at full opacity in every variant; an enabled one does not, and a busy one keeps its Highlight border', async () => {
+    const { page, problems } = await open(PAGE('button'), { forcedColors: 'active' });
+    const out = await page.evaluate(() => {
+      const host = document.getElementById('page-button');
+      const probe = (prop, value) => { const e = document.createElement('i'); e.style[prop] = value; host.append(e); const v = getComputedStyle(e)[prop]; e.remove(); return v; };
+      const make = (cls, attrs) => { const b = document.createElement('button'); b.className = cls; b.type = 'button'; b.textContent = 'B'; for (const [k, v] of Object.entries(attrs)) b.setAttribute(k, v); host.append(b); return b; };
+      const look = b => { const cs = getComputedStyle(b); return { opacity: cs.opacity, color: cs.color, border: cs.borderTopColor }; };
+      const specimens = [...host.querySelectorAll('.wk-button[data-locked]')].map(look);
+      const locked = ['wk-button', 'wk-button wk-button--primary', 'wk-button wk-button--destructive', 'wk-button wk-button--quiet', 'wk-button wk-button--small']
+        .map(cls => look(make(cls, { 'aria-disabled': 'true', 'data-locked': '' })));
+      return {
+        gray: probe('color', 'GrayText'), highlight: probe('borderTopColor', 'Highlight'),
+        specimens,
+        locked,
+        enabled: look(make('wk-button', {})),
+        busy: look(make('wk-button', { 'aria-disabled': 'true', 'data-busy': '' })),
+      };
+    });
+    assert.equal(out.specimens.length, 2);
+    for (const l of [...out.specimens, ...out.locked]) assert.deepEqual(l, { opacity: '1', color: out.gray, border: out.gray }, JSON.stringify(l));
+    assert.notEqual(out.enabled.color, out.gray, 'an enabled button is not GrayText');
+    assert.equal(out.enabled.opacity, '1');
+    assert.equal(out.busy.opacity, '1');
+    assert.notEqual(out.busy.color, out.gray, 'a busy button is not drawn as unavailable');
+    assert.equal(out.busy.border, out.highlight, 'a busy button keeps its Highlight border');
+    assert.deepEqual(problems, []);
+    await page.close();
+  });
+
   // ---- Busy controls, the spinner and the progress bar (BEHAVIOUR.md) ----
   await check('busy button: keeps focus and its accessible name, ignores a second press (pointer and keys), and does not look disabled', async () => {
     const { page, problems } = await open(PAGE('all'));
@@ -3912,6 +3941,9 @@ try {
     assert.deepEqual(await look(), [['true', true, false], ['true', true, false]], 'busy at once, no spinner');
     await run(399);
     assert.deepEqual((await look())[0], ['true', true, false], 'no spinner in the quiet wait');
+    // Busy outranks locked while the task runs: the busy rule comes after the
+    // locked one at the same specificity, so the cursor is progress.
+    assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('t-locked')).cursor), 'progress', 'a busy locked control shows the progress cursor');
     await page.evaluate(() => { t.done('Report exported'); });
     assert.deepEqual(await look(), [[null, false, false], ['true', false, false]], 'back to rest; the locked control keeps aria-disabled');
     // And stays locked: wkTask leaves data-locked alone, so the locked look

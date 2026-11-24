@@ -464,6 +464,10 @@ button.wk-link[data-busy] { cursor: progress; }
   /* The pressed face is a background the system drops: mark busy with a
      Highlight border instead, with or without a spinner. */
   .wk-button[data-busy] { border-color: Highlight; }
+  /* An aria-disabled (locked) button reads as unavailable in GrayText, not
+     by opacity alone; a busy one keeps its Highlight border. The selector
+     outranks every variant (primary, destructive, quiet). */
+  .wk-button[aria-disabled="true"]:not([data-busy]) { opacity: 1; color: GrayText; border-color: GrayText; }
 }
 
 /* ---- Link -------------------------------------------------------------- */
