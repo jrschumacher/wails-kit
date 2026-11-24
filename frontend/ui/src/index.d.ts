@@ -60,6 +60,8 @@ export interface TaskSpec {
   bar?: HTMLElement | null;
   words: string;
   subject?: string; kind?: string; id?: string;
+  /** false keeps it out of the task list (work the window shows in place and never leaves waiting). Default true. */
+  listed?: boolean;
   expect?: 'short' | 'maybe-long' | 'long';
   stop?: TaskStopMode;
   /** The app stops the work; resolve false to leave the task running (the person said no, or the app reports the end). */
@@ -86,7 +88,7 @@ export interface TaskSpec {
   summary?: (counts: { finished: number; failed: number; stopped: number; cancelled: number; total: number; unit: string }) => string;
 }
 export interface TaskEventDetail { id: string; state: TaskState; words: string; [key: string]: unknown }
-export interface TaskEnd { words: string; error?: unknown; retry?: () => void; visible?: boolean; show?: () => void; showLabel?: string; [key: string]: unknown }
+export interface TaskEnd { words: string; error?: unknown; retry?: () => void; visible?: boolean; show?: () => void; showLabel?: string; /** Not announced (the caller says it, or nothing need be). */ quiet?: boolean; [key: string]: unknown }
 export interface TaskHandle {
   readonly id: string;
   readonly state: TaskState;
@@ -104,7 +106,10 @@ export interface TaskHandle {
   done(end: TaskEnd | string): Promise<TaskEventDetail | null>;
   fail(end: TaskEnd | string): Promise<TaskEventDetail | null>;
   stopped(words?: string): Promise<TaskEventDetail | null>;
-  cancelled(): Promise<TaskEventDetail | null>;
+  /** quiet: nothing is announced (the person didn't cancel it). */
+  cancelled(options?: { quiet?: boolean }): Promise<TaskEventDetail | null>;
+  /** Takes an ended task (a failed one waits there) out of the task list. */
+  dismiss(): void;
   /** As the Cancel or Stop button. */
   stop(): Promise<void>;
   /** A part of the task, with its own target; the task ends, with one summary, when every part has. */
@@ -297,4 +302,6 @@ declare global {
   }
   interface HTMLElementEventMap { 'wk-settings-change': CustomEvent<SettingsChangeDetail>; 'wk-task': CustomEvent<TaskEventDetail>; 'wk-copy': CustomEvent<{ ok: boolean }> }
   interface DocumentEventMap { 'wk-undo-change': CustomEvent<UndoStateLike> }
+  /** Set by the first copy of the kit in the window, for opt-in packages that don't bundle it. */
+  interface Document { wkTask?: typeof wkTask; wkAnnounce?: typeof announce }
 }

@@ -581,11 +581,6 @@ Where shipped code doesn't yet follow this page:
 - `wkTask` doesn't yet show time left ("About 3 min left") once the estimates are
   stable; the app can put it beside the indicator itself.
 - Escape in a diff review comment box discards its draft with no Undo.
-- The Markdown editor (`@wails-kit/editor/markdown`) marks its submit button busy at
-  once while `onsubmit`'s promise is pending, with no 400 ms indicator and nothing sent
-  to the announcer; it waits for `wkTask`.
-- The rich-text editor (`@wails-kit/editor/richtext`) does the same with its submit
-  actions; it waits for `wkTask` too.
 - The design system's Button card documents `disabled` and the locked state, but no
   busy state; the kit's README documents it.
 - On Windows, Wails's question dialog offers only Yes and No, so the `desktop`
