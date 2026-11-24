@@ -306,6 +306,10 @@ Lightweight typed state persistence to disk. Save/load any struct as JSON with a
 
 The app's tasks kept on the Go side, so they survive a reloaded window: lifecycle states, coalesced progress, a timeout on silence, retries with backoff, and sleep and wake. Emits one event, `tasks:changed`, with a snapshot of the whole list. See [`tasks/README.md`](tasks/README.md).
 
+### [`desktop`](desktop/README.md) — Long Work on the Desktop
+
+Follows `tasks:changed` and shows long work outside the window: one grouped system notification when long work ends unfocused, Windows taskbar progress, a badge counting what needs the person, a question before quitting while work runs, and each window's background in the theme's `bg`. See [`desktop/README.md`](desktop/README.md).
+
 ### [`errors`](errors/README.md) — User-Facing Error Types
 
 Generic error types for Wails apps. Apps add their own domain-specific codes and messages.

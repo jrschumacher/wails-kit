@@ -30,6 +30,7 @@ Go module at `github.com/jrschumacher/wails-kit` with these packages:
 - `lifecycle` — Service lifecycle manager with dependency ordering
 - `shortcuts` — Native menu shortcuts and keyboard accelerators
 - `tasks` — The app's task list on the Go side, emitted as `tasks:changed` snapshots
+- `desktop` — Long work on the desktop: notifications, taskbar progress, badge, quit question, window background
 
 Frontend packages live under `frontend/`: `@wails-kit/types`, `@wails-kit/settings`, `@wails-kit/ui` (base UI kit, theme file and settings window; see `frontend/ui/README.md`) and `@wails-kit/editor` (opt-in editors on bundled libraries, themed by the kit's tokens; see `frontend/editor/README.md`).
 
@@ -60,7 +61,7 @@ type(scope): description
 
 **Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
 
-**Scopes** (optional, use the package name): `appdirs`, `database`, `diagnostics`, `editor`, `keyring`, `taskfiles`, `settings`, `state`, `errors`, `events`, `lifecycle`, `logging`, `shortcuts`, `tasks`, `ui`, `updates`
+**Scopes** (optional, use the package name): `appdirs`, `database`, `desktop`, `diagnostics`, `editor`, `keyring`, `taskfiles`, `settings`, `state`, `errors`, `events`, `lifecycle`, `logging`, `shortcuts`, `tasks`, `ui`, `updates`
 
 Examples:
 - `feat(updates): add GitHub Releases auto-update`
