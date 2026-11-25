@@ -14,7 +14,7 @@ jobs:
   conventional-commits:
     name: Conventional Commits
     if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'release-please--')
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: amannn/action-semantic-pull-request@v5
         env:
@@ -60,25 +60,27 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: test
+          cache: false # Go caches are shared locally on the self-hosted runners.
 
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: lint
+          cache: false # Go caches are shared locally on the self-hosted runners.
 
   typecheck:
     name: TypeScript
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -95,16 +97,17 @@ jobs:
 
   security:
     name: Security
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - uses: jrschumacher/go-actions/ci@v3
         with:
           job: security
+          cache: false # Go caches are shared locally on the self-hosted runners.
 
   ts-typecheck:
     name: TypeScript Typecheck
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     defaults:
       run:
         working-directory: frontend/types
@@ -113,14 +116,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/types/package-lock.json
       - run: npm ci
       - run: npm run typecheck
 
   ts-lint:
     name: TypeScript Lint
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     defaults:
       run:
         working-directory: frontend/types
@@ -129,21 +130,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/types/package-lock.json
       - run: npm ci
       - run: npm run lint
 
   settings-ts-typecheck:
     name: Settings TypeScript Typecheck
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/settings/package-lock.json
       - run: npm ci
         working-directory: frontend/types
       - run: npm ci
@@ -153,14 +150,12 @@ jobs:
 
   settings-ts-lint:
     name: Settings TypeScript Lint
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/settings/package-lock.json
       - run: npm ci
         working-directory: frontend/types
       - run: npm ci
@@ -170,14 +165,12 @@ jobs:
 
   settings-ts-test:
     name: Settings TypeScript Test
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/settings/package-lock.json
       - run: npm ci
         working-directory: frontend/types
       - run: npm ci
@@ -187,7 +180,7 @@ jobs:
 
   ui-test:
     name: UI Test
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     defaults:
       run:
         working-directory: frontend/ui
@@ -196,8 +189,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/ui/package-lock.json
       - run: npm ci
       # Static checks, including that the committed dist/ matches src/.
       - run: npm test
@@ -208,7 +199,7 @@ jobs:
 
   editor-test:
     name: Editor Test
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     defaults:
       run:
         working-directory: frontend/editor
@@ -217,8 +208,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/editor/package-lock.json
       - run: npm ci
       # Static checks, the licences, and that the committed dist/ matches a fresh build.
       - run: npm test
@@ -229,7 +218,7 @@ jobs:
 
   diagram-test:
     name: Diagram Test
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     defaults:
       run:
         working-directory: frontend/diagram
@@ -238,8 +227,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/diagram/package-lock.json
       - run: npm ci
       # Static checks, the licences, theme contrast, and that the committed dist/ matches a fresh build.
       - run: npm test
@@ -250,7 +237,7 @@ jobs:
 
   gallery-test:
     name: Gallery Test
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     defaults:
       run:
         working-directory: frontend/gallery
@@ -259,8 +246,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/gallery/package-lock.json
       - run: npm ci
       # The server's paths, the CSP and the page list.
       - run: npm test
