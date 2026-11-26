@@ -2311,7 +2311,12 @@ function drawColumns(spec, width) {
 function drawRows(spec, width) {
   const fmt = spec.format || String, n = spec.categories.length;
   const single = n === 1 && spec.stacked;
-  const bh = single ? 28 : BAR_MAX, rowH = single ? 28 : bh + 10, height = n * rowH;
+  // Unstacked series sit side by side in a row, each bar thick enough for
+  // its value's text; one series (or a stack) keeps one bar per row.
+  const k = spec.stacked ? 1 : Math.max(spec.series.length, 1);
+  const bh = single ? 28 : k > 1 ? 14 : BAR_MAX;
+  const group = k * bh + (k - 1) * GAP;
+  const rowH = single ? 28 : group + 10, height = n * rowH;
   const labelled = spec.categories.some(c => c.label);
   const labelChars = Math.max(0, ...spec.categories.map(c => c.label.length));
   const labelW = labelled ? Math.min(width * .5, labelChars * CHAR + 16) : 0;
@@ -2333,10 +2338,10 @@ function drawRows(spec, width) {
         x += (s.values[i] / max) * pw;
       });
     } else {
-      spec.series.forEach(s => {
-        const v = s.values[i] || 0;
-        if (v > 0) svgEl('path', { class: 'wk-chart-bar', 'data-tone': s.tone, d: roundedEnd(labelW, yy, Math.max((v / max) * pw, 1.5), bh) }, svg);
-        svgEl('text', { class: 'wk-chart-value', x: n2(labelW + (v / max) * pw + 6), y: n2(cy), 'dominant-baseline': 'central' }, svg).textContent = fmt(v);
+      spec.series.forEach((s, j) => {
+        const v = s.values[i] || 0, by = cy - group / 2 + j * (bh + GAP);
+        if (v > 0) svgEl('path', { class: 'wk-chart-bar', 'data-tone': s.tone, d: roundedEnd(labelW, n2(by), Math.max((v / max) * pw, 1.5), bh) }, svg);
+        svgEl('text', { class: 'wk-chart-value', x: n2(labelW + (v / max) * pw + 6), y: n2(by + bh / 2), 'dominant-baseline': 'central' }, svg).textContent = fmt(v);
       });
     }
   });

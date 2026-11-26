@@ -901,6 +901,17 @@ try {
     assert.equal(await page.locator('#g-stacked svg').count(), 0, 'the chart gives way to the table');
     await page.locator('#g-stacked .wk-chart-view input[value=chart]').check({ force: true });
     assert.equal(await page.locator('#g-stacked svg').count(), 1);
+    // Horizontal bars with two series: one bar per series in each row, side
+    // by side, each with its own value, none overprinting another.
+    const grouped = await page.locator('#g-rows-grouped svg').evaluate(svg => {
+      const box = el => { const b = el.getBBox(); return { y0: b.y, y1: b.y + b.height }; };
+      return { bars: [...svg.querySelectorAll('.wk-chart-bar')].map(box), values: [...svg.querySelectorAll('.wk-chart-value')].map(el => ({ ...box(el), text: el.textContent })) };
+    });
+    assert.equal(grouped.bars.length, 6, 'one bar per series per row');
+    assert.deepEqual(grouped.values.map(v => v.text), ['2.0', '6.4', '4.5', '3.0', '1.0', '1.5']);
+    const apart = (list, what) => list.forEach((a, i) => list.slice(i + 1).forEach(b => assert.ok(a.y1 <= b.y0 + .5 || b.y1 <= a.y0 + .5, `${what} overlap: ${JSON.stringify([a, b])}`)));
+    apart(grouped.bars, 'bars');
+    apart(grouped.values, 'values');
     // A chart can start as a table.
     assert.equal(await page.locator('#g-rows-table table.wk-table tbody tr').count(), 3);
     assert.equal(await page.locator('#g-rows-table .wk-chart-view input[value=table]').isChecked(), true);

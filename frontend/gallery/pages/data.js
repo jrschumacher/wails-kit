@@ -72,7 +72,7 @@ export default [
         }));
       },
     }, {
-      title: 'A one-bar split, bars by cause, and the same bars as their table',
+      title: 'A one-bar split, bars by cause, two series side by side, and the same bars as their table',
       build(host, { kit }) {
         const grid = document.createElement('div');
         grid.className = 'g-grid-wide';
@@ -84,6 +84,10 @@ export default [
           id: 'g-rows', kind: 'bars', orientation: 'horizontal', integer: true, label: 'Failures by cause', categoryHeader: 'Cause',
           categories: [{ label: 'The job itself failed' }, { label: 'Stopped by a manager' }, { label: 'Could not start' }],
           series: [{ key: 'f', label: 'Failed jobs', tone: 1, values: [7, 2, 1] }],
+        }), kit.wkChart({
+          id: 'g-rows-grouped', kind: 'bars', orientation: 'horizontal', label: 'Jobs a day, before and after the upgrade', categoryHeader: 'Machine', format: v => v.toFixed(1),
+          categories: [{ label: 'alder' }, { label: 'birch' }, { label: 'cedar' }],
+          series: [{ key: 'before', label: 'Before', tone: 'neutral', values: [2, 4.5, 1] }, { key: 'after', label: 'After', tone: 1, values: [6.4, 3, 1.5] }],
         }), kit.wkChart({
           id: 'g-rows-table', kind: 'bars', orientation: 'horizontal', integer: true, label: 'Failures by cause, as a table', view: 'table', categoryHeader: 'Cause',
           categories: [{ label: 'The job itself failed' }, { label: 'Stopped by a manager' }, { label: 'Could not start' }],
