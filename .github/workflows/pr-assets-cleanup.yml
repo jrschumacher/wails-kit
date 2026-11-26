@@ -1,0 +1,58 @@
+# Prunes PR screenshots from the pr-assets branch once their PR has been
+# closed (merged or not) for RETENTION_DAYS. The branch is rebuilt as a
+# single orphan commit so pruned images leave the history too.
+name: pr-assets cleanup
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+env:
+  RETENTION_DAYS: 30
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prune screenshots of closed PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          if ! git ls-remote --exit-code "$remote" refs/heads/pr-assets >/dev/null; then
+            echo "No pr-assets branch; nothing to do."
+            exit 0
+          fi
+          git clone --quiet --depth 1 --branch pr-assets "$remote" assets
+          cd assets
+
+          cutoff=$(date -u -d "-${RETENTION_DAYS} days" +%s)
+          removed=0
+          for dir in */; do
+            pr=${dir%/}
+            [[ "$pr" =~ ^[0-9]+$ ]] || continue
+            closed=$(gh pr view "$pr" --repo "$REPO" --json closedAt --jq '.closedAt // empty') || continue
+            [ -n "$closed" ] || continue # still open
+            if [ "$(date -u -d "$closed" +%s)" -lt "$cutoff" ]; then
+              git rm -r -q -- "$pr"
+              removed=$((removed + 1))
+              echo "Removed #$pr (closed $closed)"
+            fi
+          done
+
+          if [ "$removed" -eq 0 ]; then
+            echo "Nothing to prune."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          git checkout -q --orphan pruned
+          git commit -q --allow-empty -m "chore: prune PR screenshots [skip ci]"
+          git push -q --force origin pruned:pr-assets
