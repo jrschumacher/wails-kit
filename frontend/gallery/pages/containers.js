@@ -93,7 +93,7 @@ export default [
   },
   {
     id: 'stat', title: 'Stat', group: 'containers', card: 'Stat',
-    intro: 'A figure and what it counts: two up (<code>wk-stats-grid</code>), as tiles with a glyph (<code>wk-stat--tile</code>), or a ruled row of large figures (<code>wk-stats-row</code>).',
+    intro: 'A figure and what it counts: two up (<code>wk-stats-grid</code>), as tiles with a glyph (<code>wk-stat--tile</code>), a ruled row of large figures (<code>wk-stats-row</code>), or one figure at display size to lead a showcase (<code>wk-stat--display</code>, <code>wk-stat--display-lg</code>). A value nobody knows yet is a <code>?</code> with <code>data-unknown</code>, never a zero.',
     examples: [{
       title: 'Plain',
       html: `<div class="wk-stats-grid">
@@ -112,6 +112,13 @@ export default [
   <div class="wk-stat"><b class="wk-stat-figure">3<small> / 4</small></b><span class="wk-stat-label">busy</span></div>
   <div class="wk-stat"><b class="wk-stat-figure">2</b><span class="wk-stat-label">waiting · may be low</span></div>
   <div class="wk-stat"><b class="wk-stat-figure">4 min</b><span class="wk-stat-label">longest wait now</span></div>
+</div>`,
+    }, {
+      title: 'Display, and a value not known yet',
+      html: `<div class="g-grid">
+  <div class="wk-stat wk-stat--display-lg"><b class="wk-stat-figure">965<small> points</small></b><span class="wk-stat-label">the most upvoted this week</span></div>
+  <div class="wk-stat wk-stat--display"><b class="wk-stat-figure">6<small> of 9</small></b><span class="wk-stat-label">started from nothing</span></div>
+  <div class="wk-stat wk-stat--display"><b class="wk-stat-figure" data-unknown>?</b><span class="wk-stat-label">stars a day: unknown until the next sync</span></div>
 </div>`,
     }],
   },

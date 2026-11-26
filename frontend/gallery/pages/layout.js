@@ -80,4 +80,53 @@ export default [
 </div>`,
     }],
   },
+  {
+    id: 'mosaic', title: 'Mosaic', group: 'layout',
+    intro: 'An overview made of tiles in mixed sizes, packed without holes: <code>wk-mosaic</code> around <code>wk-tile</code>s, a quarter wide by default, with <code>--third</code>, <code>--half</code>, <code>--two-thirds</code>, <code>--full</code> and <code>--tall</code>. <code>--feature</code> is the one tile the screen leads with. Each tile has a title, a body and a caption that says where its content came from. Narrow the window: tiles widen to half, then full width.',
+    examples: [{
+      title: 'An overview',
+      html: `<div class="wk-mosaic">
+  <article class="wk-tile wk-tile--half wk-tile--tall wk-tile--feature" aria-label="Most read this week">
+    <h3 class="wk-tile-title">Most read this week</h3>
+    <div class="wk-tile-body"><div class="wk-stat wk-stat--display-lg"><b class="wk-stat-figure">965<small> reads</small></b><span class="wk-stat-label">Getting started with the importer</span></div></div>
+    <p class="wk-tile-caption"><span class="wk-dot" data-size="sm" aria-hidden="true"></span>From reports · as of 2:50 pm</p>
+  </article>
+  <article class="wk-tile" aria-label="Documents">
+    <h3 class="wk-tile-title">Documents</h3>
+    <div class="wk-tile-body"><div class="wk-stat wk-stat--display"><b class="wk-stat-figure">31</b><span class="wk-stat-label">added in 7 days</span></div></div>
+    <p class="wk-tile-caption"><span class="wk-dot" data-size="sm" aria-hidden="true"></span>From reports · as of 2:50 pm</p>
+  </article>
+  <article class="wk-tile" aria-label="Authors">
+    <h3 class="wk-tile-title">Authors</h3>
+    <div class="wk-tile-body"><div class="wk-stat wk-stat--display"><b class="wk-stat-figure">28</b><span class="wk-stat-label">wrote at least one</span></div></div>
+    <p class="wk-tile-caption"><span class="wk-dot" data-size="sm" aria-hidden="true"></span>From reports · as of 2:50 pm</p>
+  </article>
+  <article class="wk-tile" aria-label="Drafts">
+    <h3 class="wk-tile-title">Drafts</h3>
+    <div class="wk-tile-body"><div class="wk-stat wk-stat--display"><b class="wk-stat-figure">11<small> of 31</small></b><span class="wk-stat-label">not published yet</span></div></div>
+    <p class="wk-tile-caption"><span class="wk-dot" data-size="sm" aria-hidden="true"></span>From reports · as of 2:50 pm</p>
+  </article>
+  <article class="wk-tile" aria-label="Shared">
+    <h3 class="wk-tile-title">Shared</h3>
+    <div class="wk-tile-body"><div class="wk-stat wk-stat--display"><b class="wk-stat-figure" data-unknown>?</b><span class="wk-stat-label">unknown until the next sync</span></div></div>
+    <p class="wk-tile-caption"><span class="wk-dot" data-size="sm" aria-hidden="true"></span>Sharing service · not reached</p>
+  </article>
+  <article class="wk-tile wk-tile--two-thirds" aria-label="Busiest days">
+    <h3 class="wk-tile-title">Busiest days</h3>
+    <div class="wk-tile-body"><p class="wk-secondary">A chart or a short list goes here.</p></div>
+    <p class="wk-tile-caption"><span class="wk-dot" data-size="sm" aria-hidden="true"></span>From reports · as of 2:50 pm</p>
+  </article>
+  <article class="wk-tile wk-tile--third" aria-label="Left out">
+    <h3 class="wk-tile-title">Left out</h3>
+    <div class="wk-tile-body"><div class="wk-stat wk-stat--display"><b class="wk-stat-figure">21<small> documents</small></b><span class="wk-stat-label">archived or over the limit</span></div></div>
+    <p class="wk-tile-caption"><span class="wk-dot" data-size="sm" aria-hidden="true"></span>From reports · as of 2:50 pm</p>
+  </article>
+  <article class="wk-tile wk-tile--full" aria-label="Every document">
+    <h3 class="wk-tile-title">Every document</h3>
+    <div class="wk-tile-body"><p class="wk-secondary">A table goes here.</p></div>
+    <p class="wk-tile-caption"><span class="wk-dot" data-size="sm" aria-hidden="true"></span>From reports · as of 2:50 pm</p>
+  </article>
+</div>`,
+    }],
+  },
 ];
