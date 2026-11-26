@@ -509,6 +509,34 @@ wk-dialog { display: contents; }
 .wk-popover-section + .wk-popover-section { border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); }
 .wk-popover-footer { display: flex; align-items: center; justify-content: space-between; gap: var(--wk-space-2); padding: var(--wk-space-2) 14px; border-top: var(--wk-hairline-width) solid var(--wk-color-hairline); background: var(--wk-color-bg); }
 
+/* ---- Mosaic: an overview of tiles in mixed sizes ------------------------ */
+/* wk-mosaic lays wk-tile children on 12 columns and packs them without
+   holes. A tile is a quarter wide by default; --third, --half, --two-thirds
+   and --full widen it, --tall makes it two rows high. --feature is the one
+   tile the screen leads with, tinted from the accent. Inside: an optional
+   wk-tile-title, a wk-tile-body (it fills the tile, its content at the
+   bottom), and an optional wk-tile-caption (where the content came from,
+   and when). In a narrow mosaic tiles widen to half, then to full width. */
+.wk-mosaic { container-type: inline-size; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-auto-rows: minmax(120px, auto); grid-auto-flow: row dense; gap: var(--wk-space-3); }
+.wk-tile { grid-column: span 3; display: flex; flex-direction: column; gap: var(--wk-space-2); min-width: 0; padding: var(--wk-space-4); border: var(--wk-hairline-width) solid var(--wk-color-hairline); border-radius: var(--wk-radius-window); background: var(--wk-color-surface); overflow: hidden; }
+.wk-tile--third { grid-column: span 4; }
+.wk-tile--half { grid-column: span 6; }
+.wk-tile--two-thirds { grid-column: span 8; }
+.wk-tile--full { grid-column: 1 / -1; }
+.wk-tile--tall { grid-row: span 2; }
+.wk-tile--feature { background-image: linear-gradient(140deg, var(--wk-color-selection), transparent 70%); }
+.wk-tile--feature .wk-stat-figure:not([data-unknown]) { color: var(--wk-color-accent); }
+.wk-tile-title { margin: 0; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-sm); font-weight: var(--wk-font-weight-semibold); line-height: var(--wk-line-height-tight); }
+.wk-tile-body { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; gap: var(--wk-space-2); min-height: 0; }
+.wk-tile-caption { display: flex; align-items: center; gap: var(--wk-space-1); min-width: 0; margin: 0; color: var(--wk-color-text-secondary); font-size: var(--wk-font-size-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@container (max-width: 760px) {
+  .wk-tile, .wk-tile--third { grid-column: span 6; }
+  .wk-tile--half, .wk-tile--two-thirds { grid-column: 1 / -1; }
+}
+@container (max-width: 420px) {
+  .wk-tile, .wk-tile--third { grid-column: 1 / -1; }
+}
+
 /* ---- Three-pane layout: sidebar / list / inspector --------------------- */
 .wk-three-pane { display: flex; min-height: 0; height: 100%; }
 .wk-three-pane > * { min-width: 0; min-height: 0; overflow: auto; }
@@ -630,6 +658,15 @@ wk-dialog { display: contents; }
 .wk-stats-row > .wk-stat { padding: 9px 14px 9px 0; }
 .wk-stats-row > .wk-stat + .wk-stat { padding-left: 14px; border-left: var(--wk-hairline-width) solid var(--wk-color-hairline); }
 .wk-stats-row .wk-stat-figure { font-size: var(--wk-font-size-xl); line-height: 1.15; letter-spacing: -.02em; }
+/* --display and --display-lg lead a showcase or overview with one figure at
+   display size; its <small> unit or "of N" sits on the same baseline. A
+   figure with data-unknown is a value nobody knows yet ("?"), drawn in
+   secondary text so it never reads as a zero. */
+.wk-stat--display .wk-stat-figure, .wk-stat--display-lg .wk-stat-figure { font-size: var(--wk-font-size-display); font-weight: var(--wk-font-weight-bold); line-height: 1.05; letter-spacing: -.02em; }
+.wk-stat--display-lg .wk-stat-figure { font-size: var(--wk-font-size-display-lg); letter-spacing: -.03em; }
+.wk-stat--display .wk-stat-figure small, .wk-stat--display-lg .wk-stat-figure small { font-size: var(--wk-font-size-lg); font-weight: var(--wk-font-weight-semibold); letter-spacing: 0; }
+.wk-stat--display .wk-stat-label, .wk-stat--display-lg .wk-stat-label { margin-top: var(--wk-space-1); font-size: var(--wk-font-size-base); }
+.wk-stat-figure[data-unknown] { color: var(--wk-color-text-secondary); }
 
 /* ---- Copy button: an icon button for text the person may paste --------- */
 .wk-copy { display: grid; place-items: center; flex: none; width: var(--wk-control-height); height: 26px; padding: 0; border: 0; border-radius: var(--wk-radius-control); background: none; color: var(--wk-color-text-secondary); cursor: pointer; }

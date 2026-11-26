@@ -102,7 +102,7 @@ first), as before.
 
 System fonts differ in their metrics, so the same size can render slightly
 wider or narrower, and wrap differently, on each system. The type scale (11
-to 24px) and the line heights are the same everywhere; leave room in fixed
+to 24px, plus 40 and 64px for display figures) and the line heights are the same everywhere; leave room in fixed
 widths rather than fitting text to one system's font.
 
 The font is part of the theme contract: a theme keeps `system-ui` first and
@@ -193,6 +193,7 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Table | `wk-table` (`--zebra` tints every other row); `wk-table-name`, the row's name as a `<button>` that opens the item; `wk-table-actions`, a cell's row actions on one line; `tr[data-muted]`, a row that no longer counts (secondary text, its name struck) |
 | List | `wk-list`, `wk-list-row` (`aria-selected` or `aria-current`), `wk-list-heading` (its count in a `<span>`). Selectable rows of any height. The app lays out each row and moves focus: one row `tabindex="0"`, the rest `-1`; Up and Down move, Home and End jump, Space or a click selects (the gallery's List page shows it). |
 | Sidebar, toolbar, footer bar | `wk-sidebar` (`wk-sidebar-detail`: short trailing text on an item, "Running"), `wk-toolbar` (`wk-toolbar-subtitle` after the title: what the view counts over, "last 14 days"; keep a space before it, `Now <span class="wk-toolbar-subtitle">`, so the text reads "Now last 14 days" when copied or styles are off), `wk-footer-bar` |
+| Mosaic | `wk-mosaic` around `wk-tile`s: an overview of tiles in mixed sizes on 12 columns, packed without holes. A tile is a quarter wide; `--third`, `--half`, `--two-thirds`, `--full` widen it, `--tall` makes it two rows high, `--feature` tints the one tile the screen leads with from the accent (its figure in the accent). Inside, `wk-tile-title`, `wk-tile-body` (content at the bottom) and `wk-tile-caption` (where the content came from, and when). In a narrow mosaic, tiles widen to half, then full width |
 | Three-pane layout | `wk-three-pane`, `wk-pane-list`, `wk-pane-inspector`; `wk-pane-scroll`, a pane body that scrolls under a fixed toolbar (give it `tabindex="0"` and a name) |
 | Tabs | `wk-tablist` inside `<wk-tabs>` |
 | Menu, context menu, tooltip | `wk-menu` and its items (`<button>`, or `<a href>` for a URL), `wk-menu--inline` (the items laid out in place, as in a popover), `wk-tooltip` |
@@ -202,7 +203,7 @@ come from native attributes (`disabled`, `checked`, `aria-pressed`,
 | Status dot | `wk-dot` with `data-shape` (`filled`, `ringed`, `half`, `hollow`, `dashed`, `bar`), `data-tone` (`neutral`, `working`, `attention`) and `data-size="sm"`. It has no state names: the app maps its own states onto shapes and tones. The filled working dot at the default size has a halo (running), its gap drawn in `--wk-dot-ground`; set that on the dot when it sits on something other than `wk-color-bg`. |
 | Utilities | `wk-visually-hidden`: read by assistive technology, not drawn |
 | Empty state, notice, error box | `wk-empty`, `wk-notice`, `wk-errorbox` |
-| Stat, code block, copy button | `wk-stat`, `wk-code`, `wk-copy` (copies by itself with `data-wk-copy`, `data-wk-copy-from` or inside a `wk-code`; "Copied" in `wk-copy-tip`) |
+| Stat, code block, copy button | `wk-stat` (`--tile`, `wk-stats-grid`, `wk-stats-row`; `--display` and `--display-lg` for one figure at 40 or 64px that leads a showcase, its `<small>` unit on the same baseline; `data-unknown` on a `wk-stat-figure` for a value nobody knows yet, drawn in secondary text, never a zero), `wk-code`, `wk-copy` (copies by itself with `data-wk-copy`, `data-wk-copy-from` or inside a `wk-code`; "Copied" in `wk-copy-tip`) |
 | Toast, skeleton rows | `wk-toast` (`wk-toast-words`, `wk-toast-action`), built by `wkToast()`; `wk-skeleton` rows with `wk-skeleton-bar` cells, built by `wkSkeleton()` |
 | Stepper | `wk-stepper` (an input and two arrow buttons; see `syncSteppers`) |
 | Range | `wk-range` on `<input type="range">`, drawn the same on WebKit and Chromium. The app sets `--wk-range-value` to the filled share (`el.style.setProperty('--wk-range-value', '60%')`, which a Content-Security-Policy allows where a `style` attribute is blocked) and updates it on `input`; show the value beside it in an `<output>`. |

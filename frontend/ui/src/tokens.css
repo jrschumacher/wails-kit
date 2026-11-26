@@ -97,6 +97,9 @@
   --wk-font-size-md: 15px;
   --wk-font-size-lg: 20px;
   --wk-font-size-xl: 24px;
+  /* Display: one leading figure on a showcase or overview (wk-stat--display). */
+  --wk-font-size-display: 40px;
+  --wk-font-size-display-lg: 64px;
   --wk-font-weight-regular: 400;
   --wk-font-weight-medium: 500;
   --wk-font-weight-semibold: 600;
